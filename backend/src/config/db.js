@@ -1,0 +1,14 @@
+import mongoose from "mongoose";
+
+export const connectDB = async () => {
+  try {
+    
+    const MONGO_URI = "mongodb://localhost:27017/klavo";
+    ;
+    console.log("✅ MongoDB connected successfully");
+  } catch (error) {
+    console.log("❌ MongoDB Connection Error:", error.message);
+    process.exit(1);
+  }
+};
+
