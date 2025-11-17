@@ -30,12 +30,13 @@ app.use(cookieParser());
 // Connect Database
 connectDB();
 
+
 // Routes
 app.use("/api/auth", authRoutes);
 
 // Root route
 app.get("/", (req, res) => {
-  res.send("Klavo backend running...");
+  res.send("Klavo backend running... !");
 });
 
 const PORT = 5050;
@@ -56,3 +57,8 @@ app.use("/api/projects", projectRoutes);
 import taskRoutes from "./routes/taskRoutes.js";
 
 app.use("/api/tasks", taskRoutes);
+
+
+import userRoutes from "./routes/userRoutes.js";
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);

@@ -107,6 +107,7 @@ export const addComment = async (req, res) => {
 };
 
 // Move task to a new status (for Kanban drag & drop)
+// backend/src/controllers/taskController.js  (replace moveTask function)
 export const moveTask = async (req, res) => {
   try {
     const { id } = req.params;
@@ -121,6 +122,17 @@ export const moveTask = async (req, res) => {
 
     task.status = status;
     await task.save();
+
+    // Emit socket event so other clients can update in real-time
+    // We set io on app in index.js earlier: app.set("io", io);
+    try {
+      const io = req.app.get("io");
+      if (io) {
+        io.emit("task-updated", { taskId: task._id, status: task.status, projectId: task.projectId });
+      }
+    } catch (emitErr) {
+      console.warn("Socket emit failed:", emitErr.message);
+    }
 
     res.json({ message: "Task status updated", task });
   } catch (error) {
