@@ -12,23 +12,18 @@ export default function Teams() {
   const [selectedTeamId, setSelectedTeamId] = useState(null);
 
   const fetchTeams = async () => {
-    const res = await axiosClient.get("/teams/my-teams");
-    setTeams(res.data);
-    setLoading(false);
+    try {
+      const res = await axiosClient.get("/teams/my-teams");
+      setTeams(res.data);
+    } catch (err) {
+      console.error("Error loading teams:", err);
+    }
+    setLoading(false); // <-- IMPORTANT FIX
   };
 
   useEffect(() => {
     fetchTeams();
   }, []);
-
-  const handleNewTeam = (team) => {
-    setTeams((prev) => [...prev, team]);
-  };
-
-  const openAddMember = (teamId) => {
-    setSelectedTeamId(teamId);
-    setOpenAddMemberModal(true);
-  };
 
   if (loading) return <div className="p-6">Loading...</div>;
 
@@ -46,36 +41,47 @@ export default function Teams() {
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {teams.map((team) => (
-            <div key={team._id} className="bg-white p-4 rounded shadow">
-              <h2 className="text-lg font-semibold">{team.name}</h2>
+        {teams.length === 0 ? (
+          <p className="text-gray-500">No teams yet. Create one!</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {teams.map((team) => (
+              <div key={team._id} className="bg-white p-4 rounded shadow">
+                <h2 className="text-lg font-semibold">{team.name}</h2>
 
-              <h3 className="mt-3 font-medium">Members:</h3>
-              <ul className="list-disc pl-5 text-sm text-slate-600">
-                {team.members.map((m) => (
-                  <li key={m._id}>{m.name} ({m.email})</li>
-                ))}
-              </ul>
+                <h3 className="mt-3 font-medium">Members:</h3>
+                <ul className="list-disc pl-5 text-sm text-slate-600">
+                  {team.members.map((m) => (
+                    <li key={m._id}>{m.name} ({m.email})</li>
+                  ))}
+                </ul>
 
-              <button
-                className="mt-4 w-full border py-2 rounded text-indigo-600"
-                onClick={() => openAddMember(team._id)}
-              >
-                + Add Member
-              </button>
-            </div>
-          ))}
-        </div>
+                <button
+                  className="mt-4 w-full border py-2 rounded text-indigo-600"
+                  onClick={() => {
+                    setSelectedTeamId(team._id);
+                    setOpenAddMemberModal(true);
+                  }}
+                >
+                  + Add Member
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      <TeamModal open={openCreateModal} onClose={() => setOpenCreateModal(false)} onSuccess={handleNewTeam} />
-      
-      <AddMemberModal
-        open={openAddMemberModal}
-        onClose={() => setOpenAddMemberModal(false)}
-        teamId={selectedTeamId}
-        onSuccess={fetchTeams}
+      <TeamModal 
+        open={openCreateModal} 
+        onClose={() => setOpenCreateModal(false)} 
+        onSuccess={fetchTeams} 
+      />
+
+      <AddMemberModal 
+        open={openAddMemberModal} 
+        onClose={() => setOpenAddMemberModal(false)} 
+        teamId={selectedTeamId} 
+        onSuccess={fetchTeams} 
       />
     </div>
   );

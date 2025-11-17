@@ -14,12 +14,11 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-
-        {/* Public Routes */}
+        {/* Public */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
 
-        {/* Protected Routes */}
+        {/* Protected */}
         <Route element={<ProtectedRoute />}>
           <Route path="/" element={<Dashboard />} />
           <Route path="/projects" element={<Projects />} />
@@ -27,9 +26,8 @@ export default function App() {
           <Route path="/kanban/:projectId" element={<Kanban />} />
         </Route>
 
-        {/* Fallback Route */}
+        {/* 404 */}
         <Route path="*" element={<div className="p-8">Page not found</div>} />
-
       </Routes>
     </BrowserRouter>
   );

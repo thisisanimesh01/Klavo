@@ -1,9 +1,11 @@
-import React, { useEffect, useState, useCallback } from "react";
+// frontend/src/pages/Kanban.jsx
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import axiosClient from "../api/axiosClient";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import { io } from "socket.io-client";
 import TaskModal from "../components/TaskModal";
+import TaskSidebar from "../components/TaskSidebar";
 
 const COLUMN_ORDER = ["todo", "in-progress", "review", "done"];
 const COLUMN_LABEL = {
@@ -42,36 +44,49 @@ export default function Kanban() {
   const [error, setError] = useState(null);
   const [socketConnected, setSocketConnected] = useState(false);
 
-  // Modal states
+  // Modal & Sidebar states
   const [openModal, setOpenModal] = useState(false);
-  const [modalModeStatus, setModalModeStatus] = useState(null); // for create: status to put new task into
+  const [modalModeStatus, setModalModeStatus] = useState(null);
   const [editTaskData, setEditTaskData] = useState(null);
+
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [activeTaskId, setActiveTaskId] = useState(null);
+
+  const socketRef = useRef(null);
 
   // Real-time socket (connect once)
   useEffect(() => {
-    const socketUrl = "http://localhost:5050"; // set explicitly to your backend
+    const socketUrl = "http://localhost:5050"; // backend URL
     const socket = io(socketUrl, { transports: ["websocket"], withCredentials: true });
+    socketRef.current = socket;
 
-    socket.on("connect", () => {
-      setSocketConnected(true);
-    });
+    socket.on("connect", () => setSocketConnected(true));
+    socket.on("disconnect", () => setSocketConnected(false));
 
     socket.on("task-updated", (payload) => {
       if (!payload) return;
       if (String(payload.projectId) !== String(projectId)) return;
-      // fetch latest tasks to keep state consistent
+      // re-fetch tasks to sync
       fetchTasks();
     });
 
-    socket.on("disconnect", () => {
-      setSocketConnected(false);
+    socket.on("task-commented", (payload) => {
+      if (!payload) return;
+      if (String(payload.projectId) !== String(projectId)) return;
+      fetchTasks();
+      // if sidebar open for same task, re-fetch that too
+      if (payload.taskId && payload.taskId === activeTaskId) {
+        // sidebar will fetch by effect because activeTaskId unchanged; to force, we can setActiveTaskId(null) then set again, but simpler: call fetchTaskInSidebar via ref?
+        // Sidebar fetches on open or activeTaskId change; we rely on sidebar to show updated comments after user action
+      }
     });
 
     return () => {
       socket.disconnect();
+      socketRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, activeTaskId]);
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -122,7 +137,6 @@ export default function Kanban() {
       await axiosClient.put(`/tasks/${draggableId}/move`, { status: destCol });
       // backend emits event -> fetchTasks will sync
     } catch (err) {
-      // revert by re-fetching
       fetchTasks();
       console.error("Move failed:", err.response?.data || err.message);
     }
@@ -140,15 +154,22 @@ export default function Kanban() {
     setOpenModal(true);
   };
 
-  const handleTaskSuccess = (task) => {
+  // NEW: open sidebar on single-click
+  const openSidebarForTask = (taskId) => {
+    setActiveTaskId(taskId);
+    setSidebarOpen(true);
+  };
+
+  // callback from sidebar when a task is updated (save -> update kanban lists)
+  const handleTaskUpdated = (updatedTask) => {
     setColumns(prev => {
       const newCols = { ...prev };
-      // remove duplicates
+      // remove task from all columns
       Object.keys(newCols).forEach(col => {
-        newCols[col] = newCols[col].filter(t => String(t._id) !== String(task._id));
+        newCols[col] = newCols[col].filter(t => String(t._id) !== String(updatedTask._id));
       });
-      // push to appropriate column
-      newCols[task.status] = [...(newCols[task.status] || []), task];
+      // add to its status column
+      newCols[updatedTask.status] = [...(newCols[updatedTask.status] || []), updatedTask];
       return newCols;
     });
   };
@@ -193,9 +214,10 @@ export default function Kanban() {
                               {...providedDraggable.draggableProps}
                               {...providedDraggable.dragHandleProps}
                               className={`transition ${snapshotDraggable.isDragging ? "scale-[1.02] shadow-lg" : ""}`}
-                              onDoubleClick={() => openEditModal(task)}
                             >
-                              <TaskCard task={task} />
+                              <div onClick={() => openSidebarForTask(task._id)} onDoubleClick={() => openEditModal(task)}>
+                                <TaskCard task={task} />
+                              </div>
                             </div>
                           )}
                         </Draggable>
@@ -211,12 +233,31 @@ export default function Kanban() {
         </DragDropContext>
       </div>
 
+      {/* create/edit modal */}
       <TaskModal
         open={openModal}
         onClose={() => setOpenModal(false)}
         projectId={projectId}
         initialData={editTaskData}
-        onSuccess={handleTaskSuccess}
+        onSuccess={(task) => {
+          // add to column
+          setColumns(prev => {
+            const newCols = { ...prev };
+            Object.keys(newCols).forEach(col => {
+              newCols[col] = newCols[col].filter(t => String(t._id) !== String(task._id));
+            });
+            newCols[task.status] = [...(newCols[task.status] || []), task];
+            return newCols;
+          });
+        }}
+      />
+
+      {/* Task Sidebar */}
+      <TaskSidebar
+        open={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+        taskId={activeTaskId}
+        onTaskUpdated={handleTaskUpdated}
       />
     </div>
   );

@@ -50,6 +50,7 @@ import teamRoutes from "./routes/teamRoutes.js";
 
 app.use("/api/teams", teamRoutes);
 
+
 import projectRoutes from "./routes/projectRoutes.js";
 
 app.use("/api/projects", projectRoutes);
@@ -59,6 +60,8 @@ import taskRoutes from "./routes/taskRoutes.js";
 app.use("/api/tasks", taskRoutes);
 
 
+
+
 import userRoutes from "./routes/userRoutes.js";
-app.use("/api/auth", authRoutes);
-app.use("/api/users", userRoutes);
+app.use("/api/auth", authRoutes);      // already existing
+app.use("/api/users", userRoutes);     // add this
