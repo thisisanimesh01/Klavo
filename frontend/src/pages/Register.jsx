@@ -1,53 +1,78 @@
+// frontend/src/pages/Register.jsx
 import React, { useState } from "react";
-import { useDispatch, useSelector } from "react-redux";
-import { registerUser } from "../store/slices/authSlice";
-import { useNavigate, Link } from "react-router-dom";
+import axiosClient from "../api/axiosClient";
+import { useDispatch } from "react-redux";
+import { setCredentials } from "../store/slices/authSlice";
+import { Link, useNavigate } from "react-router-dom";
 
 export default function Register() {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
   const dispatch = useDispatch();
   const navigate = useNavigate();
-  const { loading, error } = useSelector((s) => s.auth);
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
 
-  const submit = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    const res = await dispatch(registerUser(form));
-    if (res.type === "auth/registerUser/fulfilled") {
-      // After register, navigate to login
-      navigate("/login");
+    try {
+      const res = await axiosClient.post("/auth/register", {
+        name,
+        email,
+        password,
+      });
+
+      dispatch(
+        setCredentials({
+          user: res.data.user,
+          token: res.data.accessToken,
+        })
+      );
+      navigate("/");
+    } catch (err) {
+      alert(err.response?.data?.message || "Register failed");
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
-      <form onSubmit={submit} className="bg-white p-8 rounded-xl shadow-md w-full max-w-md">
-        <h2 className="text-2xl font-semibold mb-6">Create an account</h2>
-
-        <label className="block mb-3">
-          <span className="text-sm">Name</span>
-          <input required type="text" className="mt-1 w-full border rounded px-3 py-2" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
-        </label>
-
-        <label className="block mb-3">
-          <span className="text-sm">Email</span>
-          <input required type="email" className="mt-1 w-full border rounded px-3 py-2" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/>
-        </label>
-
-        <label className="block mb-4">
-          <span className="text-sm">Password</span>
-          <input required type="password" className="mt-1 w-full border rounded px-3 py-2" value={form.password} onChange={e=>setForm({...form,password:e.target.value})}/>
-        </label>
-
-        {error && <div className="text-red-600 mb-3">{error}</div>}
-
-        <button type="submit" disabled={loading} className="w-full bg-indigo-600 text-white py-2 rounded">
-          {loading ? "Creating..." : "Register"}
-        </button>
-
-        <div className="mt-4 text-sm">
-          Already have an account? <Link to="/login" className="text-indigo-600">Login</Link>
-        </div>
-      </form>
+    <div className="min-h-screen app-bg flex items-center justify-center">
+      <div className="app-card p-6 rounded-xl w-full max-w-md shadow">
+        <h1 className="text-2xl font-bold mb-4 text-center">Create account</h1>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <input
+            className="w-full border px-3 py-2 rounded bg-transparent"
+            placeholder="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+          />
+          <input
+            className="w-full border px-3 py-2 rounded bg-transparent"
+            placeholder="Email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+          />
+          <input
+            className="w-full border px-3 py-2 rounded bg-transparent"
+            placeholder="Password"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+          <button className="w-full bg-indigo-600 text-white py-2 rounded">
+            Register
+          </button>
+        </form>
+        <p className="text-sm text-center mt-3">
+          Already have an account?{" "}
+          <Link to="/login" className="text-indigo-600">
+            Login
+          </Link>
+        </p>
+      </div>
     </div>
   );
 }

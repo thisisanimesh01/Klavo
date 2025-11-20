@@ -1,18 +1,15 @@
+// frontend/src/api/axiosClient.js
 import axios from "axios";
 
 const axiosClient = axios.create({
-  baseURL: "http://localhost:5050/api", // your backend API
-  withCredentials: false,
+  baseURL: "http://localhost:5050/api",
 });
 
-// Automatically attach JWT token for all requests
 axiosClient.interceptors.request.use((config) => {
   const token = localStorage.getItem("klavo_access_token");
-
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
-
   return config;
 });
 

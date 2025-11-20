@@ -1,29 +1,15 @@
+// backend/src/models/Project.js
 import mongoose from "mongoose";
 
 const projectSchema = new mongoose.Schema(
   {
-    title: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-
-    description: {
-      type: String,
-      default: "",
-      trim: true,
-    },
+    name: { type: String, required: true },
+    description: { type: String, default: "" },
 
     teamId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Team",
       required: true,
-    },
-
-    status: {
-      type: String,
-      enum: ["active", "archived"],
-      default: "active",
     },
 
     createdBy: {

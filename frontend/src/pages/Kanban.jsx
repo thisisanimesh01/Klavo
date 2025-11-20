@@ -1,230 +1,183 @@
 // frontend/src/pages/Kanban.jsx
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import axiosClient from "../api/axiosClient";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
-import { io } from "socket.io-client";
 import TaskModal from "../components/TaskModal";
-import TaskSidebar from "../components/TaskSidebar";
+import ThemeToggle from "../components/ThemeToggle";
 
-const COLUMN_ORDER = ["todo", "in-progress", "review", "done"];
-const COLUMN_LABEL = {
-  "todo": "To Do",
-  "in-progress": "In Progress",
-  "review": "Review",
-  "done": "Done"
-};
-
-function TaskCard({ task }) {
-  return (
-    <div className="p-3 bg-white rounded shadow-sm border">
-      <div className="flex justify-between items-start gap-2">
-        <div>
-          <div className="font-medium">{task.title}</div>
-          {task.assignee && <div className="text-xs text-slate-500">{task.assignee.name}</div>}
-        </div>
-        <div className="text-xs px-2 py-1 rounded text-white bg-slate-400">{task.priority}</div>
-      </div>
-      {task.dueDate && (
-        <div className="mt-2 text-xs text-slate-500">Due: {new Date(task.dueDate).toLocaleDateString()}</div>
-      )}
-    </div>
-  );
-}
+const COLUMNS = [
+  { id: "todo", title: "Todo" },
+  { id: "in-progress", title: "In Progress" },
+  { id: "done", title: "Done" },
+];
 
 export default function Kanban() {
   const { projectId } = useParams();
-  const [columns, setColumns] = useState({
-    todo: [],
-    "in-progress": [],
-    review: [],
-    done: [],
-  });
+
+  const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [socketConnected, setSocketConnected] = useState(false);
 
-  // Modal & Sidebar states
-  const [openModal, setOpenModal] = useState(false);
-  const [modalModeStatus, setModalModeStatus] = useState(null);
-  const [editTaskData, setEditTaskData] = useState(null);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingTask, setEditingTask] = useState(null);
+  const [createStatus, setCreateStatus] = useState("todo");
 
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [activeTaskId, setActiveTaskId] = useState(null);
-
-  const socketRef = useRef(null);
-
-  // Real-time socket (connect once)
-  useEffect(() => {
-    const socketUrl = "http://localhost:5050"; // backend URL
-    const socket = io(socketUrl, { transports: ["websocket"], withCredentials: true });
-    socketRef.current = socket;
-
-    socket.on("connect", () => setSocketConnected(true));
-    socket.on("disconnect", () => setSocketConnected(false));
-
-    socket.on("task-updated", (payload) => {
-      if (!payload) return;
-      if (String(payload.projectId) !== String(projectId)) return;
-      // re-fetch tasks to sync
-      fetchTasks();
-    });
-
-    socket.on("task-commented", (payload) => {
-      if (!payload) return;
-      if (String(payload.projectId) !== String(projectId)) return;
-      fetchTasks();
-      // if sidebar open for same task, re-fetch that too
-      if (payload.taskId && payload.taskId === activeTaskId) {
-        // sidebar will fetch by effect because activeTaskId unchanged; to force, we can setActiveTaskId(null) then set again, but simpler: call fetchTaskInSidebar via ref?
-        // Sidebar fetches on open or activeTaskId change; we rely on sidebar to show updated comments after user action
-      }
-    });
-
-    return () => {
-      socket.disconnect();
-      socketRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, activeTaskId]);
-
-  const fetchTasks = useCallback(async () => {
+  const fetchTasks = async () => {
     try {
-      setLoading(true);
-      setError(null);
       const res = await axiosClient.get(`/tasks/project/${projectId}`);
-      const tasks = res.data || [];
-
-      const grouped = { todo: [], "in-progress": [], review: [], done: [] };
-      tasks.forEach(t => {
-        grouped[t.status] = grouped[t.status] || [];
-        grouped[t.status].push(t);
-      });
-
-      setColumns(grouped);
+      setTasks(res.data);
     } catch (err) {
-      setError(err.response?.data?.message || err.message);
-    } finally {
-      setLoading(false);
+      console.error("Failed to load tasks:", err);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    if (projectId) {
+      fetchTasks();
     }
   }, [projectId]);
 
-  useEffect(() => {
-    if (projectId) fetchTasks();
-  }, [projectId, fetchTasks]);
+  const tasksByStatus = (status) =>
+    tasks
+      .filter((t) => t.status === status)
+      .sort((a, b) => {
+        const ao = a.order ?? 0;
+        const bo = b.order ?? 0;
+        if (ao !== bo) return ao - bo;
+        return new Date(a.createdAt) - new Date(b.createdAt);
+      });
 
-  const onDragEnd = async (result) => {
+  const handleDragEnd = async (result) => {
     const { destination, source, draggableId } = result;
     if (!destination) return;
-    if (destination.droppableId === source.droppableId && destination.index === source.index)
-      return;
 
-    const sourceCol = source.droppableId;
-    const destCol = destination.droppableId;
-
-    const task = columns[sourceCol].find(t => String(t._id) === draggableId);
-    if (!task) return;
-
-    // Optimistic UI update
-    const newColumns = { ...columns };
-    newColumns[sourceCol] = Array.from(newColumns[sourceCol]);
-    newColumns[sourceCol].splice(source.index, 1);
-    newColumns[destCol] = Array.from(newColumns[destCol]);
-    newColumns[destCol].splice(destination.index, 0, { ...task, status: destCol });
-    setColumns(newColumns);
+    const fromStatus = source.droppableId;
+    const toStatus = destination.droppableId;
+    if (fromStatus === toStatus && source.index === destination.index) return;
 
     try {
-      await axiosClient.put(`/tasks/${draggableId}/move`, { status: destCol });
-      // backend emits event -> fetchTasks will sync
-    } catch (err) {
+      await axiosClient.put(`/tasks/${draggableId}/move`, {
+        status: toStatus,
+        order: destination.index,
+      });
       fetchTasks();
-      console.error("Move failed:", err.response?.data || err.message);
+    } catch (err) {
+      console.error("Failed to move task:", err);
+      fetchTasks();
     }
   };
 
   const openCreateModal = (status) => {
-    setEditTaskData(null);
-    setModalModeStatus(status);
-    setOpenModal(true);
+    setEditingTask(null);
+    setCreateStatus(status);
+    setModalOpen(true);
   };
 
   const openEditModal = (task) => {
-    setEditTaskData(task);
-    setModalModeStatus(null);
-    setOpenModal(true);
+    setEditingTask(task);
+    setModalOpen(true);
   };
 
-  // NEW: open sidebar on single-click
-  const openSidebarForTask = (taskId) => {
-    setActiveTaskId(taskId);
-    setSidebarOpen(true);
+  const handleTaskSaved = () => {
+    fetchTasks();
   };
 
-  // callback from sidebar when a task is updated (save -> update kanban lists)
-  const handleTaskUpdated = (updatedTask) => {
-    setColumns(prev => {
-      const newCols = { ...prev };
-      // remove task from all columns
-      Object.keys(newCols).forEach(col => {
-        newCols[col] = newCols[col].filter(t => String(t._id) !== String(updatedTask._id));
-      });
-      // add to its status column
-      newCols[updatedTask.status] = [...(newCols[updatedTask.status] || []), updatedTask];
-      return newCols;
-    });
+  const handleDeleteTask = async (id) => {
+    if (!confirm("Delete this task?")) return;
+    try {
+      await axiosClient.delete(`/tasks/${id}`);
+      fetchTasks();
+    } catch (err) {
+      console.error(err);
+      alert("Failed to delete task");
+    }
   };
+
+  const renderAssignees = (task) => {
+    if (!task.assignedTo || task.assignedTo.length === 0) return null;
+
+    const names = task.assignedTo.map((u) => u.name).join(", ");
+    return (
+      <div className="mt-2 text-xs text-slate-500">
+        Assigned: {names.length > 40 ? names.slice(0, 40) + "..." : names}
+      </div>
+    );
+  };
+
+  if (loading) return <div className="p-6">Loading...</div>;
 
   return (
-    <div className="min-h-screen bg-slate-100 p-6">
+    <div className="min-h-screen app-bg p-6">
       <div className="max-w-7xl mx-auto">
         <header className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-semibold">Kanban Board</h2>
-          <div className="text-sm text-slate-500">{socketConnected ? "Live" : "Offline"}</div>
+          <h1 className="text-2xl font-bold">Kanban Board</h1>
+          <ThemeToggle />
         </header>
 
-        {loading && <div className="p-4">Loading tasks...</div>}
-        {error && <div className="p-4 text-red-600">{error}</div>}
-
-        <DragDropContext onDragEnd={onDragEnd}>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {COLUMN_ORDER.map((colId) => (
-              <Droppable droppableId={colId} key={colId}>
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {COLUMNS.map((col) => (
+              <Droppable droppableId={col.id} key={col.id}>
                 {(provided, snapshot) => (
                   <div
                     ref={provided.innerRef}
                     {...provided.droppableProps}
-                    className={`bg-white p-4 rounded shadow min-h-[300px] ${snapshot.isDraggingOver ? "ring-2 ring-indigo-300" : ""}`}
+                    className={`app-card rounded-xl p-4 min-h-[300px] shadow-sm transition 
+                      ${snapshot.isDraggingOver ? "ring-2 ring-indigo-300" : ""}`}
                   >
-                    <div className="flex justify-between items-center mb-3">
-                      <h3 className="font-semibold">{COLUMN_LABEL[colId]}</h3>
+                    <div className="flex items-center justify-between mb-3">
+                      <h2 className="font-semibold">{col.title}</h2>
                       <button
-                        onClick={() => openCreateModal(colId)}
                         className="text-sm text-indigo-600"
+                        onClick={() => openCreateModal(col.id)}
                       >
-                        + Add Task
+                        + Add
                       </button>
                     </div>
 
-                    <div className="space-y-3">
-                      {columns[colId]?.map((task, index) => (
-                        <Draggable draggableId={String(task._id)} index={index} key={task._id}>
-                          {(providedDraggable, snapshotDraggable) => (
-                            <div
-                              ref={providedDraggable.innerRef}
-                              {...providedDraggable.draggableProps}
-                              {...providedDraggable.dragHandleProps}
-                              className={`transition ${snapshotDraggable.isDragging ? "scale-[1.02] shadow-lg" : ""}`}
-                            >
-                              <div onClick={() => openSidebarForTask(task._id)} onDoubleClick={() => openEditModal(task)}>
-                                <TaskCard task={task} />
-                              </div>
-                            </div>
-                          )}
-                        </Draggable>
-                      ))}
+                    {tasksByStatus(col.id).map((task, index) => (
+                      <Draggable
+                        key={task._id}
+                        draggableId={task._id}
+                        index={index}
+                      >
+                        {(providedDraggable, snapshotDraggable) => (
+                          <div
+                            ref={providedDraggable.innerRef}
+                            {...providedDraggable.draggableProps}
+                            {...providedDraggable.dragHandleProps}
+                            className={`mb-3 p-3 rounded-lg border cursor-pointer 
+                              bg-white/90 dark:bg-slate-900 transition 
+                              ${snapshotDraggable.isDragging ? "shadow-lg" : "shadow-sm"}`}
+                            onClick={() => openEditModal(task)}
+                          >
+                            <div className="font-medium">{task.title}</div>
 
-                      {provided.placeholder}
-                    </div>
+                            {task.description && (
+                              <div className="text-xs text-slate-500 mt-1 line-clamp-2">
+                                {task.description}
+                              </div>
+                            )}
+
+                            {/* ✅ show assignees */}
+                            {renderAssignees(task)}
+
+                            <button
+                              className="mt-2 text-xs text-red-500"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteTask(task._id);
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+
+                    {provided.placeholder}
                   </div>
                 )}
               </Droppable>
@@ -233,31 +186,13 @@ export default function Kanban() {
         </DragDropContext>
       </div>
 
-      {/* create/edit modal */}
       <TaskModal
-        open={openModal}
-        onClose={() => setOpenModal(false)}
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
         projectId={projectId}
-        initialData={editTaskData}
-        onSuccess={(task) => {
-          // add to column
-          setColumns(prev => {
-            const newCols = { ...prev };
-            Object.keys(newCols).forEach(col => {
-              newCols[col] = newCols[col].filter(t => String(t._id) !== String(task._id));
-            });
-            newCols[task.status] = [...(newCols[task.status] || []), task];
-            return newCols;
-          });
-        }}
-      />
-
-      {/* Task Sidebar */}
-      <TaskSidebar
-        open={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-        taskId={activeTaskId}
-        onTaskUpdated={handleTaskUpdated}
+        initialTask={editingTask}
+        defaultStatus={createStatus}
+        onSaved={handleTaskSaved}
       />
     </div>
   );

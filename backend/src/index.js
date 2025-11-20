@@ -1,3 +1,5 @@
+// backend/src/index.js
+
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -5,15 +7,18 @@ import cookieParser from "cookie-parser";
 import { connectDB } from "./config/db.js";
 import { createServer } from "http";
 import { Server } from "socket.io";
-import authRoutes from "./routes/authRoutes.js";
 
+import authRoutes from "./routes/authRoutes.js";
+import userRoutes from "./routes/userRoutes.js";
+import projectRoutes from "./routes/projectRoutes.js";
+import teamRoutes from "./routes/teamRoutes.js";
+import taskRoutes from "./routes/taskRoutes.js";
 
 dotenv.config();
 
 const app = express();
 const server = createServer(app);
 
-// Socket.IO setup
 const io = new Server(server, {
   cors: {
     origin: "*",
@@ -22,46 +27,29 @@ const io = new Server(server, {
 });
 app.set("io", io);
 
-// Middlewares
-app.use(cors({ origin: true, credentials: true }));
+app.use(
+  cors({
+    origin: true,
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(cookieParser());
 
-// Connect Database
 connectDB();
 
-
-// Routes
+// routes
 app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/projects", projectRoutes);
+app.use("/api/teams", teamRoutes);
+app.use("/api/tasks", taskRoutes);
 
-// Root route
 app.get("/", (req, res) => {
-  res.send("Klavo backend running... !");
+  res.send("Klavo backend running...!");
 });
 
 const PORT = 5050;
-
-
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);  
+  console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
-
-import teamRoutes from "./routes/teamRoutes.js";
-
-app.use("/api/teams", teamRoutes);
-
-
-import projectRoutes from "./routes/projectRoutes.js";
-
-app.use("/api/projects", projectRoutes);
-
-import taskRoutes from "./routes/taskRoutes.js";
-
-app.use("/api/tasks", taskRoutes);
-
-
-
-
-import userRoutes from "./routes/userRoutes.js";
-app.use("/api/auth", authRoutes);      // already existing
-app.use("/api/users", userRoutes);     // add this

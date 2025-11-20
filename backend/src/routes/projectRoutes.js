@@ -1,19 +1,22 @@
+// backend/src/routes/projectRoutes.js
 import express from "express";
+import { authRequired } from "../middleware/authMiddleware.js";
 import {
   createProject,
-  getProjectById,
-  updateProject,
-  getProjectsByTeam,
+  getProjects,
+  deleteProject,
+  getProjectMembers,
 } from "../controllers/projectController.js";
-import { authRequired } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
 router.use(authRequired);
 
 router.post("/", createProject);
-router.get("/:id", getProjectById);
-router.put("/:id", updateProject);
-router.get("/team/:teamId", getProjectsByTeam);
+router.get("/", getProjects);
+router.delete("/:projectId", deleteProject);
+
+// ✅ new: get members of the project's team
+router.get("/:projectId/members", getProjectMembers);
 
 export default router;

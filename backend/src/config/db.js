@@ -1,17 +1,14 @@
+// backend/src/config/db.js
 import mongoose from "mongoose";
 
 export const connectDB = async () => {
   try {
-    const MONGO_URI = process.env.MONGO_URI || "mongodb://localhost:27017/klavo";
-
-    await mongoose.connect(MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
+    const conn = await mongoose.connect(process.env.MONGO_URI, {
+      // options not strictly required for modern mongoose
     });
-
-    console.log("✅ MongoDB connected successfully");
-  } catch (error) {
-    console.log("❌ MongoDB Connection Error:", error.message);
+    console.log(`✅ MongoDB connected successfully`);
+  } catch (err) {
+    console.error("❌ MongoDB connection error:", err.message);
     process.exit(1);
   }
 };

@@ -1,73 +1,84 @@
-import React, { useState } from "react";
+// frontend/src/components/ProjectModal.jsx
+import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
 
-export default function ProjectModal({ open, onClose, teams, onSuccess }) {
-  const [form, setForm] = useState({
-    title: "",
-    description: "",
-    teamId: "",
-  });
+export default function ProjectModal({ open, onClose, onSuccess }) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [teams, setTeams] = useState([]);
+  const [teamId, setTeamId] = useState("");
 
-  const createProject = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await axiosClient.post("/projects", form);
-      onSuccess(res.data.project);
-      onClose();
-    } catch (err) {
-      alert(err.response?.data?.message || err.message);
-    }
-  };
+  useEffect(() => {
+    const fetchTeams = async () => {
+      try {
+        const res = await axiosClient.get("/teams/my-teams");
+        setTeams(res.data);
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    if (open) fetchTeams();
+  }, [open]);
 
   if (!open) return null;
 
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      await axiosClient.post("/projects", {
+        name,
+        description,
+        teamId,
+      });
+      setName("");
+      setDescription("");
+      setTeamId("");
+      onSuccess();
+      onClose();
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to create project");
+    }
+  };
+
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-center z-50 px-4">
-      <div className="bg-white p-6 rounded-xl w-full max-w-md shadow">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="app-card p-6 rounded-lg w-96 shadow">
         <h2 className="text-xl font-semibold mb-4">Create Project</h2>
-
-        <form className="space-y-4" onSubmit={createProject}>
+        <form onSubmit={handleSubmit} className="space-y-3">
           <input
-            className="w-full border px-3 py-2 rounded"
-            placeholder="Project Title"
-            required
-            value={form.title}
-            onChange={(e) => setForm({ ...form, title: e.target.value })}
+            className="w-full border p-2 rounded bg-transparent"
+            placeholder="Project name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
           />
-
           <textarea
-            className="w-full border px-3 py-2 rounded"
+            className="w-full border p-2 rounded bg-transparent"
             rows={3}
-            placeholder="Description"
-            value={form.description}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            placeholder="Short description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
           />
-
           <select
-            className="w-full border px-3 py-2 rounded"
-            required
-            value={form.teamId}
-            onChange={(e) => setForm({ ...form, teamId: e.target.value })}
+            className="w-full border p-2 rounded bg-transparent"
+            value={teamId}
+            onChange={(e) => setTeamId(e.target.value)}
           >
-            <option value="">Select Team</option>
+            <option value="">Select team</option>
             {teams.map((t) => (
-              <option value={t._id} key={t._id}>
+              <option key={t._id} value={t._id}>
                 {t.name}
               </option>
             ))}
           </select>
 
-          <button
-            type="submit"
-            className="w-full bg-indigo-600 text-white py-2 rounded"
-          >
+          <button className="w-full bg-indigo-600 text-white py-2 rounded">
             Create Project
           </button>
 
           <button
             type="button"
             onClick={onClose}
-            className="w-full py-2 border rounded"
+            className="w-full border py-2 rounded"
           >
             Cancel
           </button>

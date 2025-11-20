@@ -1,11 +1,14 @@
+// frontend/src/components/ProtectedRoute.jsx
 import React from "react";
 import { useSelector } from "react-redux";
 import { Navigate, Outlet } from "react-router-dom";
 
 export default function ProtectedRoute() {
-  const { token } = useSelector((s) => s.auth);
+  const { token } = useSelector((state) => state.auth);
+
   if (!token) {
     return <Navigate to="/login" replace />;
   }
+
   return <Outlet />;
 }

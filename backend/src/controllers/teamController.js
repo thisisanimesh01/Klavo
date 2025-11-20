@@ -2,38 +2,29 @@
 import { Team } from "../models/Team.js";
 import { User } from "../models/User.js";
 
-/* -----------------------------------------------------
-   CREATE NEW TEAM
-------------------------------------------------------*/
 export const createTeam = async (req, res) => {
   try {
     const { name } = req.body;
 
-    if (!name) return res.status(400).json({ message: "Team name is required" });
+    if (!name) return res.status(400).json({ message: "Team name required" });
 
     const team = await Team.create({
       name,
-      members: [req.user._id], // creator is first member
+      owner: req.user._id,
+      members: [req.user._id],
     });
 
-    const populatedTeam = await team.populate("members", "name email");
-
-    res.status(201).json({
-      message: "Team created successfully",
-      team: populatedTeam,
-    });
+    res.status(201).json(team);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-/* -----------------------------------------------------
-   GET ALL TEAMS OF THE LOGGED-IN USER
-------------------------------------------------------*/
 export const getMyTeams = async (req, res) => {
   try {
-    const teams = await Team.find({ members: req.user._id })
-      .populate("members", "name email");
+    const teams = await Team.find({
+      members: req.user._id,
+    }).populate("members", "name email");
 
     res.json(teams);
   } catch (err) {
@@ -41,29 +32,37 @@ export const getMyTeams = async (req, res) => {
   }
 };
 
-/* -----------------------------------------------------
-   ADD MEMBER TO TEAM
-------------------------------------------------------*/
 export const addMemberToTeam = async (req, res) => {
   try {
-    const { teamId, memberId } = req.body;
+    const { teamId, email } = req.body;
 
     const team = await Team.findById(teamId);
     if (!team) return res.status(404).json({ message: "Team not found" });
 
-    if (team.members.includes(memberId)) {
-      return res.status(400).json({ message: "User already in team" });
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (!team.members.includes(user._id)) {
+      team.members.push(user._id);
+      await team.save();
     }
 
-    team.members.push(memberId);
-    await team.save();
+    const populated = await Team.findById(teamId).populate(
+      "members",
+      "name email"
+    );
 
-    const updatedTeam = await Team.findById(teamId).populate("members", "name email");
+    res.json(populated);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
 
-    res.json({
-      message: "Member added successfully",
-      team: updatedTeam,
-    });
+export const deleteTeam = async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    await Team.findByIdAndDelete(teamId);
+    res.json({ message: "Team deleted" });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

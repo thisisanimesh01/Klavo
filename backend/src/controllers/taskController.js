@@ -1,42 +1,59 @@
+// backend/src/controllers/taskController.js
 import { Task } from "../models/Task.js";
 import { Project } from "../models/Project.js";
-import { User } from "../models/User.js";
 
-/* ------------------------ Create Task ------------------------ */
+/* Create task */
 export const createTask = async (req, res) => {
   try {
-    const { title, description, projectId, assignee, priority, dueDate } = req.body;
+    const { title, description, status, projectId, assignedTo } = req.body;
 
     if (!title || !projectId) {
-      return res.status(400).json({ message: "Title and Project ID required" });
+      return res
+        .status(400)
+        .json({ message: "Title and projectId are required" });
     }
 
     const project = await Project.findById(projectId);
     if (!project) return res.status(404).json({ message: "Project not found" });
 
-    const task = await Task.create({
-      title,
-      description,
+    const existingCount = await Task.countDocuments({
       projectId,
-      assignee: assignee || null,
-      priority: priority || "medium",
-      dueDate: dueDate || null,
+      status: status || "todo",
     });
 
-    res.status(201).json({ message: "Task created", task });
+    const task = await Task.create({
+      title,
+      description: description || "",
+      status: status || "todo",
+      projectId,
+      createdBy: req.user._id,
+      order: existingCount,
+      // ✅ multiple assignees (array of userIds)
+      assignedTo: Array.isArray(assignedTo) ? assignedTo : [],
+    });
+
+    const populated = await Task.findById(task._id).populate(
+      "assignedTo",
+      "name email"
+    );
+
+    res.status(201).json(populated);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-/* ------------------------ Get Tasks by Project ------------------------ */
+/* Get all tasks for a project */
 export const getTasksByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-
     const tasks = await Task.find({ projectId })
-      .populate("assignee", "name email")
-      .sort({ createdAt: -1 });
+      .sort({
+        status: 1,
+        order: 1,
+        createdAt: 1,
+      })
+      .populate("assignedTo", "name email");
 
     res.json(tasks);
   } catch (err) {
@@ -44,104 +61,66 @@ export const getTasksByProject = async (req, res) => {
   }
 };
 
-/* ------------------------ Get Single Task ------------------------ */
-export const getTaskById = async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const task = await Task.findById(id)
-      .populate("assignee", "name email")
-      .populate({
-        path: "comments.userId",
-        select: "name email",
-      });
-
-    if (!task) return res.status(404).json({ message: "Task not found" });
-
-    res.json(task);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
-/* ------------------------ Update Task ------------------------ */
+/* Update task (edit, including assignedTo) */
 export const updateTask = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { title, description, status, assignee, priority, dueDate } = req.body;
+    const { taskId } = req.params;
+    const { title, description, status, assignedTo } = req.body;
 
-    const task = await Task.findById(id);
+    const task = await Task.findById(taskId);
     if (!task) return res.status(404).json({ message: "Task not found" });
 
     if (title !== undefined) task.title = title;
     if (description !== undefined) task.description = description;
-    if (priority) task.priority = priority;
-    if (status) task.status = status;
-    if (dueDate !== undefined) task.dueDate = dueDate || null;
+    if (status !== undefined) task.status = status;
 
-    if (assignee === "" || assignee === null) {
-      task.assignee = null;
-    } else if (assignee) {
-      const user = await User.findById(assignee);
-      if (!user) return res.status(404).json({ message: "Assignee not found" });
-      task.assignee = assignee;
+    if (assignedTo !== undefined) {
+      task.assignedTo = Array.isArray(assignedTo) ? assignedTo : [];
     }
 
     await task.save();
 
-    const io = req.app.get("io");
-    io?.emit("task-updated", { taskId: task._id, status: task.status, projectId: task.projectId });
+    const populated = await Task.findById(task._id).populate(
+      "assignedTo",
+      "name email"
+    );
 
-    res.json({ message: "Task updated", task });
+    res.json(populated);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-/* ------------------------ Add Comment ------------------------ */
-export const addComment = async (req, res) => {
+/* Delete task */
+export const deleteTask = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { text } = req.body;
-
-    if (!text) return res.status(400).json({ message: "Comment cannot be empty" });
-
-    const task = await Task.findById(id);
-    if (!task) return res.status(404).json({ message: "Task not found" });
-
-    task.comments.push({ userId: req.user._id, text });
-    await task.save();
-
-    await task.populate({
-      path: "comments.userId",
-      select: "name email",
-    });
-
-    const io = req.app.get("io");
-    io?.emit("task-commented", { taskId: task._id, projectId: task.projectId });
-
-    res.json({ message: "Comment added", task });
+    const { taskId } = req.params;
+    await Task.findByIdAndDelete(taskId);
+    res.json({ message: "Task deleted" });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-/* ------------------------ Move Task (Drag & Drop) ------------------------ */
+/* Move task (change status + order) */
 export const moveTask = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { status } = req.body;
+    const { taskId } = req.params;
+    const { status, order } = req.body;
 
-    const task = await Task.findById(id);
-    if (!task) return res.status(404).json({ message: "Not found" });
+    const task = await Task.findById(taskId);
+    if (!task) return res.status(404).json({ message: "Task not found" });
 
     task.status = status;
+    task.order = order;
     await task.save();
 
-    const io = req.app.get("io");
-    io?.emit("task-updated", { taskId: task._id, status, projectId: task.projectId });
+    const populated = await Task.findById(task._id).populate(
+      "assignedTo",
+      "name email"
+    );
 
-    res.json({ message: "Status updated", task });
+    res.json(populated);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

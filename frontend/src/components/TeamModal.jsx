@@ -1,41 +1,47 @@
+// frontend/src/components/TeamModal.jsx
 import React, { useState } from "react";
 import axiosClient from "../api/axiosClient";
 
 export default function TeamModal({ open, onClose, onSuccess }) {
   const [teamName, setTeamName] = useState("");
 
-  const createTeam = async (e) => {
+  if (!open) return null;
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      const res = await axiosClient.post("/teams", { name: teamName });
-      onSuccess(res.data.team);
+      await axiosClient.post("/teams", { name: teamName });
+      setTeamName("");
+      onSuccess();
       onClose();
     } catch (err) {
-      alert(err.response?.data?.message || err.message);
+      alert(err.response?.data?.message || "Something went wrong");
+      console.error(err);
     }
   };
 
-  if (!open) return null;
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-center z-50 px-4">
-      <div className="bg-white p-6 rounded-xl shadow-lg w-full max-w-md">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="app-card p-6 rounded-lg w-96 shadow">
         <h2 className="text-xl font-semibold mb-4">Create New Team</h2>
-
-        <form className="space-y-4" onSubmit={createTeam}>
+        <form onSubmit={handleSubmit}>
           <input
-            className="w-full border px-3 py-2 rounded"
+            className="w-full border p-2 rounded mb-4 bg-transparent"
             placeholder="Team Name"
             value={teamName}
-            required
             onChange={(e) => setTeamName(e.target.value)}
           />
-
-          <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded">
+          <button
+            type="submit"
+            className="w-full bg-indigo-600 text-white py-2 rounded"
+          >
             Create Team
           </button>
-
-          <button type="button" className="w-full border py-2 rounded" onClick={onClose}>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-full mt-3 border py-2 rounded"
+          >
             Cancel
           </button>
         </form>

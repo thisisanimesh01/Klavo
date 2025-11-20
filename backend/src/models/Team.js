@@ -1,25 +1,18 @@
+// backend/src/models/Team.js
 import mongoose from "mongoose";
 
 const teamSchema = new mongoose.Schema(
   {
-    name: {
-      type: String,
+    name: { type: String, required: true },
+    owner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
       required: true,
-      unique: true,
-      trim: true,
     },
-
     members: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
-      },
-    ],
-
-    projects: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Project",
       },
     ],
   },

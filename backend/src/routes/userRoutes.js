@@ -1,20 +1,11 @@
+// backend/src/routes/userRoutes.js
 import express from "express";
-import { User } from "../models/User.js";
+import { authRequired } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
-// Find user by email
-router.post("/find", async (req, res) => {
-  try {
-    const { email } = req.body;
-
-    const user = await User.findOne({ email }).select("-password");
-
-    res.json({ user });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+router.get("/me", authRequired, (req, res) => {
+  res.json(req.user);
 });
 
 export default router;
-
