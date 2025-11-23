@@ -1,6 +1,7 @@
 // backend/src/controllers/taskController.js
 import { Task } from "../models/Task.js";
 import { Project } from "../models/Project.js";
+import { logActivity } from "../utils/activityLogger.js";
 
 /* Create task */
 export const createTask = async (req, res) => {
@@ -28,7 +29,6 @@ export const createTask = async (req, res) => {
       projectId,
       createdBy: req.user._id,
       order: existingCount,
-      // ✅ multiple assignees (array of userIds)
       assignedTo: Array.isArray(assignedTo) ? assignedTo : [],
     });
 
@@ -36,6 +36,15 @@ export const createTask = async (req, res) => {
       "assignedTo",
       "name email"
     );
+
+    // ✅ log activity
+    await logActivity({
+      userId: req.user._id,
+      action: "TASK_CREATED",
+      message: `Created task "${title}" in ${populated.status}`,
+      projectId: projectId,
+      taskId: task._id,
+    });
 
     res.status(201).json(populated);
   } catch (err) {
@@ -70,6 +79,9 @@ export const updateTask = async (req, res) => {
     const task = await Task.findById(taskId);
     if (!task) return res.status(404).json({ message: "Task not found" });
 
+    const oldTitle = task.title;
+    const oldStatus = task.status;
+
     if (title !== undefined) task.title = title;
     if (description !== undefined) task.description = description;
     if (status !== undefined) task.status = status;
@@ -85,6 +97,26 @@ export const updateTask = async (req, res) => {
       "name email"
     );
 
+    // ✅ basic update log
+    await logActivity({
+      userId: req.user._id,
+      action: "TASK_UPDATED",
+      message: `Updated task "${oldTitle}"`,
+      projectId: populated.projectId,
+      taskId: task._id,
+    });
+
+    // if status changed, log move too
+    if (status && status !== oldStatus) {
+      await logActivity({
+        userId: req.user._id,
+        action: "TASK_MOVED",
+        message: `Moved task "${oldTitle}" from ${oldStatus} → ${status}`,
+        projectId: populated.projectId,
+        taskId: task._id,
+      });
+    }
+
     res.json(populated);
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -95,7 +127,23 @@ export const updateTask = async (req, res) => {
 export const deleteTask = async (req, res) => {
   try {
     const { taskId } = req.params;
+    const task = await Task.findById(taskId);
+
+    if (!task) {
+      return res.status(404).json({ message: "Task not found" });
+    }
+
     await Task.findByIdAndDelete(taskId);
+
+    // ✅ log delete
+    await logActivity({
+      userId: req.user._id,
+      action: "TASK_DELETED",
+      message: `Deleted task "${task.title}"`,
+      projectId: task.projectId,
+      taskId: taskId,
+    });
+
     res.json({ message: "Task deleted" });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -111,6 +159,8 @@ export const moveTask = async (req, res) => {
     const task = await Task.findById(taskId);
     if (!task) return res.status(404).json({ message: "Task not found" });
 
+    const oldStatus = task.status;
+
     task.status = status;
     task.order = order;
     await task.save();
@@ -119,6 +169,15 @@ export const moveTask = async (req, res) => {
       "assignedTo",
       "name email"
     );
+
+    // ✅ log move
+    await logActivity({
+      userId: req.user._id,
+      action: "TASK_MOVED",
+      message: `Moved task "${task.title}" from ${oldStatus} → ${status}`,
+      projectId: populated.projectId,
+      taskId: task._id,
+    });
 
     res.json(populated);
   } catch (err) {

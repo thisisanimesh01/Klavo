@@ -1,0 +1,12 @@
+// backend/src/routes/activityRoutes.js
+import express from "express";
+import { authRequired } from "../middleware/authMiddleware.js";
+import { getProjectActivity } from "../controllers/activityController.js";
+
+const router = express.Router();
+
+router.use(authRequired);
+
+router.get("/project/:projectId", getProjectActivity);
+
+export default router;

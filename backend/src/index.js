@@ -53,3 +53,16 @@ const PORT = 5050;
 server.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
+
+// add at top with other routes
+import activityRoutes from "./routes/activityRoutes.js";
+
+// ...
+
+// routes
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/projects", projectRoutes);
+app.use("/api/teams", teamRoutes);
+app.use("/api/tasks", taskRoutes);
+app.use("/api/activity", activityRoutes);  // ✅ new
