@@ -1,4 +1,5 @@
 // frontend/src/store/slices/authSlice.js
+
 import { createSlice } from "@reduxjs/toolkit";
 
 const tokenFromStorage = localStorage.getItem("klavo_access_token");
@@ -18,12 +19,16 @@ const authSlice = createSlice({
       state.user = user;
       state.token = token;
 
+      // persist login
       localStorage.setItem("klavo_access_token", token);
       localStorage.setItem("klavo_user", JSON.stringify(user));
     },
+
     logout: (state) => {
       state.user = null;
       state.token = null;
+
+      // remove from storage
       localStorage.removeItem("klavo_access_token");
       localStorage.removeItem("klavo_user");
     },

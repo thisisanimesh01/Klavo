@@ -1,62 +1,81 @@
 // frontend/src/pages/Login.jsx
 import React, { useState } from "react";
-import axiosClient from "../api/axiosClient";
 import { useDispatch } from "react-redux";
 import { setCredentials } from "../store/slices/authSlice";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import GoogleLoginButton from "../components/GoogleLoginButton";
 
 export default function Login() {
+  const navigate = useNavigate();
+  const dispatch = useDispatch();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const dispatch = useDispatch();
-  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+
+  const backendURL = "http://localhost:5050/api/auth/login";
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
+
     try {
-      const res = await axiosClient.post("/auth/login", { email, password });
-      dispatch(
-        setCredentials({
-          user: res.data.user,
-          token: res.data.accessToken,
-        })
-      );
-      navigate("/");
+      const { data } = await axios.post(backendURL, { email, password });
+      dispatch(setCredentials(data));
+
+      setTimeout(() => {
+        navigate("/");
+      }, 800);
     } catch (err) {
-      alert(err.response?.data?.message || "Login failed");
+      alert("Invalid email or password");
+      setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen app-bg flex items-center justify-center">
-      <div className="app-card p-6 rounded-xl w-full max-w-md shadow">
-        <h1 className="text-2xl font-bold mb-4 text-center">Klavo Login</h1>
-        <form onSubmit={handleSubmit} className="space-y-3">
+    <div className="flex justify-center items-center h-screen bg-gray-100">
+      <div className="border rounded-xl p-8 bg-white shadow w-[400px]">
+        <h2 className="text-3xl font-bold mb-6 text-center">Welcome to Klavo</h2>
+
+        <GoogleLoginButton />
+
+        <div className="text-center my-4">OR</div>
+
+        <form onSubmit={handleSubmit}>
           <input
-            className="w-full border px-3 py-2 rounded bg-transparent"
-            placeholder="Email"
             type="email"
-            value={email}
+            placeholder="Email"
+            className="border p-3 w-full rounded mb-3"
             onChange={(e) => setEmail(e.target.value)}
-            required
+            value={email}
           />
+
           <input
-            className="w-full border px-3 py-2 rounded bg-transparent"
-            placeholder="Password"
             type="password"
-            value={password}
+            placeholder="Password"
+            className="border p-3 w-full rounded mb-3"
             onChange={(e) => setPassword(e.target.value)}
-            required
+            value={password}
           />
-          <button className="w-full bg-indigo-600 text-white py-2 rounded">
-            Login
+
+          <button
+            disabled={loading}
+            type="submit"
+            className="w-full bg-blue-600 text-white py-3 rounded font-semibold flex justify-center"
+          >
+            {loading ? (
+              <div className="h-6 w-6 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+            ) : (
+              "Login"
+            )}
           </button>
         </form>
-        <p className="text-sm text-center mt-3">
-          No account?{" "}
-          <Link to="/register" className="text-indigo-600">
+
+        <p className="text-center mt-4 text-sm">
+          Don't have an account?{" "}
+          <a href="/register" className="text-blue-600 font-medium">
             Register
-          </Link>
+          </a>
         </p>
       </div>
     </div>
