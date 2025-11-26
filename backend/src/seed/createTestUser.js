@@ -13,7 +13,7 @@ const run = async () => {
     console.log("✅ Connected to MongoDB for seeding");
 
     const email = "animesh@gmail.com";
-    const password = "Klavo_12345";
+    const password = "Klavo12345";
 
     // check if user exists
     let user = await User.findOne({ email });

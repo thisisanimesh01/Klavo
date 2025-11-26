@@ -4,6 +4,7 @@ import { useDispatch, useSelector } from "react-redux";
 import { logout } from "../store/slices/authSlice";
 import { Link } from "react-router-dom";
 import ThemeToggle from "../components/ThemeToggle";
+import ActivityCard from "../components/ActivityCard";
 
 export default function Dashboard() {
   const dispatch = useDispatch();

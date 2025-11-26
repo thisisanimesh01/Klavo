@@ -1,11 +1,14 @@
 // frontend/src/pages/Kanban.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import axiosClient from "../api/axiosClient";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import TaskModal from "../components/TaskModal";
 import ThemeToggle from "../components/ThemeToggle";
 import ActivityPanel from "../components/ActivityPanel";
+import socket from "../socket";
+import ChatPanel from "../components/ChatPanel";
+
 
 const COLUMNS = [
   { id: "todo", title: "Todo" },
@@ -25,22 +28,91 @@ export default function Kanban() {
 
   const [activeTab, setActiveTab] = useState("board"); // "board" | "activity"
 
-  const fetchTasks = async () => {
+  const fetchTasks = useCallback(async () => {
     try {
+      setLoading(true);
       const res = await axiosClient.get(`/tasks/project/${projectId}`);
-      setTasks(res.data);
+      setTasks(res.data || []);
     } catch (err) {
       console.error("Failed to load tasks:", err);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  };
+  }, [projectId]);
 
   useEffect(() => {
     if (projectId) {
       fetchTasks();
     }
+  }, [projectId, fetchTasks]);
+
+  // ---------- SOCKET.IO real-time integration ----------
+  useEffect(() => {
+    if (!projectId) return;
+
+    // connect if not connected
+    if (!socket.connected) {
+      socket.connect();
+    }
+
+    // join the project's room (server expects something like 'joinProject' or similar)
+    socket.emit("joinProject", { projectId });
+
+    // handlers
+    const handleTaskCreated = (task) => {
+      // add only if belongs to this project
+      if (String(task.projectId) === String(projectId)) {
+        setTasks((prev) => {
+          // avoid duplicates if task already exists
+          if (prev.find((t) => t._id === task._id)) return prev;
+          return [...prev, task];
+        });
+      }
+    };
+
+    const handleTaskUpdated = (updatedTask) => {
+      setTasks((prev) =>
+        prev.map((t) => (t._id === updatedTask._id ? updatedTask : t))
+      );
+    };
+
+    const handleTaskMoved = (movedTask) => {
+      // movedTask has updated status/order — replace in local list
+      setTasks((prev) =>
+        prev.map((t) => (t._id === movedTask._id ? movedTask : t))
+      );
+    };
+
+    const handleTaskDeleted = ({ _id }) => {
+      setTasks((prev) => prev.filter((t) => t._id !== _id));
+    };
+
+    const handleActivityCreated = (activity) => {
+      // optional: you can fetch activities or just console.log
+      // We'll not change UI here (ActivityPanel will fetch on its own)
+      // console.debug("activityCreated", activity);
+    };
+
+    // register listeners
+    socket.on("taskCreated", handleTaskCreated);
+    socket.on("taskUpdated", handleTaskUpdated);
+    socket.on("taskMoved", handleTaskMoved);
+    socket.on("taskDeleted", handleTaskDeleted);
+    socket.on("activityCreated", handleActivityCreated);
+
+    // cleanup on unmount / project change
+    return () => {
+      socket.emit("leaveProject", { projectId });
+      socket.off("taskCreated", handleTaskCreated);
+      socket.off("taskUpdated", handleTaskUpdated);
+      socket.off("taskMoved", handleTaskMoved);
+      socket.off("taskDeleted", handleTaskDeleted);
+      socket.off("activityCreated", handleActivityCreated);
+      // we do not disconnect socket here globally because other pages might use it
+    };
   }, [projectId]);
 
+  // ---------- Drag & Drop ----------
   const tasksByStatus = (status) =>
     tasks
       .filter((t) => t.status === status)
@@ -60,17 +132,21 @@ export default function Kanban() {
     if (fromStatus === toStatus && source.index === destination.index) return;
 
     try {
+      // call backend move endpoint — backend will emit socket events too
       await axiosClient.put(`/tasks/${draggableId}/move`, {
         status: toStatus,
         order: destination.index,
       });
-      fetchTasks();
+      // optimistic local update: fetch latest tasks
+      await fetchTasks();
     } catch (err) {
       console.error("Failed to move task:", err);
+      // refresh to reflect server state
       fetchTasks();
     }
   };
 
+  // ---------- Modal open / create / edit / delete ----------
   const openCreateModal = (status) => {
     setEditingTask(null);
     setCreateStatus(status);
@@ -83,17 +159,21 @@ export default function Kanban() {
   };
 
   const handleTaskSaved = () => {
+    // refresh after TaskModal saves (TaskModal should call backend)
     fetchTasks();
+    setModalOpen(false);
   };
 
   const handleDeleteTask = async (id) => {
     if (!confirm("Delete this task?")) return;
     try {
       await axiosClient.delete(`/tasks/${id}`);
-      fetchTasks();
+      // server will emit taskDeleted; but ensure UI updates
+      setTasks((prev) => prev.filter((t) => t._id !== id));
     } catch (err) {
       console.error(err);
       alert("Failed to delete task");
+      fetchTasks();
     }
   };
 

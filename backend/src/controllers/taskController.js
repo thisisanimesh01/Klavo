@@ -1,17 +1,16 @@
 // backend/src/controllers/taskController.js
-import { Task } from "../models/Task.js";
+import  Task  from "../models/Task.js";
 import { Project } from "../models/Project.js";
-import { logActivity } from "../utils/activityLogger.js";
+import Activity  from "../models/Activity.js"; // ensure model exists
+import mongoose from "mongoose";
 
 /* Create task */
 export const createTask = async (req, res) => {
   try {
-    const { title, description, status, projectId, assignedTo } = req.body;
+    const { title, description, status, projectId } = req.body;
 
     if (!title || !projectId) {
-      return res
-        .status(400)
-        .json({ message: "Title and projectId are required" });
+      return res.status(400).json({ message: "Title and projectId are required" });
     }
 
     const project = await Project.findById(projectId);
@@ -29,95 +28,89 @@ export const createTask = async (req, res) => {
       projectId,
       createdBy: req.user._id,
       order: existingCount,
-      assignedTo: Array.isArray(assignedTo) ? assignedTo : [],
     });
 
-    const populated = await Task.findById(task._id).populate(
-      "assignedTo",
-      "name email"
-    );
+    // Create a lightweight activity entry (optional)
+    try {
+      const activity = await Activity.create({
+        projectId,
+        taskId: task._id,
+        user: req.user._id,
+        action: "TASK_CREATED",
+        message: `${req.user.name} created task "${task.title}"`,
+      });
 
-    // ✅ log activity
-    await logActivity({
-      userId: req.user._id,
-      action: "TASK_CREATED",
-      message: `Created task "${title}" in ${populated.status}`,
-      projectId: projectId,
-      taskId: task._id,
-    });
+      // Emit activity to project room
+      const io = req.app.get("io");
+      if (io) {
+        io.to(`project_${projectId}`).emit("activityCreated", activity);
+      }
+    } catch (actErr) {
+      console.warn("Activity create error:", actErr);
+    }
 
-    res.status(201).json(populated);
+    // Emit the new task to project room
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`project_${projectId}`).emit("taskCreated", task);
+    }
+
+    res.status(201).json(task);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-/* Get all tasks for a project */
+/* Get all tasks for a project, grouped by status and ordered */
 export const getTasksByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
     const tasks = await Task.find({ projectId })
-      .sort({
-        status: 1,
-        order: 1,
-        createdAt: 1,
-      })
-      .populate("assignedTo", "name email");
-
+      .sort({ status: 1, order: 1, createdAt: 1 });
     res.json(tasks);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-/* Update task (edit, including assignedTo) */
+/* Update task (edit modal) */
 export const updateTask = async (req, res) => {
   try {
     const { taskId } = req.params;
-    const { title, description, status, assignedTo } = req.body;
+    const { title, description, status } = req.body;
 
     const task = await Task.findById(taskId);
     if (!task) return res.status(404).json({ message: "Task not found" });
 
-    const oldTitle = task.title;
     const oldStatus = task.status;
 
     if (title !== undefined) task.title = title;
     if (description !== undefined) task.description = description;
     if (status !== undefined) task.status = status;
 
-    if (assignedTo !== undefined) {
-      task.assignedTo = Array.isArray(assignedTo) ? assignedTo : [];
-    }
-
     await task.save();
 
-    const populated = await Task.findById(task._id).populate(
-      "assignedTo",
-      "name email"
-    );
-
-    // ✅ basic update log
-    await logActivity({
-      userId: req.user._id,
-      action: "TASK_UPDATED",
-      message: `Updated task "${oldTitle}"`,
-      projectId: populated.projectId,
-      taskId: task._id,
-    });
-
-    // if status changed, log move too
-    if (status && status !== oldStatus) {
-      await logActivity({
-        userId: req.user._id,
-        action: "TASK_MOVED",
-        message: `Moved task "${oldTitle}" from ${oldStatus} → ${status}`,
-        projectId: populated.projectId,
+    // Activity create + emit
+    try {
+      const activity = await Activity.create({
+        projectId: task.projectId,
         taskId: task._id,
+        user: req.user._id,
+        action: "TASK_UPDATED",
+        message: `${req.user.name} updated task "${task.title}"`,
       });
+
+      const io = req.app.get("io");
+      if (io) io.to(`project_${task.projectId}`).emit("activityCreated", activity);
+    } catch (actErr) {
+      console.warn("Activity create error:", actErr);
     }
 
-    res.json(populated);
+    // Emit update
+    const io = req.app.get("io");
+    if (io) io.to(`project_${task.projectId}`).emit("taskUpdated", task);
+
+    res.json(task);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -128,21 +121,28 @@ export const deleteTask = async (req, res) => {
   try {
     const { taskId } = req.params;
     const task = await Task.findById(taskId);
+    if (!task) return res.status(404).json({ message: "Task not found" });
 
-    if (!task) {
-      return res.status(404).json({ message: "Task not found" });
-    }
-
+    const projectId = task.projectId;
     await Task.findByIdAndDelete(taskId);
 
-    // ✅ log delete
-    await logActivity({
-      userId: req.user._id,
-      action: "TASK_DELETED",
-      message: `Deleted task "${task.title}"`,
-      projectId: task.projectId,
-      taskId: taskId,
-    });
+    // Activity + emit
+    try {
+      const activity = await Activity.create({
+        projectId,
+        taskId,
+        user: req.user._id,
+        action: "TASK_DELETED",
+        message: `${req.user.name} deleted task "${task.title}"`,
+      });
+      const io = req.app.get("io");
+      if (io) io.to(`project_${projectId}`).emit("activityCreated", activity);
+    } catch (actErr) {
+      console.warn("Activity create error:", actErr);
+    }
+
+    const io = req.app.get("io");
+    if (io) io.to(`project_${projectId}`).emit("taskDeleted", { _id: taskId });
 
     res.json({ message: "Task deleted" });
   } catch (err) {
@@ -150,36 +150,40 @@ export const deleteTask = async (req, res) => {
   }
 };
 
-/* Move task (change status + order) */
+/* Update task order + status after drag & drop */
 export const moveTask = async (req, res) => {
   try {
     const { taskId } = req.params;
-    const { status, order } = req.body;
+    const { status, order } = req.body; // new status + order
 
     const task = await Task.findById(taskId);
     if (!task) return res.status(404).json({ message: "Task not found" });
 
     const oldStatus = task.status;
-
     task.status = status;
     task.order = order;
     await task.save();
 
-    const populated = await Task.findById(task._id).populate(
-      "assignedTo",
-      "name email"
-    );
+    // Activity + emit
+    try {
+      const activity = await Activity.create({
+        projectId: task.projectId,
+        taskId: task._id,
+        user: req.user._id,
+        action: "TASK_MOVED",
+        message: `${req.user.name} moved task "${task.title}" from ${oldStatus} → ${status}`,
+      });
+      const io = req.app.get("io");
+      if (io) io.to(`project_${task.projectId}`).emit("activityCreated", activity);
+    } catch (actErr) {
+      console.warn("Activity create error:", actErr);
+    }
 
-    // ✅ log move
-    await logActivity({
-      userId: req.user._id,
-      action: "TASK_MOVED",
-      message: `Moved task "${task.title}" from ${oldStatus} → ${status}`,
-      projectId: populated.projectId,
-      taskId: task._id,
-    });
+    // Emit move so frontends can reorder locally
+    const io = req.app.get("io");
+    if (io) io.to(`project_${task.projectId}`).emit("taskMoved", task);
 
-    res.json(populated);
+    res.json(task);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

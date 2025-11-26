@@ -4,17 +4,28 @@ import axiosClient from "../api/axiosClient";
 import ProjectModal from "../components/ProjectModal";
 import { useNavigate } from "react-router-dom";
 import ThemeToggle from "../components/ThemeToggle";
+import socket from "../socket";
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [openModal, setOpenModal] = useState(false);
+
   const navigate = useNavigate();
 
   const loadProjects = async () => {
     try {
       const res = await axiosClient.get("/projects");
       setProjects(res.data);
+
+      // 👉 JOIN SOCKET ROOM FOR ALL TEAMS THAT USER BELONGS TO
+      const uniqueTeams = [...new Set(res.data.map((p) => p.teamId?._id))];
+
+      if (!socket.connected) socket.connect();
+
+      uniqueTeams.forEach((teamId) => {
+        if (teamId) socket.emit("joinTeam", { teamId });
+      });
     } catch (err) {
       console.error(err);
     }
@@ -25,11 +36,35 @@ export default function Projects() {
     loadProjects();
   }, []);
 
+  // SOCKET LISTENERS
+  useEffect(() => {
+    if (!socket.connected) socket.connect();
+
+    // 👉 When project is created by any user
+    socket.on("projectCreated", (newProject) => {
+      setProjects((prev) => {
+        if (prev.find((p) => p._id === newProject._id)) return prev;
+        return [...prev, newProject];
+      });
+    });
+
+    // 👉 When project is deleted by any user
+    socket.on("projectDeleted", ({ projectId }) => {
+      setProjects((prev) => prev.filter((p) => p._id !== projectId));
+    });
+
+    return () => {
+      socket.off("projectCreated");
+      socket.off("projectDeleted");
+    };
+  }, []);
+
   const deleteProject = async (id) => {
     if (!confirm("Delete this project?")) return;
+
     try {
       await axiosClient.delete(`/projects/${id}`);
-      loadProjects();
+      // No need to refresh manually — socket will update
     } catch (err) {
       alert("Failed to delete project");
     }
@@ -60,11 +95,13 @@ export default function Projects() {
             {projects.map((p) => (
               <div key={p._id} className="app-card p-4 rounded shadow">
                 <h2 className="text-lg font-semibold mb-1">{p.name}</h2>
+
                 {p.teamId && (
                   <p className="text-xs text-slate-500 mb-2">
                     Team: {p.teamId.name}
                   </p>
                 )}
+
                 {p.description && (
                   <p className="text-sm text-slate-600 mb-3">
                     {p.description}
@@ -78,6 +115,7 @@ export default function Projects() {
                   >
                     Open Board
                   </button>
+
                   <button
                     className="flex-1 border py-2 rounded text-sm text-red-600"
                     onClick={() => deleteProject(p._id)}

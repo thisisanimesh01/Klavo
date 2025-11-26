@@ -2,7 +2,9 @@
 import { Project } from "../models/Project.js";
 import { Team } from "../models/Team.js";
 
-/* Create project */
+/* -------------------------------------------------------------------------- */
+/* 🟢 Create Project */
+/* -------------------------------------------------------------------------- */
 export const createProject = async (req, res) => {
   try {
     const { name, description, teamId } = req.body;
@@ -21,18 +23,38 @@ export const createProject = async (req, res) => {
       createdBy: req.user._id,
     });
 
+    // ✔ SOCKET.IO BROADCAST — NOTIFY ALL TEAM MEMBERS
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`team_${teamId}`).emit("projectCreated", {
+        ...project.toObject(),
+      });
+    }
+
     res.status(201).json(project);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-/* Get all projects for user */
+/* -------------------------------------------------------------------------- */
+/* 🟢 Get ALL Projects AVAILABLE to User */
+/* -------------------------------------------------------------------------- */
 export const getProjects = async (req, res) => {
   try {
+    // ✔ Find all teams where user is a member
+    const teams = await Team.find({
+      members: req.user._id,
+    }).select("_id");
+
+    const teamIds = teams.map((t) => t._id);
+
+    // ✔ Find all projects for those teams
     const projects = await Project.find({
-      createdBy: req.user._id,
-    }).populate("teamId", "name");
+      teamId: { $in: teamIds },
+    })
+      .populate("teamId", "name")
+      .sort({ createdAt: -1 });
 
     res.json(projects);
   } catch (err) {
@@ -40,18 +62,37 @@ export const getProjects = async (req, res) => {
   }
 };
 
-/* Delete project */
+/* -------------------------------------------------------------------------- */
+/* 🟢 Delete Project */
+/* -------------------------------------------------------------------------- */
 export const deleteProject = async (req, res) => {
   try {
     const { projectId } = req.params;
+
+    const project = await Project.findById(projectId);
+
+    if (!project)
+      return res.status(404).json({ message: "Project not found" });
+
     await Project.findByIdAndDelete(projectId);
+
+    // ✔ Notify team members
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`team_${project.teamId}`).emit("projectDeleted", {
+        projectId,
+      });
+    }
+
     res.json({ message: "Project deleted" });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
-/* ✅ Get members of the team that owns this project */
+/* -------------------------------------------------------------------------- */
+/* 🟢 Get Members of a Project's Team */
+/* -------------------------------------------------------------------------- */
 export const getProjectMembers = async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -59,10 +100,8 @@ export const getProjectMembers = async (req, res) => {
     const project = await Project.findById(projectId).populate("teamId");
     if (!project) return res.status(404).json({ message: "Project not found" });
 
-    const team = await Team.findById(project.teamId._id).populate(
-      "members",
-      "name email"
-    );
+    const team = await Team.findById(project.teamId._id)
+      .populate("members", "name email");
 
     res.json(team.members);
   } catch (err) {

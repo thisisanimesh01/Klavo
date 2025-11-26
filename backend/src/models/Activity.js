@@ -1,4 +1,4 @@
-// backend/src/models/Activity.js
+
 import mongoose from "mongoose";
 
 const activitySchema = new mongoose.Schema(
@@ -20,14 +20,15 @@ const activitySchema = new mongoose.Schema(
     },
     action: {
       type: String,
-      required: true, // e.g. "TASK_CREATED", "TASK_MOVED"
+      required: true,
     },
     message: {
       type: String,
-      required: true, // human readable text
+      required: true,
     },
   },
   { timestamps: true }
 );
 
 export const Activity = mongoose.model("Activity", activitySchema);
+export default Activity;
