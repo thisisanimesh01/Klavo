@@ -6,9 +6,8 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import TaskModal from "../components/TaskModal";
 import ThemeToggle from "../components/ThemeToggle";
 import ActivityPanel from "../components/ActivityPanel";
-import socket from "../socket";
 import ChatPanel from "../components/ChatPanel";
-
+import socket from "../socket";
 
 const COLUMNS = [
   { id: "todo", title: "Todo" },
@@ -26,7 +25,7 @@ export default function Kanban() {
   const [editingTask, setEditingTask] = useState(null);
   const [createStatus, setCreateStatus] = useState("todo");
 
-  const [activeTab, setActiveTab] = useState("board"); // "board" | "activity"
+  const [activeTab, setActiveTab] = useState("board"); // board | activity | chat
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -46,38 +45,28 @@ export default function Kanban() {
     }
   }, [projectId, fetchTasks]);
 
-  // ---------- SOCKET.IO real-time integration ----------
+  // ---------- SOCKET.IO real-time ----------
   useEffect(() => {
     if (!projectId) return;
+    if (!socket.connected) socket.connect();
 
-    // connect if not connected
-    if (!socket.connected) {
-      socket.connect();
-    }
-
-    // join the project's room (server expects something like 'joinProject' or similar)
     socket.emit("joinProject", { projectId });
 
-    // handlers
     const handleTaskCreated = (task) => {
-      // add only if belongs to this project
       if (String(task.projectId) === String(projectId)) {
-        setTasks((prev) => {
-          // avoid duplicates if task already exists
-          if (prev.find((t) => t._id === task._id)) return prev;
-          return [...prev, task];
-        });
+        setTasks((prev) =>
+          prev.some((t) => t._id === task._id) ? prev : [...prev, task]
+        );
       }
     };
 
-    const handleTaskUpdated = (updatedTask) => {
+    const handleTaskUpdated = (updated) => {
       setTasks((prev) =>
-        prev.map((t) => (t._id === updatedTask._id ? updatedTask : t))
+        prev.map((t) => (t._id === updated._id ? updated : t))
       );
     };
 
     const handleTaskMoved = (movedTask) => {
-      // movedTask has updated status/order — replace in local list
       setTasks((prev) =>
         prev.map((t) => (t._id === movedTask._id ? movedTask : t))
       );
@@ -87,32 +76,20 @@ export default function Kanban() {
       setTasks((prev) => prev.filter((t) => t._id !== _id));
     };
 
-    const handleActivityCreated = (activity) => {
-      // optional: you can fetch activities or just console.log
-      // We'll not change UI here (ActivityPanel will fetch on its own)
-      // console.debug("activityCreated", activity);
-    };
-
-    // register listeners
     socket.on("taskCreated", handleTaskCreated);
     socket.on("taskUpdated", handleTaskUpdated);
     socket.on("taskMoved", handleTaskMoved);
     socket.on("taskDeleted", handleTaskDeleted);
-    socket.on("activityCreated", handleActivityCreated);
 
-    // cleanup on unmount / project change
     return () => {
       socket.emit("leaveProject", { projectId });
       socket.off("taskCreated", handleTaskCreated);
       socket.off("taskUpdated", handleTaskUpdated);
       socket.off("taskMoved", handleTaskMoved);
       socket.off("taskDeleted", handleTaskDeleted);
-      socket.off("activityCreated", handleActivityCreated);
-      // we do not disconnect socket here globally because other pages might use it
     };
   }, [projectId]);
 
-  // ---------- Drag & Drop ----------
   const tasksByStatus = (status) =>
     tasks
       .filter((t) => t.status === status)
@@ -127,26 +104,23 @@ export default function Kanban() {
     const { destination, source, draggableId } = result;
     if (!destination) return;
 
-    const fromStatus = source.droppableId;
-    const toStatus = destination.droppableId;
-    if (fromStatus === toStatus && source.index === destination.index) return;
+    if (
+      destination.droppableId === source.droppableId &&
+      destination.index === source.index
+    )
+      return;
 
     try {
-      // call backend move endpoint — backend will emit socket events too
       await axiosClient.put(`/tasks/${draggableId}/move`, {
-        status: toStatus,
+        status: destination.droppableId,
         order: destination.index,
       });
-      // optimistic local update: fetch latest tasks
-      await fetchTasks();
-    } catch (err) {
-      console.error("Failed to move task:", err);
-      // refresh to reflect server state
+      fetchTasks();
+    } catch {
       fetchTasks();
     }
   };
 
-  // ---------- Modal open / create / edit / delete ----------
   const openCreateModal = (status) => {
     setEditingTask(null);
     setCreateStatus(status);
@@ -159,31 +133,20 @@ export default function Kanban() {
   };
 
   const handleTaskSaved = () => {
-    // refresh after TaskModal saves (TaskModal should call backend)
     fetchTasks();
     setModalOpen(false);
   };
 
   const handleDeleteTask = async (id) => {
     if (!confirm("Delete this task?")) return;
-    try {
-      await axiosClient.delete(`/tasks/${id}`);
-      // server will emit taskDeleted; but ensure UI updates
-      setTasks((prev) => prev.filter((t) => t._id !== id));
-    } catch (err) {
-      console.error(err);
-      alert("Failed to delete task");
-      fetchTasks();
-    }
+    await axiosClient.delete(`/tasks/${id}`);
   };
 
   const renderAssignees = (task) => {
-    if (!task.assignedTo || task.assignedTo.length === 0) return null;
-
-    const names = task.assignedTo.map((u) => u.name).join(", ");
+    if (!task.assignedTo?.length) return null;
     return (
       <div className="mt-2 text-xs text-slate-500">
-        Assigned: {names.length > 40 ? names.slice(0, 40) + "..." : names}
+        Assigned: {task.assignedTo.map((u) => u.name).join(", ")}
       </div>
     );
   };
@@ -200,39 +163,32 @@ export default function Kanban() {
 
         {/* Tabs */}
         <div className="flex gap-2 mb-4 border-b">
-          <button
-            className={`px-4 py-2 text-sm ${
-              activeTab === "board"
-                ? "border-b-2 border-indigo-600 font-medium"
-                : "text-slate-500"
-            }`}
-            onClick={() => setActiveTab("board")}
-          >
-            Board
-          </button>
-          <button
-            className={`px-4 py-2 text-sm ${
-              activeTab === "activity"
-                ? "border-b-2 border-indigo-600 font-medium"
-                : "text-slate-500"
-            }`}
-            onClick={() => setActiveTab("activity")}
-          >
-            Activity
-          </button>
+          {["board", "activity", "chat"].map((tab) => (
+            <button
+              key={tab}
+              className={`px-4 py-2 text-sm ${
+                activeTab === tab
+                  ? "border-b-2 border-indigo-600 font-medium"
+                  : "text-slate-500"
+              }`}
+              onClick={() => setActiveTab(tab)}
+            >
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </button>
+          ))}
         </div>
 
-        {activeTab === "board" ? (
+        {/* Board */}
+        {activeTab === "board" && (
           <DragDropContext onDragEnd={handleDragEnd}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {COLUMNS.map((col) => (
-                <Droppable droppableId={col.id} key={col.id}>
-                  {(provided, snapshot) => (
+                <Droppable key={col.id} droppableId={col.id}>
+                  {(provided) => (
                     <div
                       ref={provided.innerRef}
                       {...provided.droppableProps}
-                      className={`app-card rounded-xl p-4 min-h-[300px] shadow-sm transition 
-                        ${snapshot.isDraggingOver ? "ring-2 ring-indigo-300" : ""}`}
+                      className="app-card rounded-xl p-4 min-h-[300px] shadow-sm"
                     >
                       <div className="flex items-center justify-between mb-3">
                         <h2 className="font-semibold">{col.title}</h2>
@@ -243,51 +199,26 @@ export default function Kanban() {
                           + Add
                         </button>
                       </div>
-
                       {tasksByStatus(col.id).map((task, index) => (
                         <Draggable
                           key={task._id}
                           draggableId={task._id}
                           index={index}
                         >
-                          {(providedDraggable, snapshotDraggable) => (
+                          {(prov) => (
                             <div
-                              ref={providedDraggable.innerRef}
-                              {...providedDraggable.draggableProps}
-                              {...providedDraggable.dragHandleProps}
-                              className={`mb-3 p-3 rounded-lg border cursor-pointer 
-                                bg-white/90 dark:bg-slate-900 transition 
-                                ${
-                                  snapshotDraggable.isDragging
-                                    ? "shadow-lg"
-                                    : "shadow-sm"
-                                }`}
+                              ref={prov.innerRef}
+                              {...prov.draggableProps}
+                              {...prov.dragHandleProps}
+                              className="mb-3 p-3 rounded-lg border bg-white dark:bg-slate-900 cursor-pointer"
                               onClick={() => openEditModal(task)}
                             >
                               <div className="font-medium">{task.title}</div>
-
-                              {task.description && (
-                                <div className="text-xs text-slate-500 mt-1 line-clamp-2">
-                                  {task.description}
-                                </div>
-                              )}
-
                               {renderAssignees(task)}
-
-                              <button
-                                className="mt-2 text-xs text-red-500"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleDeleteTask(task._id);
-                                }}
-                              >
-                                Delete
-                              </button>
                             </div>
                           )}
                         </Draggable>
                       ))}
-
                       {provided.placeholder}
                     </div>
                   )}
@@ -295,9 +226,13 @@ export default function Kanban() {
               ))}
             </div>
           </DragDropContext>
-        ) : (
-          <ActivityPanel projectId={projectId} />
         )}
+
+        {/* Activity */}
+        {activeTab === "activity" && <ActivityPanel projectId={projectId} />}
+
+        {/* Chat */}
+        {activeTab === "chat" && <ChatPanel projectId={projectId} />}
       </div>
 
       <TaskModal

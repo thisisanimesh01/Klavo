@@ -32,6 +32,8 @@ export default function App() {
           element={<div className="p-6 text-center text-2xl">Page not found</div>}
         />
       </Routes>
+
+      
     </BrowserRouter>
   );
 }
