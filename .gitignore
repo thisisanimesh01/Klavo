@@ -7,8 +7,6 @@ pnpm-debug.log*
 
 .DS_Store
 
-.env
-**/.env/
 
 *.log
 
@@ -24,3 +22,17 @@ backend/tmp/
 *.swp
 
 
+# Environment files
+backend/.env
+frontend/.env
+
+# Node modules
+backend/node_modules/
+frontend/node_modules/
+
+# Build folders
+frontend/dist/
+backend/dist/
+
+# System files
+.DS_Store
