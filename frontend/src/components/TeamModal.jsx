@@ -1,4 +1,3 @@
-// frontend/src/components/TeamModal.jsx
 import React, { useState } from "react";
 import axiosClient from "../api/axiosClient";
 

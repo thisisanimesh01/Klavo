@@ -1,4 +1,3 @@
-// backend/src/controllers/googleAuthController.js
 import { OAuth2Client } from "google-auth-library";
 import { User } from "../models/User.js";
 import {generateToken} from "../utils/generateToken.js";
@@ -29,7 +28,7 @@ export const googleAuthController = async (req, res) => {
     email,
     avatar: picture,
     googleUser: true,
-    password: undefined, // allow no password
+    password: undefined, // No password for Google users
   });
 }
 

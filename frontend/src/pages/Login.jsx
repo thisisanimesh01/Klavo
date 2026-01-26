@@ -1,4 +1,3 @@
-// frontend/src/pages/Login.jsx
 import React, { useState } from "react";
 import { useDispatch } from "react-redux";
 import { setCredentials } from "../store/slices/authSlice";
@@ -23,9 +22,7 @@ export default function Login() {
       const { data } = await axios.post(backendURL, { email, password });
       dispatch(setCredentials(data));
 
-      setTimeout(() => {
-        navigate("/");
-      }, 800);
+      setTimeout(() => navigate("/"), 500);
     } catch (err) {
       alert("Invalid email or password");
       setLoading(false);
@@ -37,6 +34,7 @@ export default function Login() {
       <div className="border rounded-xl p-8 bg-white shadow w-[400px]">
         <h2 className="text-3xl font-bold mb-6 text-center">Welcome to Klavo</h2>
 
+        {/* 🔎 GOOGLE LOGIN BUTTON */}
         <GoogleLoginButton />
 
         <div className="text-center my-4">OR</div>

@@ -1,17 +1,24 @@
-// backend/src/controllers/activityController.js
-import Activity  from "../models/Activity.js";
+import Activity from "../models/Activity.js";
+
+export const logActivity = async ({ projectId, userId, action, message }) => {
+  return await Activity.create({
+    projectId,
+    user: userId,
+    action,
+    message,
+  });
+};
 
 export const getProjectActivity = async (req, res) => {
   try {
     const { projectId } = req.params;
 
-    const activities = await Activity.find({ projectId })
+    const logs = await Activity.find({ projectId })
       .populate("user", "name email")
       .sort({ createdAt: -1 });
 
-    res.json(activities);
+    res.json(logs);
   } catch (err) {
-    console.error("Activity fetch error:", err.message);
-    res.status(500).json({ message: "Failed to load activity" });
+    res.status(500).json({ message: err.message });
   }
 };

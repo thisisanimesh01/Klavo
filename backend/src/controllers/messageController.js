@@ -1,10 +1,6 @@
-// backend/src/controllers/messageController.js
+
 import Message from "../models/Message.js";
 
-/**
- * GET /api/messages/:projectId
- * Get all messages for a project
- */
 export const getMessagesForProject = async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -20,11 +16,6 @@ export const getMessagesForProject = async (req, res) => {
   }
 };
 
-/**
- * POST /api/messages/:projectId
- * Body: { text }
- * Create new message for a project
- */
 export const createMessage = async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -40,7 +31,7 @@ export const createMessage = async (req, res) => {
       text: text.trim(),
     });
 
-    // Populate user for client display
+
     const populated = await message.populate("user", "name email");
 
     // Emit via socket.io to everyone in this project room

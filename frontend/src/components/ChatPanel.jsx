@@ -1,4 +1,3 @@
-// frontend/src/components/ChatPanel.jsx
 import React, { useEffect, useState, useRef } from "react";
 import axiosClient from "../api/axiosClient";
 import { useSelector } from "react-redux";

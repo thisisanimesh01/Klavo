@@ -1,4 +1,3 @@
-// frontend/src/components/TaskModal.jsx
 import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
 
@@ -128,7 +127,7 @@ export default function TaskModal({
             <option value="done">Done</option>
           </select>
 
-          {/* ✅ Multi-select members */}
+          {/*  Multi-select members */}
           <div>
             <div className="text-sm font-medium mb-1">Assign to members</div>
             {members.length === 0 ? (

@@ -1,4 +1,3 @@
-// frontend/src/pages/Register.jsx
 import React, { useState } from "react";
 import axiosClient from "../api/axiosClient";
 import { useDispatch } from "react-redux";

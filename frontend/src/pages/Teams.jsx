@@ -1,4 +1,3 @@
-// frontend/src/pages/Teams.jsx
 import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
 import TeamModal from "../components/TeamModal";
@@ -12,9 +11,7 @@ export default function Teams() {
   const [openAddMemberModal, setOpenAddMemberModal] = useState(false);
   const [selectedTeamId, setSelectedTeamId] = useState(null);
 
-  /* -----------------------------------------
-      Fetch all teams of logged-in user
-  -------------------------------------------*/
+ // fetch teams the user belongs to
   const fetchTeams = async () => {
     try {
       const res = await axiosClient.get("/teams/my-teams");
@@ -29,9 +26,7 @@ export default function Teams() {
     fetchTeams();
   }, []);
 
-  /* -----------------------------------------
-      Delete a Team
-  -------------------------------------------*/
+  //delete team
   const deleteTeam = async (id) => {
     if (!confirm("Are you sure you want to delete this team?")) return;
 
@@ -44,9 +39,7 @@ export default function Teams() {
     }
   };
 
-  /* -----------------------------------------
-      UI LOADING STATE
-  -------------------------------------------*/
+  //loading state
   if (loading) return <div className="p-6">Loading...</div>;
 
   return (

@@ -1,4 +1,3 @@
-// frontend/src/components/ActivityPanel.jsx
 import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
 import { useParams } from "react-router-dom";
@@ -8,7 +7,7 @@ export default function ActivityPanel() {
   const { projectId } = useParams();
   const [activity, setActivity] = useState([]);
 
-  // Load initial activity
+  // Fetch initial activity data
   useEffect(() => {
     const fetchActivity = async () => {
       try {

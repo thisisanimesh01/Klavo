@@ -1,4 +1,3 @@
-// frontend/src/pages/Kanban.jsx
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import axiosClient from "../api/axiosClient";
@@ -25,34 +24,30 @@ export default function Kanban() {
   const [editingTask, setEditingTask] = useState(null);
   const [createStatus, setCreateStatus] = useState("todo");
 
-  const [activeTab, setActiveTab] = useState("board"); // board | activity | chat
+  const [activeTab, setActiveTab] = useState("board");
 
   const fetchTasks = useCallback(async () => {
     try {
       setLoading(true);
       const res = await axiosClient.get(`/tasks/project/${projectId}`);
       setTasks(res.data || []);
-    } catch (err) {
-      console.error("Failed to load tasks:", err);
-    } finally {
+    } catch {}
+    finally {
       setLoading(false);
     }
   }, [projectId]);
 
   useEffect(() => {
-    if (projectId) {
-      fetchTasks();
-    }
+    if (projectId) fetchTasks();
   }, [projectId, fetchTasks]);
 
-  // ---------- SOCKET.IO real-time ----------
   useEffect(() => {
     if (!projectId) return;
     if (!socket.connected) socket.connect();
 
     socket.emit("joinProject", { projectId });
 
-    const handleTaskCreated = (task) => {
+    const created = (task) => {
       if (String(task.projectId) === String(projectId)) {
         setTasks((prev) =>
           prev.some((t) => t._id === task._id) ? prev : [...prev, task]
@@ -60,33 +55,29 @@ export default function Kanban() {
       }
     };
 
-    const handleTaskUpdated = (updated) => {
-      setTasks((prev) =>
-        prev.map((t) => (t._id === updated._id ? updated : t))
-      );
+    const updated = (task) => {
+      setTasks((prev) => prev.map((t) => (t._id === task._id ? task : t)));
     };
 
-    const handleTaskMoved = (movedTask) => {
-      setTasks((prev) =>
-        prev.map((t) => (t._id === movedTask._id ? movedTask : t))
-      );
+    const moved = (task) => {
+      setTasks((prev) => prev.map((t) => (t._id === task._id ? task : t)));
     };
 
-    const handleTaskDeleted = ({ _id }) => {
+    const deleted = ({ _id }) => {
       setTasks((prev) => prev.filter((t) => t._id !== _id));
     };
 
-    socket.on("taskCreated", handleTaskCreated);
-    socket.on("taskUpdated", handleTaskUpdated);
-    socket.on("taskMoved", handleTaskMoved);
-    socket.on("taskDeleted", handleTaskDeleted);
+    socket.on("taskCreated", created);
+    socket.on("taskUpdated", updated);
+    socket.on("taskMoved", moved);
+    socket.on("taskDeleted", deleted);
 
     return () => {
       socket.emit("leaveProject", { projectId });
-      socket.off("taskCreated", handleTaskCreated);
-      socket.off("taskUpdated", handleTaskUpdated);
-      socket.off("taskMoved", handleTaskMoved);
-      socket.off("taskDeleted", handleTaskDeleted);
+      socket.off("taskCreated", created);
+      socket.off("taskUpdated", updated);
+      socket.off("taskMoved", moved);
+      socket.off("taskDeleted", deleted);
     };
   }, [projectId]);
 
@@ -103,7 +94,6 @@ export default function Kanban() {
   const handleDragEnd = async (result) => {
     const { destination, source, draggableId } = result;
     if (!destination) return;
-
     if (
       destination.droppableId === source.droppableId &&
       destination.index === source.index
@@ -137,7 +127,7 @@ export default function Kanban() {
     setModalOpen(false);
   };
 
-  const handleDeleteTask = async (id) => {
+  const deleteTask = async (id) => {
     if (!confirm("Delete this task?")) return;
     await axiosClient.delete(`/tasks/${id}`);
   };
@@ -145,7 +135,7 @@ export default function Kanban() {
   const renderAssignees = (task) => {
     if (!task.assignedTo?.length) return null;
     return (
-      <div className="mt-2 text-xs text-slate-500">
+      <div className="mt-2 text-xs text-slate-500 dark:text-slate-300">
         Assigned: {task.assignedTo.map((u) => u.name).join(", ")}
       </div>
     );
@@ -156,12 +146,12 @@ export default function Kanban() {
   return (
     <div className="min-h-screen app-bg p-6">
       <div className="max-w-7xl mx-auto">
+
         <header className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold">Kanban</h1>
           <ThemeToggle />
         </header>
 
-        {/* Tabs */}
         <div className="flex gap-2 mb-4 border-b">
           {["board", "activity", "chat"].map((tab) => (
             <button
@@ -178,7 +168,6 @@ export default function Kanban() {
           ))}
         </div>
 
-        {/* Board */}
         {activeTab === "board" && (
           <DragDropContext onDragEnd={handleDragEnd}>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -199,6 +188,7 @@ export default function Kanban() {
                           + Add
                         </button>
                       </div>
+
                       {tasksByStatus(col.id).map((task, index) => (
                         <Draggable
                           key={task._id}
@@ -211,14 +201,29 @@ export default function Kanban() {
                               {...prov.draggableProps}
                               {...prov.dragHandleProps}
                               className="mb-3 p-3 rounded-lg border bg-white dark:bg-slate-900 cursor-pointer"
-                              onClick={() => openEditModal(task)}
                             >
-                              <div className="font-medium">{task.title}</div>
+                              <div
+                                onClick={() => openEditModal(task)}
+                                className="font-medium"
+                              >
+                                {task.title}
+                              </div>
+
                               {renderAssignees(task)}
+
+                              <div className="flex justify-end mt-2">
+                                <button
+                                  onClick={() => deleteTask(task._id)}
+                                  className="text-xs px-2 py-1 rounded bg-red-500 text-white hover:bg-red-600"
+                                >
+                                  Delete
+                                </button>
+                              </div>
                             </div>
                           )}
                         </Draggable>
                       ))}
+
                       {provided.placeholder}
                     </div>
                   )}
@@ -228,10 +233,7 @@ export default function Kanban() {
           </DragDropContext>
         )}
 
-        {/* Activity */}
         {activeTab === "activity" && <ActivityPanel projectId={projectId} />}
-
-        {/* Chat */}
         {activeTab === "chat" && <ChatPanel projectId={projectId} />}
       </div>
 

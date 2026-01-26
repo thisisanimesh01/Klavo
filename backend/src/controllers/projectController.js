@@ -1,10 +1,7 @@
-// backend/src/controllers/projectController.js
 import { Project } from "../models/Project.js";
 import { Team } from "../models/Team.js";
 
-/* -------------------------------------------------------------------------- */
-/* 🟢 Create Project */
-/* -------------------------------------------------------------------------- */
+
 export const createProject = async (req, res) => {
   try {
     const { name, description, teamId } = req.body;
@@ -23,7 +20,7 @@ export const createProject = async (req, res) => {
       createdBy: req.user._id,
     });
 
-    // ✔ SOCKET.IO BROADCAST — NOTIFY ALL TEAM MEMBERS
+    // SOCKET.IO BROADCAST — NOTIFY ALL TEAM MEMBERS
     const io = req.app.get("io");
     if (io) {
       io.to(`team_${teamId}`).emit("projectCreated", {
@@ -37,9 +34,7 @@ export const createProject = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* 🟢 Get ALL Projects AVAILABLE to User */
-/* -------------------------------------------------------------------------- */
+  // Get all projects for teams the user is a member of
 export const getProjects = async (req, res) => {
   try {
     // ✔ Find all teams where user is a member
@@ -49,7 +44,7 @@ export const getProjects = async (req, res) => {
 
     const teamIds = teams.map((t) => t._id);
 
-    // ✔ Find all projects for those teams
+    // Find all projects for those teams
     const projects = await Project.find({
       teamId: { $in: teamIds },
     })
@@ -62,9 +57,7 @@ export const getProjects = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* 🟢 Delete Project */
-/* -------------------------------------------------------------------------- */
+
 export const deleteProject = async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -76,7 +69,7 @@ export const deleteProject = async (req, res) => {
 
     await Project.findByIdAndDelete(projectId);
 
-    // ✔ Notify team members
+    // SOCKET.IO BROADCAST — NOTIFY ALL TEAM MEMBERS
     const io = req.app.get("io");
     if (io) {
       io.to(`team_${project.teamId}`).emit("projectDeleted", {
@@ -90,9 +83,7 @@ export const deleteProject = async (req, res) => {
   }
 };
 
-/* -------------------------------------------------------------------------- */
-/* 🟢 Get Members of a Project's Team */
-/* -------------------------------------------------------------------------- */
+
 export const getProjectMembers = async (req, res) => {
   try {
     const { projectId } = req.params;

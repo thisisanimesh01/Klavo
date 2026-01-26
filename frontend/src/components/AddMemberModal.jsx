@@ -1,4 +1,3 @@
-// frontend/src/components/AddMemberModal.jsx
 import React, { useState } from "react";
 import axiosClient from "../api/axiosClient";
 

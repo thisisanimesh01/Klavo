@@ -1,4 +1,3 @@
-// backend/src/routes/googleAuthRoutes.js
 import express from "express";
 import { googleAuthController } from "../controllers/googleAuthController.js";
 

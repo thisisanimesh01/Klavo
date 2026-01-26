@@ -1,4 +1,3 @@
-// backend/src/utils/activityLogger.js
 import { Activity } from "../models/Activity.js";
 
 export const logActivity = async ({

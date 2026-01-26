@@ -1,5 +1,3 @@
-// frontend/src/store/slices/authSlice.js
-
 import { createSlice } from "@reduxjs/toolkit";
 
 const tokenFromStorage = localStorage.getItem("klavo_access_token");

@@ -1,4 +1,3 @@
-// backend/src/seed/createTestUser.js
 import dotenv from "dotenv";
 import mongoose from "mongoose";
 import { User } from "../models/User.js";
@@ -10,7 +9,7 @@ const MONGO_URI = process.env.MONGO_URI;
 const run = async () => {
   try {
     await mongoose.connect(MONGO_URI);
-    console.log("✅ Connected to MongoDB for seeding");
+    console.log("🚀 Connected to MongoDB for seeding");
 
     const email = "animesh@gmail.com";
     const password = "Klavo12345";

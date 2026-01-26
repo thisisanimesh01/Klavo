@@ -1,14 +1,7 @@
-// frontend/src/components/TaskSidebar.jsx
 import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
 
-/**
- * Props:
- * - open (bool)
- * - onClose (fn)
- * - taskId (string) // id of the task to load
- * - onTaskUpdated (fn) // callback with updated task to update Kanban state
- */
+
 export default function TaskSidebar({ open, onClose, taskId, onTaskUpdated }) {
   const [task, setTask] = useState(null);
   const [loading, setLoading] = useState(false);

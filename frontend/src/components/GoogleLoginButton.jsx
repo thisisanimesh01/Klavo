@@ -1,4 +1,3 @@
-// frontend/src/components/GoogleLoginButton.jsx
 import React, { useState } from "react";
 import { GoogleLogin } from "@react-oauth/google";
 import axios from "axios";

@@ -31,3 +31,28 @@ body {
   background-color: var(--bg-card);
   color: var(--text-main);
 }
+
+.analytics-card {
+  padding: 20px;
+  border-radius: 16px;
+  background: linear-gradient(to bottom right, #f6f7fb, #ffffff);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+  backdrop-filter: blur(6px);
+}
+
+.analytics-label {
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.analytics-value {
+  font-size: 32px;
+  font-weight: 700;
+  margin-top: 10px;
+}
+
+.chart-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 15px;
+}

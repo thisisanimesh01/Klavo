@@ -8,27 +8,15 @@ const activitySchema = new mongoose.Schema(
       ref: "Project",
       required: true,
     },
-    taskId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Task",
-      default: null,
-    },
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
     },
-    action: {
-      type: String,
-      required: true,
-    },
-    message: {
-      type: String,
-      required: true,
-    },
+    action: { type: String, required: true }, // Created Task, Updated Task, Deleted Task, Moved Task
+    message: { type: String, required: true },
   },
   { timestamps: true }
 );
 
-export const Activity = mongoose.model("Activity", activitySchema);
-export default Activity;
+export default mongoose.model("Activity", activitySchema);

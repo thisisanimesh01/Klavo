@@ -1,4 +1,3 @@
-// frontend/src/pages/Projects.jsx
 import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
 import ProjectModal from "../components/ProjectModal";
