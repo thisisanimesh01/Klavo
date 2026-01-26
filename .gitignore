@@ -70,3 +70,7 @@ backend/dist/
 # System files
 .DS_Store
 >>>>>>> 94316d0b1e7a41ca01d6196eb6dfc79fd14ef705
+
+FETCH_HEAD
+ORIG_HEAD
+refs/remotes/origin/main
