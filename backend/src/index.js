@@ -22,6 +22,7 @@ import notificationRoutes from "./routes/notificationRoutes.js";
 import fileRoutes from "./routes/fileRoutes.js";
 import calendarRoutes from "./routes/calendarRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
+import analyticsRoutes from "./routes/analyticsRoutes.js";
 
 const app = express();
 const server = createServer(app);
@@ -45,7 +46,6 @@ io.use(async (socket, next) => {
       socket.handshake.query?.token;
 
     if (!token) {
-      // Allow connection but unauthenticated sockets cannot join protected rooms
       socket.user = null;
       return next();
     }
@@ -59,7 +59,6 @@ io.use(async (socket, next) => {
     socket.user = user;
     next();
   } catch (err) {
-    // If invalid token, proceed with socket.user = null (or reject)
     socket.user = null;
     next();
   }
@@ -68,11 +67,9 @@ io.use(async (socket, next) => {
 io.on("connection", (socket) => {
   // Join own user room
   socket.on("joinUser", ({ userId }) => {
-    // Only allow joining own user room
     if (socket.user && socket.user._id.toString() === userId) {
       socket.join(`user_${userId}`);
     } else if (!socket.user && userId) {
-      // Fallback for unauthenticated legacy clients
       socket.join(`user_${userId}`);
     }
   });
@@ -140,6 +137,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/files", fileRoutes);
 app.use("/api/calendar", calendarRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/analytics", analyticsRoutes);
 
 app.get("/", (req, res) => {
   res.send("Klavo backend running!");
