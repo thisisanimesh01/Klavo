@@ -1,9 +1,9 @@
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
 import cookieParser from "cookie-parser";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import { env } from "./config/env.js";
 import { connectDB } from "./config/db.js";
 
 
@@ -20,8 +20,6 @@ import notificationRoutes from "./routes/notificationRoutes.js";
 import fileRoutes from "./routes/fileRoutes.js";
 import calendarRoutes from "./routes/calendarRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
-
-dotenv.config();
 
 const app = express();
 const server = createServer(app);
@@ -91,7 +89,7 @@ app.get("/", (req, res) => {
 });
 
 //start server
-const PORT = process.env.PORT || 5050;
+const PORT = env.PORT || 5050;
 
 server.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);

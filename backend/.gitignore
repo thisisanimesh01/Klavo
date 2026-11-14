@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Runtime & uploads
+uploads/*
+!uploads/.gitkeep
+logs/
+tmp/
+
+# OS / Editor
+.DS_Store
