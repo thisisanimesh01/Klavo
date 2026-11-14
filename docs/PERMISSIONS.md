@@ -67,3 +67,20 @@ Unauthenticated or unauthorized socket clients cannot eavesdrop on private proje
 - **Topbar User Resolution**: Connected directly to the centralized Redux state (`useSelector(state => state.auth?.user)`), defaulting to `"Guest"` if unauthenticated or state is unavailable.
 - **401 Response Handling**: `axiosClient` intercepts `401 Unauthorized` responses globally. When an authenticated request fails with 401 (e.g. token expired, signature revoked), local session tokens are purged and the application cleanly redirects to `/login`.
 - **Protected Routing**: `ProtectedRoute` renders a spinner loading state while the authentication session is being determined and redirects unauthenticated users to `/login`.
+
+---
+
+## 5. Frontend Route Mapping (ROUT-01)
+
+| Route Path | View Component | Protected | Sidebar Highlight | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `/` | `Dashboard.jsx` | Yes | Dashboard | Team & task summary metrics, activity velocity |
+| `/projects` | `Projects.jsx` | Yes | Projects | Project listing, team project cards, creation modal |
+| `/teams` | `Teams.jsx` | Yes | Teams | Team management, member invites, activity panel |
+| `/kanban/:projectId` | `Kanban.jsx` | Yes | Projects | Interactive drag-and-drop task boards & real-time chat |
+| `/calendar` | `Calendar.jsx` | Yes | Calendar | Personal upcoming task deadlines and schedule |
+| `/files` | `Files.jsx` | Yes | Files | Project file uploads and asset repository |
+| `/analytics` | `Analytics.jsx` | Yes | Analytics | Visual charts for task velocity & status distribution |
+| `/login` | `Login.jsx` | No | N/A | Public user sign-in & Google OAuth |
+| `/register` | `Register.jsx` | No | N/A | Public user registration |
+| `*` | 404 Fallback | N/A | N/A | Graceful not found screen with return-home action |

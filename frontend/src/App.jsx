@@ -7,6 +7,9 @@ import Dashboard from "./pages/Dashboard";
 import Projects from "./pages/Projects";
 import Teams from "./pages/Teams";
 import Kanban from "./pages/Kanban";
+import Calendar from "./pages/Calendar";
+import Files from "./pages/Files";
+import Analytics from "./pages/Analytics";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./layout/Layout";
 
@@ -14,16 +17,23 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Public */}
+        {/* Public Routes */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
 
-        {/* Protected */}
+        {/* Protected Routes */}
         <Route element={<ProtectedRoute />}>
-          {/* Dashboard WITHOUT sidebar */}
-          <Route path="/" element={<Dashboard />} />
+          {/* Dashboard */}
+          <Route
+            path="/"
+            element={
+              <Layout>
+                <Dashboard />
+              </Layout>
+            }
+          />
 
-          {/* These pages need sidebar */}
+          {/* Projects */}
           <Route
             path="/projects"
             element={
@@ -33,6 +43,7 @@ export default function App() {
             }
           />
 
+          {/* Teams */}
           <Route
             path="/teams"
             element={
@@ -42,6 +53,7 @@ export default function App() {
             }
           />
 
+          {/* Kanban Board */}
           <Route
             path="/kanban/:projectId"
             element={
@@ -50,12 +62,53 @@ export default function App() {
               </Layout>
             }
           />
+
+          {/* Calendar */}
+          <Route
+            path="/calendar"
+            element={
+              <Layout>
+                <Calendar />
+              </Layout>
+            }
+          />
+
+          {/* Files */}
+          <Route
+            path="/files"
+            element={
+              <Layout>
+                <Files />
+              </Layout>
+            }
+          />
+
+          {/* Analytics */}
+          <Route
+            path="/analytics"
+            element={
+              <Layout>
+                <Analytics />
+              </Layout>
+            }
+          />
         </Route>
 
-        {/* 404 */}
+        {/* 404 Not Found */}
         <Route
           path="*"
-          element={<div className="p-6 text-center text-2xl">Page not found</div>}
+          element={
+            <div className="flex flex-col items-center justify-center min-h-screen text-center p-6 bg-slate-950 text-slate-200">
+              <h1 className="text-4xl font-bold mb-2 text-indigo-400">404</h1>
+              <p className="text-lg text-slate-400 mb-6">Page not found</p>
+              <a
+                href="/"
+                className="px-6 py-2.5 rounded-xl font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition"
+              >
+                Return to Dashboard
+              </a>
+            </div>
+          }
         />
       </Routes>
     </BrowserRouter>

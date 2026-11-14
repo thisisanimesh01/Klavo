@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
-import Topbar from "../components/Topbar";
 import { Link } from "react-router-dom";
 
 import {
@@ -21,24 +20,26 @@ export default function Dashboard() {
 
   useEffect(() => {
     const loadStats = async () => {
-      const { data } = await axiosClient.get("/dashboard");
-      setStats(data);
+      try {
+        const { data } = await axiosClient.get("/dashboard");
+        setStats(data);
+      } catch (err) {
+        console.error("Dashboard stats failed to load:", err);
+      }
     };
     loadStats();
   }, []);
 
-  if (!stats) return <p className="p-6">Loading...</p>;
+  if (!stats) return <p className="p-6">Loading dashboard metrics...</p>;
 
   const colors = ["#6366F1", "#10B981", "#EF4444"];
 
   return (
     <div
-      className="min-h-screen px-6 py-4"
-      style={{ background: "var(--bg-main)", color: "var(--text-main)" }}
+      className="space-y-6"
+      style={{ color: "var(--text-main)" }}
     >
-      <Topbar />
-
-      <div className="mt-8 space-y-6">
+      <div className="space-y-6">
 
         {/* Stats */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -134,11 +135,11 @@ export default function Dashboard() {
 
         {/* Buttons */}
         <div className="flex gap-6 mt-8">
-          <Link className="bg-indigo-600 text-white px-8 py-3 rounded-xl text-lg font-semibold" to="/teams">
+          <Link className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl text-lg font-semibold transition" to="/teams">
             Create Teams
           </Link>
 
-          <Link className="bg-blue-600 text-white px-8 py-3 rounded-xl text-lg font-semibold" to="/projects">
+          <Link className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl text-lg font-semibold transition" to="/projects">
             Manage Projects
           </Link>
         </div>
