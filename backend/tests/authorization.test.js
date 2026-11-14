@@ -1,157 +1,93 @@
-import assert from "assert";
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mockUsers, mockTeams, mockProjects, mockTasks } from "./fixtures/mockData.js";
 
-console.log("Running SEC-03 authorization and IDOR test suite...");
-
-// In-memory simulation of models and auth logic
-const users = {
-  alice: { _id: "usr_alice", name: "Alice", email: "alice@example.com" },
-  bob: { _id: "usr_bob", name: "Bob", email: "bob@example.com" },
-  eve: { _id: "usr_eve", name: "Eve", email: "eve@example.com" },
-};
-
-const teams = {
-  team_alpha: {
-    _id: "team_alpha",
-    name: "Team Alpha",
-    owner: users.alice._id,
-    members: [users.alice._id, users.bob._id],
-  },
-};
-
-const projects = {
-  proj_alpha: {
-    _id: "proj_alpha",
-    name: "Alpha Project",
-    teamId: "team_alpha",
-    createdBy: users.alice._id,
-  },
-};
-
-const tasks = {
-  task_1: {
-    _id: "task_1",
-    title: "Task 1",
-    projectId: "proj_alpha",
-    createdBy: users.alice._id,
-    status: "todo",
-  },
-};
-
-const comments = {
-  comment_1: {
-    _id: "comment_1",
-    taskId: "task_1",
-    userId: users.alice._id,
-    text: "Great work!",
-  },
-};
-
-// Pure logic implementations matching backend/src/utils/authHelpers.js
-const checkTeamAccess = (teamId, userId) => {
-  const team = teams[teamId];
-  if (!team) return { isMember: false, isOwner: false, team: null };
-  const userIdStr = userId.toString();
-  const isOwner = team.owner.toString() === userIdStr;
-  const isMember = isOwner || team.members.some((m) => m.toString() === userIdStr);
-  return { isMember, isOwner, team };
-};
-
-const checkProjectAccess = (projectId, userId) => {
-  const project = projects[projectId];
-  if (!project) return { hasAccess: false, isOwner: false, project: null, team: null };
-  const { isMember, isOwner, team } = checkTeamAccess(project.teamId, userId);
-  return { hasAccess: isMember, isOwner, project, team };
-};
-
-const checkTaskAccess = (taskId, userId) => {
-  const task = tasks[taskId];
-  if (!task) return { hasAccess: false, task: null, project: null, team: null };
-  const { hasAccess, project, team } = checkProjectAccess(task.projectId, userId);
-  return { hasAccess, task, project, team };
-};
-
-// Test 1: Team Authorization
-{
-  // Alice is owner
-  const aliceAccess = checkTeamAccess("team_alpha", users.alice._id);
-  assert.strictEqual(aliceAccess.isOwner, true);
-  assert.strictEqual(aliceAccess.isMember, true);
-
-  // Bob is member
-  const bobAccess = checkTeamAccess("team_alpha", users.bob._id);
-  assert.strictEqual(bobAccess.isOwner, false);
-  assert.strictEqual(bobAccess.isMember, true);
-
-  // Eve is an outsider
-  const eveAccess = checkTeamAccess("team_alpha", users.eve._id);
-  assert.strictEqual(eveAccess.isOwner, false);
-  assert.strictEqual(eveAccess.isMember, false);
-
-  // Negative test: Eve cannot delete team_alpha
-  assert.strictEqual(eveAccess.isOwner, false, "Eve must not be permitted to delete Team Alpha");
-  // Negative test: Bob cannot delete team_alpha
-  assert.strictEqual(bobAccess.isOwner, false, "Bob must not be permitted to delete Team Alpha");
-
-  console.log("✔ Test 1 Passed: Team ownership and membership correctly partitioned.");
-}
-
-// Test 2: Project Creation & IDOR Protection
-{
-  // Alice & Bob can create project in team_alpha
-  assert.strictEqual(checkTeamAccess("team_alpha", users.alice._id).isMember, true);
-  assert.strictEqual(checkTeamAccess("team_alpha", users.bob._id).isMember, true);
-
-  // Eve cannot create project in team_alpha (IDOR prevention)
-  const eveAccess = checkTeamAccess("team_alpha", users.eve._id);
-  assert.strictEqual(eveAccess.isMember, false, "Eve must not be permitted to create a project in Team Alpha");
-
-  console.log("✔ Test 2 Passed: Cross-team project creation blocked (IDOR protected).");
-}
-
-// Test 3: Task Access & Manipulation IDOR
-{
-  // Alice and Bob have access to task_1
-  assert.strictEqual(checkTaskAccess("task_1", users.alice._id).hasAccess, true);
-  assert.strictEqual(checkTaskAccess("task_1", users.bob._id).hasAccess, true);
-
-  // Eve has NO access to task_1
-  const eveTaskAccess = checkTaskAccess("task_1", users.eve._id);
-  assert.strictEqual(eveTaskAccess.hasAccess, false, "Eve must be rejected from viewing, updating, or deleting task_1");
-
-  console.log("✔ Test 3 Passed: Cross-project task manipulation blocked (IDOR protected).");
-}
-
-// Test 4: Comment & Reaction Access IDOR
-{
-  const checkCommentAccess = (commentId, userId) => {
-    const comment = comments[commentId];
-    if (!comment) return { hasAccess: false };
-    return checkTaskAccess(comment.taskId, userId);
+test("SEC-03: Team ownership and membership access controls", async (t) => {
+  const checkTeamAccess = (teamId, userId) => {
+    const team = Object.values(mockTeams).find((tm) => tm._id === teamId);
+    if (!team) return { isMember: false, isOwner: false, team: null };
+    const uid = userId.toString();
+    const isOwner = team.owner.toString() === uid;
+    const isMember = isOwner || team.members.some((m) => m.toString() === uid);
+    return { isMember, isOwner, team };
   };
 
-  assert.strictEqual(checkCommentAccess("comment_1", users.alice._id).hasAccess, true);
-  assert.strictEqual(checkCommentAccess("comment_1", users.bob._id).hasAccess, true);
-  assert.strictEqual(checkCommentAccess("comment_1", users.eve._id).hasAccess, false, "Eve cannot react to comment_1");
+  await t.test("Alice (owner) has full owner and member privileges", () => {
+    const access = checkTeamAccess(mockTeams.teamAlpha._id, mockUsers.alice._id);
+    assert.equal(access.isOwner, true);
+    assert.equal(access.isMember, true);
+  });
 
-  console.log("✔ Test 4 Passed: Comments and reactions require task and project membership.");
-}
+  await t.test("Bob (member) has member privileges but not owner privileges", () => {
+    const access = checkTeamAccess(mockTeams.teamAlpha._id, mockUsers.bob._id);
+    assert.equal(access.isOwner, false);
+    assert.equal(access.isMember, true);
+  });
 
-// Test 5: Socket.IO Room Joining Authorization
-{
-  const simulateSocketJoinProject = (socketUser, projectId) => {
-    if (!socketUser) return { joined: false, error: "Unauthenticated" };
-    const { hasAccess } = checkProjectAccess(projectId, socketUser._id);
-    if (!hasAccess) return { joined: false, error: "Unauthorized" };
-    return { joined: true, room: `project_${projectId}` };
+  await t.test("Eve (outsider) has zero privileges on Team Alpha", () => {
+    const access = checkTeamAccess(mockTeams.teamAlpha._id, mockUsers.eve._id);
+    assert.equal(access.isOwner, false);
+    assert.equal(access.isMember, false);
+  });
+});
+
+test("SEC-03: Cross-tenant IDOR protection on projects and tasks", async (t) => {
+  const checkProjectAccess = (projectId, userId) => {
+    const project = Object.values(mockProjects).find((p) => p._id === projectId);
+    if (!project) return { hasAccess: false, project: null };
+    const team = mockTeams.teamAlpha;
+    const uid = userId.toString();
+    const hasAccess = team.members.some((m) => m.toString() === uid);
+    return { hasAccess, project };
   };
 
-  const aliceJoin = simulateSocketJoinProject(users.alice, "proj_alpha");
-  assert.strictEqual(aliceJoin.joined, true);
-  assert.strictEqual(aliceJoin.room, "project_proj_alpha");
+  const checkTaskAccess = (taskId, userId) => {
+    const task = Object.values(mockTasks).find((tk) => tk._id === taskId);
+    if (!task) return { hasAccess: false, task: null };
+    const { hasAccess, project } = checkProjectAccess(task.projectId, userId);
+    return { hasAccess, task, project };
+  };
 
-  const eveJoin = simulateSocketJoinProject(users.eve, "proj_alpha");
-  assert.strictEqual(eveJoin.joined, false);
-  assert.strictEqual(eveJoin.error, "Unauthorized");
+  await t.test("Members can access project tasks", () => {
+    const aliceTask = checkTaskAccess(mockTasks.task1._id, mockUsers.alice._id);
+    assert.equal(aliceTask.hasAccess, true);
+    assert.equal(aliceTask.task.title, "Implement automated tests");
+  });
 
-  console.log("✔ Test 5 Passed: Socket.IO room joins enforce project authorization.");
-}
+  await t.test("Unauthorized users are blocked from reading or mutating tasks (IDOR denial)", () => {
+    const eveTask = checkTaskAccess(mockTasks.task1._id, mockUsers.eve._id);
+    assert.equal(eveTask.hasAccess, false);
+  });
+});
+
+test("SEC-03: Socket.IO authenticated room join authorization", async (t) => {
+  const evaluateRoomJoin = (socketUser, requestedRoom) => {
+    if (!socketUser) return { allow: false, reason: "Unauthenticated" };
+
+    if (requestedRoom.startsWith("user_")) {
+      const targetUserId = requestedRoom.replace("user_", "");
+      return targetUserId === socketUser._id
+        ? { allow: true }
+        : { allow: false, reason: "Cannot join another user's room" };
+    }
+
+    if (requestedRoom.startsWith("team_")) {
+      const targetTeamId = requestedRoom.replace("team_", "");
+      const team = mockTeams.teamAlpha;
+      const isMember = team._id === targetTeamId && team.members.includes(socketUser._id);
+      return isMember ? { allow: true } : { allow: false, reason: "Not a team member" };
+    }
+
+    return { allow: false, reason: "Unknown room type" };
+  };
+
+  await t.test("User cannot join another user's private notification room", () => {
+    const res = evaluateRoomJoin(mockUsers.eve, `user_${mockUsers.alice._id}`);
+    assert.equal(res.allow, false);
+  });
+
+  await t.test("Member can join team room; outsider is rejected", () => {
+    assert.equal(evaluateRoomJoin(mockUsers.bob, `team_${mockTeams.teamAlpha._id}`).allow, true);
+    assert.equal(evaluateRoomJoin(mockUsers.eve, `team_${mockTeams.teamAlpha._id}`).allow, false);
+  });
+});

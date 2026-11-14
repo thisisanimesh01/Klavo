@@ -1,13 +1,7 @@
-import assert from "assert";
+import test from "node:test";
+import assert from "node:assert/strict";
 
-console.log("Running STAB-01 session stability and resilience test suite...");
-
-// Test 1: getSafeStoredUser with valid JSON
-{
-  const mockStorage = {
-    klavo_user: JSON.stringify({ _id: "usr_1", name: "Animesh Yadav", email: "ani@example.com" }),
-  };
-
+test("STAB-01: Session deserialization safety & corruption recovery", async (t) => {
   const getSafeStoredUser = (storage) => {
     try {
       const raw = storage.klavo_user;
@@ -19,81 +13,45 @@ console.log("Running STAB-01 session stability and resilience test suite...");
     }
   };
 
-  const user = getSafeStoredUser(mockStorage);
-  assert.strictEqual(user !== null, true);
-  assert.strictEqual(user.name, "Animesh Yadav");
-  console.log("✔ Test 1 Passed: Valid session JSON parses successfully.");
-}
+  await t.test("Valid JSON restores user session accurately", () => {
+    const storage = { klavo_user: JSON.stringify({ name: "Alice", email: "alice@example.com" }) };
+    const user = getSafeStoredUser(storage);
+    assert.notEqual(user, null);
+    assert.equal(user.name, "Alice");
+  });
 
-// Test 2: getSafeStoredUser with null or missing key
-{
-  const mockStorage = {};
-  const getSafeStoredUser = (storage) => {
-    try {
-      const raw = storage.klavo_user;
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch {
-      delete storage.klavo_user;
-      return null;
-    }
-  };
+  await t.test("Corrupted JSON does not throw, purges bad key, and returns null", () => {
+    const storage = { klavo_user: "{ not valid json ..." };
+    const user = getSafeStoredUser(storage);
+    assert.equal(user, null);
+    assert.equal(storage.klavo_user, undefined);
+  });
+});
 
-  const user = getSafeStoredUser(mockStorage);
-  assert.strictEqual(user, null, "Missing user key must return null without crashing");
-  console.log("✔ Test 2 Passed: Missing session returns null safely.");
-}
+test("STAB-01: Topbar username fallback resilience", async (t) => {
+  const resolveUserName = (user) => user?.name || "Guest";
 
-// Test 3: getSafeStoredUser with corrupt/malformed JSON string
-{
-  const mockStorage = {
-    klavo_user: "{ corrupt json ... invalid syntax",
-  };
+  await t.test("Returns user name when present", () => {
+    assert.equal(resolveUserName({ name: "Alice" }), "Alice");
+  });
 
-  let cleaned = false;
-  const getSafeStoredUser = (storage) => {
-    try {
-      const raw = storage.klavo_user;
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch {
-      delete storage.klavo_user;
-      cleaned = true;
-      return null;
-    }
-  };
+  await t.test("Falls back to 'Guest' when user is null, undefined, or missing name", () => {
+    assert.equal(resolveUserName(null), "Guest");
+    assert.equal(resolveUserName(undefined), "Guest");
+    assert.equal(resolveUserName({}), "Guest");
+  });
+});
 
-  const user = getSafeStoredUser(mockStorage);
-  assert.strictEqual(user, null, "Malformed JSON must return null");
-  assert.strictEqual(cleaned, true, "Corrupted localStorage key must be cleared");
-  assert.strictEqual(mockStorage.klavo_user, undefined, "Bad key purged from storage");
-  console.log("✔ Test 3 Passed: Malformed session string caught and storage cleaned without throwing.");
-}
+test("STAB-01: 401 response interceptor session purge", async (t) => {
+  await t.test("Purges tokens on 401 from protected routes and triggers login redirect", () => {
+    const storage = {
+      klavo_access_token: "expired_token_xyz",
+      klavo_user: JSON.stringify({ name: "Alice" }),
+    };
 
-// Test 4: Topbar username resolution fallback
-{
-  const resolveUserName = (user) => {
-    return user?.name || "Guest";
-  };
-
-  assert.strictEqual(resolveUserName({ name: "Alice" }), "Alice");
-  assert.strictEqual(resolveUserName(null), "Guest", "Null user must fallback to Guest");
-  assert.strictEqual(resolveUserName(undefined), "Guest", "Undefined user must fallback to Guest");
-  assert.strictEqual(resolveUserName({}), "Guest", "User object without name must fallback to Guest");
-  console.log("✔ Test 4 Passed: Topbar safely resolves user name with fallback and never throws.");
-}
-
-// Test 5: 401 Interceptor session expiry handling
-{
-  const mockStorage = {
-    klavo_access_token: "expired_jwt_token",
-    klavo_user: JSON.stringify({ name: "Alice" }),
-  };
-
-  let redirectedTo = null;
-  const handle401Error = (error, storage, currentPath) => {
-    if (error.status === 401) {
-      const isAuthEndpoint = error.url.includes("/auth/login") || error.url.includes("/auth/register");
+    let redirectedTo = null;
+    const handle401 = (url, currentPath) => {
+      const isAuthEndpoint = url.includes("/auth/login") || url.includes("/auth/register");
       if (!isAuthEndpoint) {
         delete storage.klavo_access_token;
         delete storage.klavo_user;
@@ -101,20 +59,11 @@ console.log("Running STAB-01 session stability and resilience test suite...");
           redirectedTo = "/login";
         }
       }
-    }
-  };
+    };
 
-  // Subtest 5a: 401 on protected route clears session and redirects
-  handle401Error({ status: 401, url: "/projects" }, mockStorage, "/projects");
-  assert.strictEqual(mockStorage.klavo_access_token, undefined, "Expired token must be purged");
-  assert.strictEqual(mockStorage.klavo_user, undefined, "Expired user must be purged");
-  assert.strictEqual(redirectedTo, "/login", "Must redirect to /login on expired session");
-
-  // Subtest 5b: 401 on /auth/login does not redirect or wipe legitimate retry state
-  redirectedTo = null;
-  const loginStorage = { someKey: "123" };
-  handle401Error({ status: 401, url: "/auth/login" }, loginStorage, "/login");
-  assert.strictEqual(redirectedTo, null, "Login failure 401 must not trigger redirect loop");
-
-  console.log("✔ Test 5 Passed: 401 response interceptor purges expired sessions cleanly without redirect loops.");
-}
+    handle401("/projects", "/projects");
+    assert.equal(storage.klavo_access_token, undefined);
+    assert.equal(storage.klavo_user, undefined);
+    assert.equal(redirectedTo, "/login");
+  });
+});

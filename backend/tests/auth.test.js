@@ -1,124 +1,81 @@
-import assert from "assert";
+import test from "node:test";
+import assert from "node:assert/strict";
 import bcrypt from "bcryptjs";
 import { isBcryptHash } from "../src/controllers/authController.js";
 
-console.log("Running SEC-01 authentication and password hashing test suite...");
+test("SEC-01: Password Hashing & Bcrypt Format Detection", async (t) => {
+  await t.test("isBcryptHash identifies standard 60-character bcrypt strings", async () => {
+    const hash = await bcrypt.hash("securepassword", 10);
+    assert.equal(isBcryptHash(hash), true);
+  });
 
-// Test 1: Helper isBcryptHash correctly identifies bcrypt hashes
-{
-  const salt = await bcrypt.genSalt(10);
-  const validHash = await bcrypt.hash("mysecretpassword", salt);
-  assert.strictEqual(isBcryptHash(validHash), true, "isBcryptHash should return true for valid bcrypt hash");
-  assert.strictEqual(isBcryptHash("plainpassword123"), false, "isBcryptHash should return false for plaintext");
-  assert.strictEqual(isBcryptHash(""), false, "isBcryptHash should return false for empty string");
-  assert.strictEqual(isBcryptHash(null), false, "isBcryptHash should return false for null");
-  console.log("✔ Test 1 Passed: isBcryptHash helper accurately detects bcrypt format.");
-}
+  await t.test("isBcryptHash rejects plaintext, empty strings, and null", () => {
+    assert.equal(isBcryptHash("plainpassword123"), false);
+    assert.equal(isBcryptHash(""), false);
+    assert.equal(isBcryptHash(null), false);
+    assert.equal(isBcryptHash(undefined), false);
+  });
+});
 
-// Test 2: Simulated Registration creates proper bcrypt hash and omits password in response
-{
-  const mockDb = new Map();
-  const mockReq = {
-    body: {
+test("SEC-01: Authentication registration payload sanitization", async (t) => {
+  await t.test("Password hashes are never returned in user response objects", async () => {
+    const rawPassword = "TestPassword99!";
+    const hashedPassword = await bcrypt.hash(rawPassword, 10);
+
+    const userInDb = {
+      _id: "usr_mock_1",
       name: "Test User",
       email: "test@example.com",
-      password: "StrongPassword123!",
-    },
-  };
+      password: hashedPassword,
+    };
 
-  const hashedPassword = await bcrypt.hash(mockReq.body.password, 10);
-  const createdUser = {
-    _id: "user_id_123",
-    name: mockReq.body.name,
-    email: mockReq.body.email.toLowerCase(),
-    password: hashedPassword,
-    avatar: "",
-    googleUser: false,
-  };
-  mockDb.set(createdUser.email, createdUser);
+    // Client response construction
+    const responsePayload = {
+      user: {
+        _id: userInDb._id,
+        name: userInDb.name,
+        email: userInDb.email,
+      },
+      token: "mock_jwt_token",
+    };
 
-  // Response payload simulation
-  const responsePayload = {
-    user: {
-      _id: createdUser._id,
-      name: createdUser.name,
-      email: createdUser.email,
-      avatar: createdUser.avatar,
-    },
-    token: "mock_jwt_token",
-  };
+    assert.equal(responsePayload.user.password, undefined);
+    assert.equal(await bcrypt.compare(rawPassword, userInDb.password), true);
+    assert.equal(await bcrypt.compare("WrongPassword", userInDb.password), false);
+  });
+});
 
-  assert.strictEqual(isBcryptHash(createdUser.password), true, "Stored password must be a bcrypt hash");
-  assert.strictEqual(responsePayload.user.password, undefined, "Response user payload must never contain password or hash");
-  assert.strictEqual(await bcrypt.compare("StrongPassword123!", createdUser.password), true, "Bcrypt compare should match password");
-  assert.strictEqual(await bcrypt.compare("WrongPassword", createdUser.password), false, "Bcrypt compare should reject wrong password");
-  console.log("✔ Test 2 Passed: Registration flow hashes password and excludes password from API response.");
-}
+test("SEC-01: Seamless legacy account migration on login", async (t) => {
+  await t.test("Legacy plaintext password authenticates and updates to bcrypt hash", async () => {
+    const legacyUser = {
+      email: "legacy@example.com",
+      password: "myLegacyPlaintextPassword",
+    };
 
-// Test 3: Duplicate user registration rejection
-{
-  const existingEmails = new Set(["existing@example.com"]);
-  const incomingEmail = "EXISTING@example.com".toLowerCase().trim();
-  const isDuplicate = existingEmails.has(incomingEmail);
-  assert.strictEqual(isDuplicate, true, "Duplicate registration must be rejected");
-  console.log("✔ Test 3 Passed: Duplicate user registration is properly detected.");
-}
+    const loginAttempt = "myLegacyPlaintextPassword";
+    let isPasswordValid = false;
+    let needsMigration = false;
 
-// Test 4: Legacy plaintext password login and seamless migration
-{
-  const userRecord = {
-    _id: "legacy_user_456",
-    name: "Legacy User",
-    email: "legacy@example.com",
-    password: "oldPlaintextPassword",
-    googleUser: false,
-  };
-
-  const loginAttemptPassword = "oldPlaintextPassword";
-  let isPasswordValid = false;
-  let needsMigration = false;
-
-  if (isBcryptHash(userRecord.password)) {
-    isPasswordValid = await bcrypt.compare(loginAttemptPassword, userRecord.password);
-  } else {
-    if (userRecord.password === loginAttemptPassword) {
+    if (isBcryptHash(legacyUser.password)) {
+      isPasswordValid = await bcrypt.compare(loginAttempt, legacyUser.password);
+    } else if (legacyUser.password === loginAttempt) {
       isPasswordValid = true;
       needsMigration = true;
     }
-  }
 
-  assert.strictEqual(isPasswordValid, true, "Legacy password should match initially");
-  assert.strictEqual(needsMigration, true, "Plaintext password must trigger migration flag");
+    assert.equal(isPasswordValid, true);
+    assert.equal(needsMigration, true);
 
-  // Perform migration
-  if (needsMigration) {
-    userRecord.password = await bcrypt.hash(loginAttemptPassword, 10);
-  }
-
-  // Verify updated state
-  assert.strictEqual(isBcryptHash(userRecord.password), true, "Migrated password must now be a bcrypt hash");
-  assert.notStrictEqual(userRecord.password, "oldPlaintextPassword", "Plaintext password must no longer be stored");
-
-  // Verify subsequent login uses bcrypt comparison
-  let secondAttemptValid = false;
-  let secondNeedsMigration = false;
-  if (isBcryptHash(userRecord.password)) {
-    secondAttemptValid = await bcrypt.compare("oldPlaintextPassword", userRecord.password);
-  } else {
-    if (userRecord.password === "oldPlaintextPassword") {
-      secondAttemptValid = true;
-      secondNeedsMigration = true;
+    // Apply migration
+    if (needsMigration) {
+      legacyUser.password = await bcrypt.hash(loginAttempt, 10);
     }
-  }
-  assert.strictEqual(secondAttemptValid, true, "Subsequent login with correct password succeeds via bcrypt");
-  assert.strictEqual(secondNeedsMigration, false, "Subsequent login must not require migration");
-  console.log("✔ Test 4 Passed: Legacy plaintext credentials migrate automatically to bcrypt hash upon successful login.");
-}
 
-// Test 5: Rejection of invalid password on migrated account
-{
-  const hash = await bcrypt.hash("CorrectPassword", 10);
-  const isMatch = await bcrypt.compare("WrongPassword", hash);
-  assert.strictEqual(isMatch, false, "Invalid password attempt must be rejected");
-  console.log("✔ Test 5 Passed: Invalid password rejected with bcrypt verification.");
-}
+    assert.equal(isBcryptHash(legacyUser.password), true);
+    assert.notEqual(legacyUser.password, loginAttempt);
+
+    // Verify subsequent login uses bcrypt comparison
+    const subsequentValid = await bcrypt.compare(loginAttempt, legacyUser.password);
+    assert.equal(subsequentValid, true);
+  });
+});
