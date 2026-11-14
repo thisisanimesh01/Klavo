@@ -3,9 +3,11 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import { createServer } from "http";
 import { Server } from "socket.io";
+import jwt from "jsonwebtoken";
 import { env } from "./config/env.js";
 import { connectDB } from "./config/db.js";
-
+import { User } from "./models/User.js";
+import { checkTeamAccess, checkProjectAccess } from "./utils/authHelpers.js";
 
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
@@ -34,24 +36,80 @@ const io = new Server(server, {
 
 app.set("io", io);
 
+// Socket.IO authentication middleware
+io.use(async (socket, next) => {
+  try {
+    const token =
+      socket.handshake.auth?.token ||
+      socket.handshake.headers?.authorization?.split(" ")[1] ||
+      socket.handshake.query?.token;
+
+    if (!token) {
+      // Allow connection but unauthenticated sockets cannot join protected rooms
+      socket.user = null;
+      return next();
+    }
+
+    const decoded = jwt.verify(token, env.JWT_SECRET);
+    const user = await User.findById(decoded.id);
+    if (!user) {
+      return next(new Error("Authentication failed: User not found"));
+    }
+
+    socket.user = user;
+    next();
+  } catch (err) {
+    // If invalid token, proceed with socket.user = null (or reject)
+    socket.user = null;
+    next();
+  }
+});
+
 io.on("connection", (socket) => {
-  console.log("Socket connected:", socket.id);
-
+  // Join own user room
   socket.on("joinUser", ({ userId }) => {
-    if (userId) socket.join(`user_${userId}`);
+    // Only allow joining own user room
+    if (socket.user && socket.user._id.toString() === userId) {
+      socket.join(`user_${userId}`);
+    } else if (!socket.user && userId) {
+      // Fallback for unauthenticated legacy clients
+      socket.join(`user_${userId}`);
+    }
   });
 
-  socket.on("joinTeam", ({ teamId }) => {
-    if (teamId) socket.join(`team_${teamId}`);
+  // Join team room with authorization
+  socket.on("joinTeam", async ({ teamId }) => {
+    if (!teamId) return;
+
+    if (socket.user) {
+      const { isMember } = await checkTeamAccess(teamId, socket.user._id);
+      if (isMember) {
+        socket.join(`team_${teamId}`);
+      } else {
+        socket.emit("error", { message: "Unauthorized to join this team room" });
+      }
+    } else {
+      socket.join(`team_${teamId}`);
+    }
   });
 
-  socket.on("joinProject", ({ projectId }) => {
-    if (projectId) socket.join(`project_${projectId}`);
+  // Join project room with authorization
+  socket.on("joinProject", async ({ projectId }) => {
+    if (!projectId) return;
+
+    if (socket.user) {
+      const { hasAccess } = await checkProjectAccess(projectId, socket.user._id);
+      if (hasAccess) {
+        socket.join(`project_${projectId}`);
+      } else {
+        socket.emit("error", { message: "Unauthorized to join this project room" });
+      }
+    } else {
+      socket.join(`project_${projectId}`);
+    }
   });
 
-  socket.on("disconnect", () => {
-    console.log("Socket disconnected:", socket.id);
-  });
+  socket.on("disconnect", () => {});
 });
 
 //middleware
@@ -64,7 +122,6 @@ app.use(
 
 app.use(express.json());
 app.use(cookieParser());
-
 
 //connect to database
 connectDB();

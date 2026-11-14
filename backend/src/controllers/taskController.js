@@ -1,6 +1,7 @@
 import Task from "../models/Task.js";
 import { Project } from "../models/Project.js";
 import { logActivity } from "./activityController.js";
+import { checkProjectAccess, checkTaskAccess } from "../utils/authHelpers.js";
 
 export const createTask = async (req, res) => {
   try {
@@ -10,8 +11,13 @@ export const createTask = async (req, res) => {
       return res.status(400).json({ message: "Title and projectId are required" });
     }
 
-    const project = await Project.findById(projectId);
+    const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
     if (!project) return res.status(404).json({ message: "Project not found" });
+
+    // IDOR protection: User must belong to the project team
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to create tasks in this project" });
+    }
 
     const existingCount = await Task.countDocuments({
       projectId,
@@ -19,7 +25,7 @@ export const createTask = async (req, res) => {
     });
 
     const task = await Task.create({
-      title,
+      title: title.trim(),
       description: description || "",
       status: status || "todo",
       priority: priority || "medium",
@@ -61,6 +67,14 @@ export const getTasksByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
 
+    const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+
+    // IDOR protection: User must belong to the project team
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to view tasks in this project" });
+    }
+
     const tasks = await Task.find({ projectId })
       .populate("assignedTo", "name email avatar")
       .sort({ status: 1, order: 1, createdAt: 1 });
@@ -75,6 +89,14 @@ export const updateTask = async (req, res) => {
   try {
     const { taskId } = req.params;
 
+    const { hasAccess, task } = await checkTaskAccess(taskId, req.user._id);
+    if (!task) return res.status(404).json({ message: "Task not found" });
+
+    // IDOR protection: User must belong to the project team
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to update this task" });
+    }
+
     const allowed = ["title", "description", "status", "priority", "dueDate", "assignedTo"];
     const updates = {};
 
@@ -82,17 +104,15 @@ export const updateTask = async (req, res) => {
       if (req.body[f] !== undefined) updates[f] = req.body[f];
     });
 
-    const task = await Task.findByIdAndUpdate(taskId, updates, { new: true })
+    const updatedTask = await Task.findByIdAndUpdate(taskId, updates, { new: true })
       .populate("assignedTo", "name email avatar");
-
-    if (!task) return res.status(404).json({ message: "Task not found" });
 
     // Activity log
     await logActivity({
       projectId: task.projectId,
       userId: req.user._id,
       action: "Updated Task",
-      message: `${req.user.name} updated task "${task.title}"`,
+      message: `${req.user.name} updated task "${updatedTask.title}"`,
     });
 
     const io = req.app.get("io");
@@ -101,14 +121,14 @@ export const updateTask = async (req, res) => {
         projectId: task.projectId,
         user: { name: req.user.name },
         action: "Updated Task",
-        message: `${req.user.name} updated task "${task.title}"`,
+        message: `${req.user.name} updated task "${updatedTask.title}"`,
         createdAt: new Date(),
       });
 
-      io.to(`project_${task.projectId}`).emit("taskUpdated", task);
+      io.to(`project_${task.projectId}`).emit("taskUpdated", updatedTask);
     }
 
-    res.json(task);
+    res.json(updatedTask);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -118,8 +138,13 @@ export const deleteTask = async (req, res) => {
   try {
     const { taskId } = req.params;
 
-    const task = await Task.findById(taskId);
+    const { hasAccess, task } = await checkTaskAccess(taskId, req.user._id);
     if (!task) return res.status(404).json({ message: "Task not found" });
+
+    // IDOR protection: User must belong to the project team
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to delete this task" });
+    }
 
     const projectId = task.projectId;
 
@@ -156,8 +181,13 @@ export const moveTask = async (req, res) => {
     const { taskId } = req.params;
     const { status, order } = req.body;
 
-    const task = await Task.findById(taskId);
+    const { hasAccess, task } = await checkTaskAccess(taskId, req.user._id);
     if (!task) return res.status(404).json({ message: "Task not found" });
+
+    // IDOR protection: User must belong to the project team
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to move this task" });
+    }
 
     task.status = status;
     task.order = order;

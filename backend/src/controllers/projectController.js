@@ -1,6 +1,6 @@
 import { Project } from "../models/Project.js";
 import { Team } from "../models/Team.js";
-
+import { checkTeamAccess, checkProjectAccess } from "../utils/authHelpers.js";
 
 export const createProject = async (req, res) => {
   try {
@@ -10,12 +10,17 @@ export const createProject = async (req, res) => {
       return res.status(400).json({ message: "Name and teamId are required" });
     }
 
-    const team = await Team.findById(teamId);
+    const { isMember, team } = await checkTeamAccess(teamId, req.user._id);
     if (!team) return res.status(404).json({ message: "Team not found" });
 
+    // Enforce membership verification before creating project
+    if (!isMember) {
+      return res.status(403).json({ message: "Forbidden: You are not a member of this team" });
+    }
+
     const project = await Project.create({
-      name,
-      description: description || "",
+      name: name.trim(),
+      description: description ? description.trim() : "",
       teamId,
       createdBy: req.user._id,
     });
@@ -34,12 +39,12 @@ export const createProject = async (req, res) => {
   }
 };
 
-  // Get all projects for teams the user is a member of
+// Get all projects for teams the user is a member/owner of
 export const getProjects = async (req, res) => {
   try {
-    // ✔ Find all teams where user is a member
+    // Find all teams where user is a member or owner
     const teams = await Team.find({
-      members: req.user._id,
+      $or: [{ members: req.user._id }, { owner: req.user._id }],
     }).select("_id");
 
     const teamIds = teams.map((t) => t._id);
@@ -57,15 +62,21 @@ export const getProjects = async (req, res) => {
   }
 };
 
-
 export const deleteProject = async (req, res) => {
   try {
     const { projectId } = req.params;
 
-    const project = await Project.findById(projectId);
+    const { hasAccess, isOwner, project, team } = await checkProjectAccess(projectId, req.user._id);
 
-    if (!project)
+    if (!project) {
       return res.status(404).json({ message: "Project not found" });
+    }
+
+    // Only project creator or team owner can delete a project
+    const isProjectCreator = project.createdBy.toString() === req.user._id.toString();
+    if (!hasAccess || (!isProjectCreator && !isOwner)) {
+      return res.status(403).json({ message: "Forbidden: Only project creator or team owner can delete this project" });
+    }
 
     await Project.findByIdAndDelete(projectId);
 
@@ -83,18 +94,20 @@ export const deleteProject = async (req, res) => {
   }
 };
 
-
 export const getProjectMembers = async (req, res) => {
   try {
     const { projectId } = req.params;
 
-    const project = await Project.findById(projectId).populate("teamId");
+    const { hasAccess, project, team } = await checkProjectAccess(projectId, req.user._id);
     if (!project) return res.status(404).json({ message: "Project not found" });
 
-    const team = await Team.findById(project.teamId._id)
-      .populate("members", "name email");
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not a member of the project team" });
+    }
 
-    res.json(team.members);
+    const populatedTeam = await Team.findById(team._id).populate("members", "name email");
+
+    res.json(populatedTeam.members);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
