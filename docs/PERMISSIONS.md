@@ -58,3 +58,12 @@ Socket connections are authenticated via JWT token verification on handshake:
 - **`joinProject` (`project_${projectId}`)**: Verified against project and team membership before joining room.
 
 Unauthenticated or unauthorized socket clients cannot eavesdrop on private project channels or team events.
+
+---
+
+## 4. Client Session & Stability Policies (STAB-01)
+
+- **Session Deserialization**: `localStorage.getItem("klavo_user")` is guarded via `getSafeStoredUser()` in Redux. Any malformed JSON or corrupted storage key is discarded cleanly without causing runtime React render exceptions.
+- **Topbar User Resolution**: Connected directly to the centralized Redux state (`useSelector(state => state.auth?.user)`), defaulting to `"Guest"` if unauthenticated or state is unavailable.
+- **401 Response Handling**: `axiosClient` intercepts `401 Unauthorized` responses globally. When an authenticated request fails with 401 (e.g. token expired, signature revoked), local session tokens are purged and the application cleanly redirects to `/login`.
+- **Protected Routing**: `ProtectedRoute` renders a spinner loading state while the authentication session is being determined and redirects unauthenticated users to `/login`.

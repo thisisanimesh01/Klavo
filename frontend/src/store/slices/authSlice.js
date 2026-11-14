@@ -1,11 +1,29 @@
 import { createSlice } from "@reduxjs/toolkit";
 
+/**
+ * Safely parses the stored user object from localStorage.
+ * If corrupt, missing, or malformed, gracefully returns null and purges bad keys.
+ */
+export const getSafeStoredUser = () => {
+  try {
+    const raw = localStorage.getItem("klavo_user");
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (err) {
+    console.warn("Failed to parse klavo_user from localStorage; resetting session.");
+    localStorage.removeItem("klavo_user");
+    return null;
+  }
+};
+
 const tokenFromStorage = localStorage.getItem("klavo_access_token");
-const userFromStorage = localStorage.getItem("klavo_user");
+const userFromStorage = getSafeStoredUser();
 
 const initialState = {
-  user: userFromStorage ? JSON.parse(userFromStorage) : null,
+  user: userFromStorage,
   token: tokenFromStorage || null,
+  isAuthenticated: Boolean(tokenFromStorage),
+  isLoading: false,
 };
 
 const authSlice = createSlice({
@@ -16,15 +34,21 @@ const authSlice = createSlice({
       const { user, token } = action.payload;
       state.user = user;
       state.token = token;
+      state.isAuthenticated = true;
 
       // persist login
-      localStorage.setItem("klavo_access_token", token);
-      localStorage.setItem("klavo_user", JSON.stringify(user));
+      if (token) {
+        localStorage.setItem("klavo_access_token", token);
+      }
+      if (user) {
+        localStorage.setItem("klavo_user", JSON.stringify(user));
+      }
     },
 
     logout: (state) => {
       state.user = null;
       state.token = null;
+      state.isAuthenticated = false;
 
       // remove from storage
       localStorage.removeItem("klavo_access_token");
