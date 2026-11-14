@@ -1,11 +1,22 @@
-// backend/src/routes/fileRoutes.js
 import express from "express";
 import multer from "multer";
 import path from "path";
+import fs from "fs";
 import { authRequired } from "../middleware/authMiddleware.js";
-import { checkProjectAccess } from "../utils/authHelpers.js";
+import {
+  uploadFile,
+  getProjectFiles,
+  downloadFile,
+  deleteFile,
+} from "../controllers/fileController.js";
 
 const router = express.Router();
+
+// Ensure uploads/ directory exists
+const uploadDir = path.resolve("uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir, { recursive: true });
+}
 
 // Save uploads inside backend/uploads/
 const storage = multer.diskStorage({
@@ -14,35 +25,21 @@ const storage = multer.diskStorage({
   },
   filename: function (req, file, cb) {
     const ext = path.extname(file.originalname);
-    cb(null, Date.now() + ext);
+    cb(null, Date.now() + "-" + Math.round(Math.random() * 1e9) + ext);
   },
 });
 
-const upload = multer({ storage });
-
-// File upload API with authorization
-router.post("/upload", authRequired, upload.single("file"), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ message: "No file uploaded" });
-    }
-
-    const { projectId } = req.body;
-    if (projectId) {
-      const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
-      if (!project) return res.status(404).json({ message: "Project not found" });
-      if (!hasAccess) {
-        return res.status(403).json({ message: "Forbidden: You are not authorized to upload files to this project" });
-      }
-    }
-
-    res.json({
-      message: "File uploaded successfully",
-      file: req.file.filename,
-    });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
+const upload = multer({
+  storage,
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB max limit
 });
+
+router.use(authRequired);
+
+// File CRUD APIs
+router.post("/upload", upload.single("file"), uploadFile);
+router.get("/project/:projectId", getProjectFiles);
+router.get("/download/:fileId", downloadFile);
+router.delete("/:fileId", deleteFile);
 
 export default router;

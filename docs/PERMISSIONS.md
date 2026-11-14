@@ -84,3 +84,20 @@ Unauthenticated or unauthorized socket clients cannot eavesdrop on private proje
 | `/login` | `Login.jsx` | No | N/A | Public user sign-in & Google OAuth |
 | `/register` | `Register.jsx` | No | N/A | Public user registration |
 | `*` | 404 Fallback | N/A | N/A | Graceful not found screen with return-home action |
+
+---
+
+## 6. End-to-End Module Integration (MOD-01)
+
+### File Storage & Access Control:
+- `POST /api/files/upload`: Multipart upload with size limit (25MB). Validates user access to target `projectId`. Persists file in `uploads/` with UUID-based key and stores metadata in MongoDB with `userId` ownership.
+- `GET /api/files/project/:projectId`: Returns all files belonging to a project. Requires project team membership.
+- `GET /api/files/download/:fileId`: Streams file binary with `Content-Disposition`. Verifies project team access before serving binary.
+- `DELETE /api/files/:fileId`: Deletes file metadata and disk binary. Only file uploader, project creator, or team owner can execute.
+
+### Calendar Deadlines:
+- `GET /api/calendar`: Scoped strictly to projects belonging to teams where user is an owner/member. Returns assigned tasks with non-null due dates sorted chronologically.
+
+### Analytics & Project Metrics:
+- `GET /api/analytics/project/:projectId`: Computes project-level metrics (total tasks, completion percentage, status breakdown, and priority distribution) with verified project access.
+- `GET /api/dashboard`: Aggregates cross-project activity across user's teams.
