@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
+import CommentSection from "./CommentSection";
 
 export default function TaskModal({
   open,
@@ -94,8 +95,8 @@ export default function TaskModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="app-card p-6 rounded-xl w-full max-w-md shadow">
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="app-card p-6 rounded-xl w-full max-w-lg shadow my-8">
         <h2 className="text-lg font-semibold mb-4">
           {isEdit ? "Edit Task" : "Create Task"}
         </h2>
@@ -127,7 +128,7 @@ export default function TaskModal({
             <option value="done">Done</option>
           </select>
 
-          {/*  Multi-select members */}
+          {/* Multi-select members */}
           <div>
             <div className="text-sm font-medium mb-1">Assign to members</div>
             {members.length === 0 ? (
@@ -158,18 +159,25 @@ export default function TaskModal({
             )}
           </div>
 
-          <button className="w-full bg-indigo-600 text-white py-2 rounded">
+          <button className="w-full bg-indigo-600 text-white py-2 rounded font-medium hover:bg-indigo-700 transition">
             {isEdit ? "Update Task" : "Create Task"}
           </button>
 
           <button
             type="button"
             onClick={onClose}
-            className="w-full border py-2 rounded mt-2"
+            className="w-full border py-2 rounded mt-2 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
           >
             Cancel
           </button>
         </form>
+
+        {/* Real-time Comments & Reactions in edit mode */}
+        {isEdit && initialTask?._id && (
+          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-800">
+            <CommentSection taskId={initialTask._id} projectId={projectId} />
+          </div>
+        )}
       </div>
     </div>
   );

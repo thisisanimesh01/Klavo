@@ -2,6 +2,7 @@ import Task from "../models/Task.js";
 import { Project } from "../models/Project.js";
 import { logActivity } from "./activityController.js";
 import { checkProjectAccess, checkTaskAccess } from "../utils/authHelpers.js";
+import { createTargetedNotification } from "../utils/notificationHelpers.js";
 
 export const createTask = async (req, res) => {
   try {
@@ -55,6 +56,19 @@ export const createTask = async (req, res) => {
       });
 
       io.to(`project_${projectId}`).emit("taskCreated", task);
+
+      // Targeted notifications for assigned members
+      if (Array.isArray(assignedTo)) {
+        for (const assigneeId of assignedTo) {
+          await createTargetedNotification(io, {
+            userId: assigneeId,
+            senderId: req.user._id,
+            type: "TASK_ASSIGNED",
+            message: `${req.user.name} assigned you to task "${title}"`,
+            data: { taskId: task._id, projectId },
+          });
+        }
+      }
     }
 
     res.status(201).json(task);
@@ -126,6 +140,22 @@ export const updateTask = async (req, res) => {
       });
 
       io.to(`project_${task.projectId}`).emit("taskUpdated", updatedTask);
+
+      // Targeted notification: detect newly assigned members
+      if (Array.isArray(req.body.assignedTo)) {
+        const oldAssigneeSet = new Set((task.assignedTo || []).map((id) => id.toString()));
+        for (const newAssigneeId of req.body.assignedTo) {
+          if (!oldAssigneeSet.has(newAssigneeId.toString())) {
+            await createTargetedNotification(io, {
+              userId: newAssigneeId,
+              senderId: req.user._id,
+              type: "TASK_ASSIGNED",
+              message: `${req.user.name} assigned you to task "${updatedTask.title}"`,
+              data: { taskId: updatedTask._id, projectId: task.projectId },
+            });
+          }
+        }
+      }
     }
 
     res.json(updatedTask);
