@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
 import CommentSection from "./CommentSection";
 import PriorityBadge from "./PriorityBadge";
-import { X, Plus, Trash2, LayoutTemplate, Tag, CheckSquare, Settings2, Clock } from "lucide-react";
+import { X, Plus, Trash2, LayoutTemplate, Tag, CheckSquare, Settings2, Clock, Zap } from "lucide-react";
 
 const PRESET_COLORS = [
   "#6366f1", // indigo
@@ -21,6 +21,7 @@ export default function TaskModal({
   projectId,
   initialTask,     // if present -> edit
   defaultStatus,   // status for new task from column
+  defaultSprintId, // default sprint if creating from sprint view
   onSaved,
 }) {
   const isEdit = Boolean(initialTask);
@@ -29,6 +30,7 @@ export default function TaskModal({
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState("todo");
   const [priority, setPriority] = useState("medium");
+  const [sprintId, setSprintId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [estimatedHours, setEstimatedHours] = useState("");
 
@@ -53,16 +55,21 @@ export default function TaskModal({
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
-  // Load team members and templates for this project
+  // Sprints
+  const [sprints, setSprints] = useState([]);
+
+  // Load team members, templates, and sprints for this project
   useEffect(() => {
     const fetchDependencies = async () => {
       try {
-        const [membersRes, templatesRes] = await Promise.all([
+        const [membersRes, templatesRes, sprintsRes] = await Promise.all([
           axiosClient.get(`/projects/${projectId}/members`),
           axiosClient.get(`/task-templates?projectId=${projectId}`),
+          axiosClient.get(`/sprints/project/${projectId}`),
         ]);
         setMembers(membersRes.data || []);
         setTemplates(templatesRes.data || []);
+        setSprints(sprintsRes.data || []);
       } catch (err) {
         console.error("Failed to load project dependencies:", err);
       }
@@ -82,6 +89,7 @@ export default function TaskModal({
       setDescription(initialTask.description || "");
       setStatus(initialTask.status || "todo");
       setPriority(initialTask.priority || "medium");
+      setSprintId(initialTask.sprintId?._id || initialTask.sprintId || "");
       setDueDate(
         initialTask.dueDate
           ? new Date(initialTask.dueDate).toISOString().split("T")[0]
@@ -102,6 +110,7 @@ export default function TaskModal({
       setDescription("");
       setStatus(defaultStatus || "todo");
       setPriority("medium");
+      setSprintId(defaultSprintId || "");
       setDueDate("");
       setEstimatedHours("");
       setSelectedMembers([]);
@@ -110,7 +119,7 @@ export default function TaskModal({
       setCustomFields([]);
       setSelectedTemplateId("");
     }
-  }, [open, isEdit, initialTask, defaultStatus]);
+  }, [open, isEdit, initialTask, defaultStatus, defaultSprintId]);
 
   if (!open) return null;
 
@@ -217,6 +226,7 @@ export default function TaskModal({
         description,
         status,
         priority,
+        sprintId: sprintId || null,
         dueDate: dueDate ? new Date(dueDate) : null,
         estimatedHours: estimatedHours ? Number(estimatedHours) : null,
         assignedTo: selectedMembers,
@@ -253,7 +263,7 @@ export default function TaskModal({
               {isEdit ? "Edit Task" : "Create Task"}
             </h2>
             <p className="text-xs text-slate-500">
-              Configure priorities, labels, blueprints, and custom fields
+              Configure priorities, sprints, blueprints, and custom fields
             </p>
           </div>
           <button
@@ -313,8 +323,8 @@ export default function TaskModal({
             />
           </div>
 
-          {/* Core Controls: Status, Priority, Due Date, Hours */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Core Controls: Status, Priority, Sprint, Due Date, Hours */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase mb-1">
                 Status
@@ -345,6 +355,24 @@ export default function TaskModal({
                 <option value="high">High</option>
                 <option value="critical">Critical</option>
                 <option value="urgent">Urgent</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                Sprint Iteration
+              </label>
+              <select
+                className="w-full border border-slate-300 dark:border-slate-700 px-3 py-2 rounded-lg bg-white dark:bg-slate-900 text-sm"
+                value={sprintId}
+                onChange={(e) => setSprintId(e.target.value)}
+              >
+                <option value="">Product Backlog (No Sprint)</option>
+                {sprints.map((s) => (
+                  <option key={s._id} value={s._id}>
+                    {s.name} ({s.status})
+                  </option>
+                ))}
               </select>
             </div>
 

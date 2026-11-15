@@ -250,3 +250,31 @@ Unauthenticated or unauthorized socket clients cannot eavesdrop on private proje
 ### Anti-IDOR Protections for Task Attributes & Templates:
 - `checkTeamAccess` and `checkProjectAccess` verify that the requesting user belongs to the associated team before permitting creation, inspection, editing, or deletion of templates.
 - Task search and filter endpoints enforce strict project access boundaries before returning matching tasks or metadata.
+
+---
+
+## 12. Sprint Management (PM-02)
+
+### Sprint Lifecycle & State Rules:
+- Sprints follow an explicit lifecycle governed by `Sprint` model:
+  - `planned`: Default status upon creation. Tasks can be planned and estimated.
+  - `active`: In-flight iteration. Enforces business rule: **Only one active sprint is permitted per project** at any given time.
+  - `completed`: Iteration concluded. Triggering `complete` automatically calculates rollover and moves uncompleted tasks (`status != 'done'`) to either product backlog (`sprintId: null`) or a specified target sprint.
+  - `archived`: Read-only historic record.
+
+### REST Endpoints for Sprints:
+| Resource | Action | Endpoint | Required Role / Permission |
+| :--- | :--- | :--- | :--- |
+| **Sprint** | Create | `POST /api/sprints` | Member or Owner of project's team |
+| **Sprint** | List | `GET /api/sprints/project/:projectId` | Member or Owner of project's team |
+| **Sprint** | Get Details | `GET /api/sprints/:sprintId` | Member or Owner of sprint's project |
+| **Sprint** | Update | `PUT /api/sprints/:sprintId` | Member or Owner of sprint's project |
+| **Sprint** | Start Sprint | `POST /api/sprints/:sprintId/start` | Member or Owner of sprint's project |
+| **Sprint** | Complete Sprint | `POST /api/sprints/:sprintId/complete` | Member or Owner of sprint's project |
+| **Sprint** | Archive Sprint | `POST /api/sprints/:sprintId/archive` | Member or Owner of sprint's project |
+| **Sprint** | Batch Task Assignment | `POST /api/sprints/:sprintId/tasks` | Member or Owner of sprint's project |
+| **Sprint** | Delete Sprint | `DELETE /api/sprints/:sprintId` | Member or Owner of sprint's project (non-active only) |
+
+### Anti-IDOR Protections for Sprints:
+- `checkSprintAccess` resolves sprint -> project -> team hierarchy and denies any read/write request if the authenticated user does not belong to the project team.
+- Batch task assignment enforces `{ _id: { $in: taskIds }, projectId: sprint.projectId }` to prevent cross-project task leakage or IDOR mutation.
