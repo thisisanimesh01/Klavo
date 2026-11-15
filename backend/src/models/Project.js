@@ -9,4 +9,7 @@ const projectSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+projectSchema.index({ teamId: 1 });
+projectSchema.index({ createdBy: 1 });
+
 export const Project = mongoose.model("Project", projectSchema);

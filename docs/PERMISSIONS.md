@@ -145,3 +145,46 @@ Unauthenticated or unauthorized socket clients cannot eavesdrop on private proje
   - Task Creation, Updating, Deletion, and Column Movement.
   - File Uploads.
   - Real-time `activityCreated` emission across project rooms.
+
+---
+
+## 9. Backend Reliability & Production Hardening (SEC-04)
+
+### Central Error Handling & 404 Routing:
+- `backend/src/middleware/errorHandler.js`:
+  - Sanitizes all unhandled exceptions; in production (`NODE_ENV === "production"`), internal stack traces and server internals are suppressed.
+  - Specialized formatters for Multer (`LIMIT_FILE_SIZE` -> 400), Mongoose CastErrors (`CastError` -> 400), Mongoose validation errors (`ValidationError` -> 400), and MongoDB unique index conflicts (`11000` -> 409).
+  - Unmatched endpoints are handled by `notFoundHandler` returning structured 404 JSON.
+
+### Sliding-Window Rate Limiting:
+- `backend/src/middleware/rateLimiter.js`:
+  - Lightweight in-memory sliding window algorithm without external Redis dependency.
+  - Periodic background unref cleanup interval preventing memory leakage.
+  - **Auth Limiter**: Applied to `/api/auth/register`, `/api/auth/login`, and `/api/auth/google` (max 20 attempts per 15 minutes per IP).
+  - **Upload Limiter**: Applied to `/api/files/upload` (max 30 uploads per 10 minutes per IP).
+  - Emits standard `Retry-After` HTTP headers on limit trips.
+
+### Database Indexing Strategy:
+- **Task**: Compound index on `{ projectId: 1, status: 1, order: 1 }`, `{ assignedTo: 1 }`, `{ dueDate: 1 }`, and `{ createdAt: -1 }`.
+- **Team**: Indexed `{ owner: 1 }` and `{ members: 1 }`.
+- **Project**: Indexed `{ teamId: 1 }` and `{ createdBy: 1 }`.
+- **File**: Indexed `{ projectId: 1, createdAt: -1 }` and `{ userId: 1 }`.
+- **Activity**: Indexed `{ projectId: 1, createdAt: -1 }` and `{ user: 1 }`.
+- **Comment**: Indexed `{ taskId: 1, createdAt: 1 }` and `{ userId: 1 }`.
+- **Reaction**: Compound unique index `{ commentId: 1, userId: 1, emoji: 1 }`.
+- **Notification**: Indexed `{ userId: 1, read: 1, createdAt: -1 }`.
+- **Message**: Indexed `{ projectId: 1, createdAt: 1 }`.
+
+### Graceful Server Shutdown:
+- Listens to `SIGTERM` and `SIGINT`.
+- Closes HTTP server first to reject incoming connections while finishing in-flight requests.
+- Closes MongoDB connection cleanly via `mongoose.connection.close()`.
+- Implements a 10-second fail-safe timeout for forced exit if requests hang.
+
+### File Storage Hardening & Architectural Analysis:
+- **Upload Path Traversal Protection**: Upload directory is resolved to absolute path `path.resolve("uploads")` and verified on boot.
+- **MIME & Extension Whitelist**: Multer file filter enforces whitelisted extensions (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.pdf`, `.doc`, `.docx`, `.xls`, `.xlsx`, `.csv`, `.txt`, `.zip`).
+- **Storage Strategy Assessment**:
+  - *Current Design*: High-speed local disk storage (`uploads/`) with UUID keys and MongoDB metadata tracking.
+  - *Limitation*: Ephemeral local disk storage is tied to a single compute container/instance and does not automatically share state across horizontally scaled multi-container clusters.
+  - *Production Recommendation*: An S3-compatible object store (e.g., AWS S3, Cloudflare R2, Google Cloud Storage) or Cloudinary should be adopted when migrating from single-node deployments to multi-instance serverless/container clusters. The existing controller structure cleanly isolates storage key generation, streaming, and deletion, making an S3 client adapter a seamless drop-in replacement.

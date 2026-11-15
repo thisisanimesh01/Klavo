@@ -18,4 +18,7 @@ const teamSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+teamSchema.index({ owner: 1 });
+teamSchema.index({ members: 1 });
+
 export const Team = mongoose.model("Team", teamSchema);

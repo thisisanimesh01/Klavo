@@ -5,12 +5,13 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import jwt from "jsonwebtoken";
 import { env } from "./config/env.js";
-import { connectDB } from "./config/db.js";
+import { connectDB, closeDB } from "./config/db.js";
 import { User } from "./models/User.js";
 import { checkTeamAccess, checkProjectAccess } from "./utils/authHelpers.js";
 import { initCommentSockets } from "./sockets/comments.js";
 import { initReactionSockets } from "./sockets/reactions.js";
 import { initNotificationSockets } from "./sockets/notifications.js";
+import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
@@ -155,9 +156,32 @@ app.get("/", (req, res) => {
   res.send("Klavo backend running!");
 });
 
+// 404 and Centralized Error Handling Middlewares
+app.use(notFoundHandler);
+app.use(errorHandler);
+
 //start server
 const PORT = env.PORT || 5050;
 
 server.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
+
+// Graceful Shutdown Handling
+const shutdown = async (signal) => {
+  console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+  server.close(async () => {
+    console.log("HTTP server closed.");
+    await closeDB();
+    process.exit(0);
+  });
+
+  // Force exit if shutdown hangs beyond 10 seconds
+  setTimeout(() => {
+    console.error("Could not close connections in time, forcefully shutting down");
+    process.exit(1);
+  }, 10000).unref();
+};
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
