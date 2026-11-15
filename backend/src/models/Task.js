@@ -14,8 +14,51 @@ const taskSchema = new mongoose.Schema(
 
     priority: {
       type: String,
-      enum: ["low", "medium", "high", "critical"],
+      enum: ["low", "medium", "high", "critical", "urgent"],
       default: "medium",
+    },
+
+    // Labels/Tags with name and customizable hex/color
+    labels: [
+      {
+        name: { type: String, trim: true },
+        color: { type: String, default: "#6366f1" },
+      },
+    ],
+
+    // Dynamic custom fields
+    customFields: [
+      {
+        name: { type: String, required: true },
+        type: {
+          type: String,
+          enum: ["text", "number", "date", "dropdown", "checkbox"],
+          default: "text",
+        },
+        value: { type: mongoose.Schema.Types.Mixed },
+        options: [{ type: String }],
+      },
+    ],
+
+    // Optional checklist items for breaking down tasks
+    checklist: [
+      {
+        text: { type: String, required: true },
+        completed: { type: Boolean, default: false },
+      },
+    ],
+
+    // Optional estimation / tracking
+    estimatedHours: {
+      type: Number,
+      default: null,
+    },
+
+    // Optional reference to template if instantiated from one
+    templateId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "TaskTemplate",
+      default: null,
     },
 
     dueDate: {
@@ -57,8 +100,10 @@ const taskSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Performance Indexes for Kanban boards, filters, and calendar deadlines
+// Performance Indexes for Kanban boards, filters, labels, priorities, and deadlines
 taskSchema.index({ projectId: 1, status: 1, order: 1 });
+taskSchema.index({ projectId: 1, priority: 1 });
+taskSchema.index({ projectId: 1, "labels.name": 1 });
 taskSchema.index({ assignedTo: 1 });
 taskSchema.index({ dueDate: 1 });
 taskSchema.index({ createdAt: -1 });

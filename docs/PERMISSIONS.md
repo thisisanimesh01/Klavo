@@ -219,3 +219,34 @@ Unauthenticated or unauthorized socket clients cannot eavesdrop on private proje
   - Implements a uniform `StorageService` interface (`save`, `getFilePath`, `delete`, `exists`).
   - Defaults to `LocalDiskStorageProvider` without requiring external cloud accounts or paid services.
   - Architecture provides a plug-and-play adapter path to S3-compatible persistent object stores (AWS S3, Cloudflare R2, MinIO, Google Cloud Storage) without changes to controllers or frontend clients.
+
+---
+
+## 11. Advanced Task Management & Templates (PM-01)
+
+### Priority Hierarchy & Visual Tokens:
+- Priorities are strictly typed across 5 tiers:
+  - `low`: Default background slate token with low urgency.
+  - `medium`: Standard work item with balanced scheduling.
+  - `high`: Elevates in sort order and calendar badges.
+  - `critical`: High risk or blocker tag.
+  - `urgent`: Pulsing purple badge, highest sorting weight.
+
+### Task Blueprint / Templates Schema:
+- Stored in `TaskTemplate` model (`backend/src/models/TaskTemplate.js`).
+- Can be scoped at the **Project level** or **Team-wide level**.
+- Holds blueprint configurations: `defaultTitle`, `defaultDescription`, `defaultPriority`, `defaultLabels`, `defaultCustomFields`, `checklist`, and `estimatedHours`.
+- When instantiating tasks via `POST /api/tasks` with `templateId`, template blueprint defaults are automatically populated for any omitted fields while respecting explicit overrides.
+
+### Permission Matrix for Task Templates:
+| Resource | Action | Endpoint | Required Role / Permission |
+| :--- | :--- | :--- | :--- |
+| **TaskTemplate** | Create | `POST /api/task-templates` | Member or Owner of team / project |
+| **TaskTemplate** | List | `GET /api/task-templates?projectId=...` | Member or Owner of project's team |
+| **TaskTemplate** | Get By ID | `GET /api/task-templates/:templateId` | Member or Owner of template's team |
+| **TaskTemplate** | Update | `PUT /api/task-templates/:templateId` | Member or Owner of template's team |
+| **TaskTemplate** | Delete | `DELETE /api/task-templates/:templateId` | Member or Owner of template's team |
+
+### Anti-IDOR Protections for Task Attributes & Templates:
+- `checkTeamAccess` and `checkProjectAccess` verify that the requesting user belongs to the associated team before permitting creation, inspection, editing, or deletion of templates.
+- Task search and filter endpoints enforce strict project access boundaries before returning matching tasks or metadata.

@@ -30,12 +30,13 @@ export const getProjectAnalytics = async (req, res) => {
       { _id: "done", count: completedCount },
     ];
 
-    // Priority breakdown
+    // Priority breakdown (includes urgent)
     const priorityDistribution = [
       { _id: "low", count: tasks.filter((t) => t.priority === "low").length },
       { _id: "medium", count: tasks.filter((t) => t.priority === "medium").length },
       { _id: "high", count: tasks.filter((t) => t.priority === "high").length },
       { _id: "critical", count: tasks.filter((t) => t.priority === "critical").length },
+      { _id: "urgent", count: tasks.filter((t) => t.priority === "urgent").length },
     ];
 
     res.json({

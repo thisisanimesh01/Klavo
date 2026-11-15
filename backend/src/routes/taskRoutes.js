@@ -3,6 +3,7 @@ import { authRequired } from "../middleware/authMiddleware.js";
 import {
   createTask,
   getTasksByProject,
+  getTaskById,
   updateTask,
   deleteTask,
   moveTask,
@@ -14,6 +15,7 @@ router.use(authRequired);
 
 router.post("/", createTask);
 router.get("/project/:projectId", getTasksByProject);
+router.get("/:taskId", getTaskById);
 router.put("/:taskId", updateTask);
 router.delete("/:taskId", deleteTask);
 router.put("/:taskId/move", moveTask);
