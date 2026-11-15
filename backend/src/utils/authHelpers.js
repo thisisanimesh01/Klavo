@@ -61,3 +61,18 @@ export const checkSprintAccess = async (sprintId, userId) => {
   const { hasAccess, isOwner, project, team } = await checkProjectAccess(sprint.projectId, userId);
   return { hasAccess, isOwner, sprint, project, team };
 };
+
+/**
+ * Checks if a user has access to a milestone via its project and team.
+ * @param {string|ObjectId} milestoneId
+ * @param {string|ObjectId} userId
+ * @returns {Promise<{hasAccess: boolean, isOwner: boolean, milestone: object|null, project: object|null, team: object|null}>}
+ */
+export const checkMilestoneAccess = async (milestoneId, userId) => {
+  const { default: Milestone } = await import("../models/Milestone.js");
+  const milestone = await Milestone.findById(milestoneId);
+  if (!milestone) return { hasAccess: false, isOwner: false, milestone: null, project: null, team: null };
+
+  const { hasAccess, isOwner, project, team } = await checkProjectAccess(milestone.projectId, userId);
+  return { hasAccess, isOwner, milestone, project, team };
+};

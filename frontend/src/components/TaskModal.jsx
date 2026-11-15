@@ -47,6 +47,7 @@ export default function TaskModal({
   const [status, setStatus] = useState("todo");
   const [priority, setPriority] = useState("medium");
   const [sprintId, setSprintId] = useState("");
+  const [milestoneId, setMilestoneId] = useState("");
   const [parentId, setParentId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [estimatedHours, setEstimatedHours] = useState("");
@@ -126,6 +127,7 @@ export default function TaskModal({
           setStatus(t.status || "todo");
           setPriority(t.priority || "medium");
           setSprintId(t.sprintId?._id || t.sprintId || "");
+          setMilestoneId(t.milestoneId?._id || t.milestoneId || "");
           setParentId(t.parentId?._id || t.parentId || "");
           setDueDate(t.dueDate ? new Date(t.dueDate).toISOString().split("T")[0] : "");
           setEstimatedHours(t.estimatedHours || "");
@@ -340,6 +342,7 @@ export default function TaskModal({
         status,
         priority,
         sprintId: sprintId || null,
+        milestoneId: milestoneId || null,
         parentId: parentId || null,
         dueDate: dueDate ? new Date(dueDate) : null,
         estimatedHours: estimatedHours ? Number(estimatedHours) : null,
@@ -523,6 +526,24 @@ export default function TaskModal({
                 {sprints.map((s) => (
                   <option key={s._id} value={s._id}>
                     {s.name} ({s.status})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase mb-1">
+                Project Milestone
+              </label>
+              <select
+                className="w-full border border-slate-300 dark:border-slate-700 px-3 py-2 rounded-lg bg-white dark:bg-slate-900 text-sm"
+                value={milestoneId}
+                onChange={(e) => setMilestoneId(e.target.value)}
+              >
+                <option value="">No Milestone Assigned</option>
+                {milestones.map((m) => (
+                  <option key={m._id} value={m._id}>
+                    {m.name} ({m.status})
                   </option>
                 ))}
               </select>

@@ -25,6 +25,13 @@ const taskSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Project Milestone association
+    milestoneId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Milestone",
+      default: null,
+    },
+
     // Subtask hierarchy: parentId is null for top-level tasks
     parentId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -139,6 +146,8 @@ taskSchema.index({ "dependencies.taskId": 1 });
 taskSchema.index({ projectId: 1, priority: 1 });
 taskSchema.index({ projectId: 1, "labels.name": 1 });
 taskSchema.index({ sprintId: 1 });
+taskSchema.index({ milestoneId: 1 });
+taskSchema.index({ projectId: 1, milestoneId: 1 });
 taskSchema.index({ assignedTo: 1 });
 taskSchema.index({ dueDate: 1 });
 taskSchema.index({ createdAt: -1 });

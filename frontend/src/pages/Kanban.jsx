@@ -5,6 +5,8 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import TaskModal from "../components/TaskModal";
 import TaskTemplateModal from "../components/TaskTemplateModal";
 import SprintModal from "../components/SprintModal";
+import MilestoneModal from "../components/MilestoneModal";
+import GanttTimelineView from "../components/GanttTimelineView";
 import BacklogView from "../components/BacklogView";
 import PriorityBadge from "../components/PriorityBadge";
 import ThemeToggle from "../components/ThemeToggle";
@@ -33,6 +35,7 @@ import {
   ShieldAlert,
   CornerDownRight,
   Link,
+  Flag,
 } from "lucide-react";
 
 const COLUMNS = [
@@ -47,6 +50,7 @@ export default function Kanban() {
 
   const [tasks, setTasks] = useState([]);
   const [sprints, setSprints] = useState([]);
+  const [milestones, setMilestones] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Modals
@@ -55,6 +59,8 @@ export default function Kanban() {
   const [sprintModalOpen, setSprintModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [editingSprint, setEditingSprint] = useState(null);
+  const [milestoneModalOpen, setMilestoneModalOpen] = useState(false);
+  const [editingMilestone, setEditingMilestone] = useState(null);
   const [createStatus, setCreateStatus] = useState("todo");
 
   const [activeTab, setActiveTab] = useState("board"); // 'board' | 'backlog' | 'activity' | 'chat'
@@ -90,12 +96,22 @@ export default function Kanban() {
     }
   }, [projectId]);
 
+  const fetchMilestones = useCallback(async () => {
+    try {
+      const res = await axiosClient.get(`/milestones/project/${projectId}`);
+      setMilestones(res.data || []);
+    } catch (err) {
+      console.error("Failed to fetch milestones:", err);
+    }
+  }, [projectId]);
+
   useEffect(() => {
     if (projectId) {
       fetchTasks();
       fetchSprints();
+      fetchMilestones();
     }
-  }, [projectId, fetchTasks, fetchSprints]);
+  }, [projectId, fetchTasks, fetchSprints, fetchMilestones]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -417,6 +433,7 @@ export default function Kanban() {
           {[
             { id: "board", label: "Kanban Board" },
             { id: "backlog", label: "Product Backlog" },
+            { id: "gantt", label: "Milestones & Gantt" },
             { id: "activity", label: "Activity" },
             { id: "chat", label: "Chat" },
           ].map((tab) => (
@@ -433,6 +450,23 @@ export default function Kanban() {
             </button>
           ))}
         </div>
+
+        {/* Interactive Gantt / Timeline View Tab */}
+        {activeTab === "gantt" && (
+          <GanttTimelineView
+            projectId={projectId}
+            milestones={milestones}
+            tasks={tasks}
+            sprints={sprints}
+            onOpenCreateMilestone={openCreateMilestoneModal}
+            onOpenEditMilestone={openEditMilestoneModal}
+            onOpenEditTask={openEditModal}
+            onRefresh={() => {
+              fetchTasks();
+              fetchMilestones();
+            }}
+          />
+        )}
 
         {/* Dedicated Backlog View Tab */}
         {activeTab === "backlog" && (
@@ -850,6 +884,16 @@ export default function Kanban() {
         initialSprint={editingSprint}
         onSaved={() => {
           fetchSprints();
+        }}
+      />
+      <MilestoneModal
+        open={milestoneModalOpen}
+        onClose={() => setMilestoneModalOpen(false)}
+        projectId={projectId}
+        initialMilestone={editingMilestone}
+        onSaved={() => {
+          fetchMilestones();
+          fetchTasks();
         }}
       />
     </div>
