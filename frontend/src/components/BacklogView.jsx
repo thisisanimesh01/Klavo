@@ -18,6 +18,8 @@ import {
   Tag,
   CheckCircle2,
   GripVertical,
+  ShieldAlert,
+  CornerDownRight,
 } from "lucide-react";
 
 export default function BacklogView({
@@ -417,7 +419,25 @@ export default function BacklogView({
 
                               {/* Right: Priority, Estimate, Due Date */}
                               <div className="flex items-center gap-6 shrink-0">
-                                <PriorityBadge priority={task.priority} />
+                                <div className="flex items-center gap-1.5">
+                                  <PriorityBadge priority={task.priority} />
+                                  {task.isBlocked && task.status !== "done" && (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 dark:bg-red-950/80 dark:text-red-300"
+                                      title="Blocked by incomplete dependency"
+                                    >
+                                      <ShieldAlert className="w-3 h-3" /> BLOCKED
+                                    </span>
+                                  )}
+                                  {task.totalSubtasks > 0 && (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400"
+                                      title="Subtask progress"
+                                    >
+                                      <CornerDownRight className="w-3 h-3" /> {task.completedSubtasks}/{task.totalSubtasks}
+                                    </span>
+                                  )}
+                                </div>
 
                                 <div className="w-16 text-right font-medium text-slate-600 dark:text-slate-300">
                                   {task.estimatedHours ? `${task.estimatedHours}h` : "—"}

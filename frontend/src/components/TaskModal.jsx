@@ -2,7 +2,22 @@ import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
 import CommentSection from "./CommentSection";
 import PriorityBadge from "./PriorityBadge";
-import { X, Plus, Trash2, LayoutTemplate, Tag, CheckSquare, Settings2, Clock, Zap } from "lucide-react";
+import {
+  X,
+  Plus,
+  Trash2,
+  LayoutTemplate,
+  Tag,
+  CheckSquare,
+  Settings2,
+  Clock,
+  Zap,
+  GitCommit,
+  Link,
+  ShieldAlert,
+  CornerDownRight,
+  CheckCircle2,
+} from "lucide-react";
 
 const PRESET_COLORS = [
   "#6366f1", // indigo
@@ -22,6 +37,7 @@ export default function TaskModal({
   initialTask,     // if present -> edit
   defaultStatus,   // status for new task from column
   defaultSprintId, // default sprint if creating from sprint view
+  defaultParentId, // if creating subtask
   onSaved,
 }) {
   const isEdit = Boolean(initialTask);
@@ -31,6 +47,7 @@ export default function TaskModal({
   const [status, setStatus] = useState("todo");
   const [priority, setPriority] = useState("medium");
   const [sprintId, setSprintId] = useState("");
+  const [parentId, setParentId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [estimatedHours, setEstimatedHours] = useState("");
 
@@ -55,21 +72,36 @@ export default function TaskModal({
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
 
-  // Sprints
+  // Sprints & Project Tasks for dependency linking
   const [sprints, setSprints] = useState([]);
+  const [projectTasks, setProjectTasks] = useState([]);
 
-  // Load team members, templates, and sprints for this project
+  // Dependencies
+  const [dependencies, setDependencies] = useState([]);
+  const [selectedDepTaskId, setSelectedDepTaskId] = useState("");
+  const [selectedDepType, setSelectedDepType] = useState("blocked-by");
+
+  // Subtasks
+  const [subtasks, setSubtasks] = useState([]);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
+
+  // Blocker warning message
+  const [blockerError, setBlockerError] = useState(null);
+
+  // Load team members, templates, sprints, and tasks for this project
   useEffect(() => {
     const fetchDependencies = async () => {
       try {
-        const [membersRes, templatesRes, sprintsRes] = await Promise.all([
+        const [membersRes, templatesRes, sprintsRes, tasksRes] = await Promise.all([
           axiosClient.get(`/projects/${projectId}/members`),
           axiosClient.get(`/task-templates?projectId=${projectId}`),
           axiosClient.get(`/sprints/project/${projectId}`),
+          axiosClient.get(`/tasks/project/${projectId}`),
         ]);
         setMembers(membersRes.data || []);
         setTemplates(templatesRes.data || []);
         setSprints(sprintsRes.data || []);
+        setProjectTasks(tasksRes.data || []);
       } catch (err) {
         console.error("Failed to load project dependencies:", err);
       }
@@ -80,37 +112,42 @@ export default function TaskModal({
     }
   }, [open, projectId]);
 
-  // Fill form in edit / create mode
+  // Load full task details (including subtasks and dependencies) if editing
   useEffect(() => {
     if (!open) return;
 
-    if (isEdit && initialTask) {
-      setTitle(initialTask.title || "");
-      setDescription(initialTask.description || "");
-      setStatus(initialTask.status || "todo");
-      setPriority(initialTask.priority || "medium");
-      setSprintId(initialTask.sprintId?._id || initialTask.sprintId || "");
-      setDueDate(
-        initialTask.dueDate
-          ? new Date(initialTask.dueDate).toISOString().split("T")[0]
-          : ""
-      );
-      setEstimatedHours(initialTask.estimatedHours || "");
-      setSelectedMembers(
-        Array.isArray(initialTask.assignedTo)
-          ? initialTask.assignedTo.map((u) => u._id)
-          : []
-      );
-      setLabels(Array.isArray(initialTask.labels) ? initialTask.labels : []);
-      setChecklist(Array.isArray(initialTask.checklist) ? initialTask.checklist : []);
-      setCustomFields(Array.isArray(initialTask.customFields) ? initialTask.customFields : []);
-      setSelectedTemplateId(initialTask.templateId?._id || initialTask.templateId || "");
+    if (isEdit && initialTask?._id) {
+      const loadFullTask = async () => {
+        try {
+          const res = await axiosClient.get(`/tasks/${initialTask._id}`);
+          const t = res.data;
+          setTitle(t.title || "");
+          setDescription(t.description || "");
+          setStatus(t.status || "todo");
+          setPriority(t.priority || "medium");
+          setSprintId(t.sprintId?._id || t.sprintId || "");
+          setParentId(t.parentId?._id || t.parentId || "");
+          setDueDate(t.dueDate ? new Date(t.dueDate).toISOString().split("T")[0] : "");
+          setEstimatedHours(t.estimatedHours || "");
+          setSelectedMembers(Array.isArray(t.assignedTo) ? t.assignedTo.map((u) => u._id) : []);
+          setLabels(Array.isArray(t.labels) ? t.labels : []);
+          setChecklist(Array.isArray(t.checklist) ? t.checklist : []);
+          setCustomFields(Array.isArray(t.customFields) ? t.customFields : []);
+          setSelectedTemplateId(t.templateId?._id || t.templateId || "");
+          setDependencies(Array.isArray(t.dependencies) ? t.dependencies : []);
+          setSubtasks(Array.isArray(t.subtasks) ? t.subtasks : []);
+        } catch (err) {
+          console.error("Failed to load task details:", err);
+        }
+      };
+      loadFullTask();
     } else {
       setTitle("");
       setDescription("");
       setStatus(defaultStatus || "todo");
       setPriority("medium");
       setSprintId(defaultSprintId || "");
+      setParentId(defaultParentId || "");
       setDueDate("");
       setEstimatedHours("");
       setSelectedMembers([]);
@@ -118,8 +155,11 @@ export default function TaskModal({
       setChecklist([]);
       setCustomFields([]);
       setSelectedTemplateId("");
+      setDependencies([]);
+      setSubtasks([]);
     }
-  }, [open, isEdit, initialTask, defaultStatus, defaultSprintId]);
+    setBlockerError(null);
+  }, [open, isEdit, initialTask, defaultStatus, defaultSprintId, defaultParentId]);
 
   if (!open) return null;
 
@@ -156,9 +196,7 @@ export default function TaskModal({
 
   const handleToggleMember = (userId) => {
     setSelectedMembers((prev) =>
-      prev.includes(userId)
-        ? prev.filter((id) => id !== userId)
-        : [...prev, userId]
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
     );
   };
 
@@ -182,9 +220,7 @@ export default function TaskModal({
 
   const handleToggleChecklist = (index) => {
     setChecklist(
-      checklist.map((item, idx) =>
-        idx === index ? { ...item, completed: !item.completed } : item
-      )
+      checklist.map((item, idx) => (idx === index ? { ...item, completed: !item.completed } : item))
     );
   };
 
@@ -209,17 +245,94 @@ export default function TaskModal({
   };
 
   const handleCustomFieldValueChange = (index, val) => {
-    setCustomFields(
-      customFields.map((cf, idx) => (idx === index ? { ...cf, value: val } : cf))
-    );
+    setCustomFields(customFields.map((cf, idx) => (idx === index ? { ...cf, value: val } : cf)));
   };
 
   const handleRemoveCustomField = (index) => {
     setCustomFields(customFields.filter((_, i) => i !== index));
   };
 
+  // Dependency Management
+  const handleAddDependency = async (e) => {
+    e.preventDefault();
+    if (!selectedDepTaskId) return;
+
+    if (isEdit && initialTask?._id) {
+      try {
+        const res = await axiosClient.post(`/tasks/${initialTask._id}/dependencies`, {
+          targetTaskId: selectedDepTaskId,
+          type: selectedDepType,
+        });
+        setDependencies(res.data.dependencies || []);
+        setSelectedDepTaskId("");
+      } catch (err) {
+        alert(err.response?.data?.message || "Failed to add dependency");
+      }
+    } else {
+      // Create mode: stage locally
+      const target = projectTasks.find((t) => t._id === selectedDepTaskId);
+      setDependencies([
+        ...dependencies,
+        {
+          taskId: target || { _id: selectedDepTaskId, title: "Selected Task" },
+          type: selectedDepType,
+        },
+      ]);
+      setSelectedDepTaskId("");
+    }
+  };
+
+  const handleRemoveDependency = async (depTaskId) => {
+    if (isEdit && initialTask?._id) {
+      try {
+        const res = await axiosClient.delete(
+          `/tasks/${initialTask._id}/dependencies/${depTaskId}`
+        );
+        setDependencies(res.data.dependencies || []);
+      } catch (err) {
+        alert(err.response?.data?.message || "Failed to remove dependency");
+      }
+    } else {
+      setDependencies(
+        dependencies.filter((d) => (d.taskId?._id || d.taskId) !== depTaskId)
+      );
+    }
+  };
+
+  // Subtask Management
+  const handleCreateSubtask = async (e) => {
+    e.preventDefault();
+    if (!newSubtaskTitle.trim() || !initialTask?._id) return;
+
+    try {
+      const res = await axiosClient.post("/tasks", {
+        title: newSubtaskTitle.trim(),
+        projectId,
+        parentId: initialTask._id,
+        status: "todo",
+      });
+      setSubtasks([...subtasks, res.data]);
+      setNewSubtaskTitle("");
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to create subtask");
+    }
+  };
+
+  const handleToggleSubtaskStatus = async (subtaskId, currentStatus) => {
+    const nextStatus = currentStatus === "done" ? "todo" : "done";
+    try {
+      const res = await axiosClient.put(`/tasks/${subtaskId}`, {
+        status: nextStatus,
+      });
+      setSubtasks(subtasks.map((st) => (st._id === subtaskId ? res.data : st)));
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to update subtask");
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setBlockerError(null);
     try {
       const payload = {
         title,
@@ -227,6 +340,7 @@ export default function TaskModal({
         status,
         priority,
         sprintId: sprintId || null,
+        parentId: parentId || null,
         dueDate: dueDate ? new Date(dueDate) : null,
         estimatedHours: estimatedHours ? Number(estimatedHours) : null,
         assignedTo: selectedMembers,
@@ -234,6 +348,10 @@ export default function TaskModal({
         checklist,
         customFields,
         templateId: selectedTemplateId || null,
+        dependencies: dependencies.map((d) => ({
+          taskId: d.taskId?._id || d.taskId,
+          type: d.type,
+        })),
       };
 
       let res;
@@ -249,21 +367,37 @@ export default function TaskModal({
       onSaved && onSaved(res.data);
       onClose();
     } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.message || "Failed to save task");
+      if (err.response?.data?.isBlocked) {
+        setBlockerError(err.response.data.message);
+      } else {
+        alert(err.response?.data?.message || "Failed to save task");
+      }
+    }
+  };
+
+  const handleOverrideBlockersAndComplete = async () => {
+    try {
+      const res = await axiosClient.put(`/tasks/${initialTask._id}`, {
+        status: "done",
+        overrideBlockers: true,
+      });
+      onSaved && onSaved(res.data);
+      onClose();
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to force complete task");
     }
   };
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div className="app-card border border-slate-200 dark:border-slate-800 p-6 rounded-2xl w-full max-w-2xl shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
+      <div className="app-card border border-slate-200 dark:border-slate-800 p-6 rounded-2xl w-full max-w-3xl shadow-2xl my-8 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
           <div>
             <h2 className="text-xl font-bold text-slate-900 dark:text-white">
               {isEdit ? "Edit Task" : "Create Task"}
             </h2>
             <p className="text-xs text-slate-500">
-              Configure priorities, sprints, blueprints, and custom fields
+              Configure priorities, sprints, dependencies, subtasks, and custom fields
             </p>
           </div>
           <button
@@ -273,6 +407,24 @@ export default function TaskModal({
             <X className="w-5 h-5" />
           </button>
         </div>
+
+        {/* Blocker alert if user tried to complete a blocked task */}
+        {blockerError && (
+          <div className="mt-4 p-3.5 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-900 rounded-xl text-xs text-red-600 dark:text-red-400 space-y-2">
+            <div className="flex items-center gap-2 font-bold">
+              <ShieldAlert className="w-4 h-4 shrink-0" />
+              <span>Blocker Enforcement Warning</span>
+            </div>
+            <p>{blockerError}</p>
+            <button
+              type="button"
+              onClick={handleOverrideBlockersAndComplete}
+              className="text-xs bg-red-600 hover:bg-red-700 text-white font-semibold px-3 py-1.5 rounded-lg shadow-xs"
+            >
+              Override Blockers & Complete Anyway
+            </button>
+          </div>
+        )}
 
         <form onSubmit={handleSubmit} className="mt-4 space-y-4">
           {/* Template Selector in Create Mode */}
@@ -403,6 +555,148 @@ export default function TaskModal({
               />
             </div>
           </div>
+
+          {/* Task Dependencies Section */}
+          <div className="p-3.5 border border-slate-200 dark:border-slate-800 rounded-xl space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase">
+                <Link className="w-3.5 h-3.5 text-indigo-500" />
+                Task Dependencies ({dependencies.length})
+              </label>
+              <span className="text-[11px] text-slate-400">
+                Cycle detection active
+              </span>
+            </div>
+
+            <div className="space-y-1.5">
+              {dependencies.map((dep, idx) => {
+                const target = dep.taskId || {};
+                const isResolved = target.status === "done";
+                return (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between text-xs p-2 bg-slate-50 dark:bg-slate-800/60 rounded-lg border border-slate-100 dark:border-slate-800"
+                  >
+                    <div className="flex items-center gap-2 truncate">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                          dep.type === "blocked-by"
+                            ? isResolved
+                              ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-300"
+                              : "bg-red-100 text-red-800 dark:bg-red-950/80 dark:text-red-300"
+                            : dep.type === "blocks"
+                            ? "bg-amber-100 text-amber-800 dark:bg-amber-950/80 dark:text-amber-300"
+                            : "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200"
+                        }`}
+                      >
+                        {dep.type}
+                      </span>
+                      <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                        {target.title || "Target Task"}
+                      </span>
+                      <span className="text-[10px] text-slate-400">({target.status || "open"})</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveDependency(target._id || target)}
+                      className="text-red-500 hover:text-red-700 p-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Add Dependency Controls */}
+            <div className="flex flex-wrap gap-2 pt-1">
+              <select
+                className="border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 text-xs font-medium"
+                value={selectedDepType}
+                onChange={(e) => setSelectedDepType(e.target.value)}
+              >
+                <option value="blocked-by">Blocked By (Predecessor)</option>
+                <option value="blocks">Blocks (Successor)</option>
+                <option value="relates-to">Relates To</option>
+              </select>
+
+              <select
+                className="flex-1 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 text-xs"
+                value={selectedDepTaskId}
+                onChange={(e) => setSelectedDepTaskId(e.target.value)}
+              >
+                <option value="">Select task in project...</option>
+                {projectTasks
+                  .filter((t) => !isEdit || t._id !== initialTask?._id)
+                  .map((t) => (
+                    <option key={t._id} value={t._id}>
+                      {t.title} ({t.status})
+                    </option>
+                  ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={handleAddDependency}
+                disabled={!selectedDepTaskId}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg disabled:opacity-50 transition"
+              >
+                Link Task
+              </button>
+            </div>
+          </div>
+
+          {/* Subtasks Hierarchy Section (available in edit mode) */}
+          {isEdit && initialTask?._id && (
+            <div className="p-3.5 border border-slate-200 dark:border-slate-800 rounded-xl space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase">
+                  <CornerDownRight className="w-3.5 h-3.5 text-indigo-500" />
+                  Subtasks ({subtasks.filter((s) => s.status === "done").length}/{subtasks.length})
+                </label>
+              </div>
+
+              <div className="space-y-1.5">
+                {subtasks.map((st) => (
+                  <div
+                    key={st._id}
+                    className="flex items-center justify-between text-xs p-2 bg-slate-50 dark:bg-slate-800/60 rounded-lg"
+                  >
+                    <label className="flex items-center gap-2 cursor-pointer flex-1 truncate">
+                      <input
+                        type="checkbox"
+                        checked={st.status === "done"}
+                        onChange={() => handleToggleSubtaskStatus(st._id, st.status)}
+                        className="rounded text-indigo-600"
+                      />
+                      <span className={st.status === "done" ? "line-through text-slate-400 truncate" : "font-medium text-slate-800 dark:text-slate-200 truncate"}>
+                        {st.title}
+                      </span>
+                    </label>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex gap-2 pt-1">
+                <input
+                  type="text"
+                  placeholder="New subtask title..."
+                  className="flex-1 border border-slate-300 dark:border-slate-700 px-3 py-1.5 rounded-lg bg-transparent text-xs"
+                  value={newSubtaskTitle}
+                  onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                />
+                <button
+                  type="button"
+                  onClick={handleCreateSubtask}
+                  disabled={!newSubtaskTitle.trim()}
+                  className="px-3 py-1.5 bg-slate-200 dark:bg-slate-700 text-xs font-medium rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 disabled:opacity-50"
+                >
+                  Add Subtask
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Labels / Tags Section */}
           <div className="p-3 border border-slate-200 dark:border-slate-800 rounded-xl space-y-2">
