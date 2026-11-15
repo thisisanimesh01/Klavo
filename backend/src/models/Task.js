@@ -9,9 +9,8 @@ const taskSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: ["todo", "in-progress", "review", "done"],
-      default: "todo"
+      default: "todo",
     },
-
 
     priority: {
       type: String,
@@ -19,47 +18,49 @@ const taskSchema = new mongoose.Schema(
       default: "medium",
     },
 
-
     dueDate: {
       type: Date,
-      default: null
+      default: null,
     },
-
 
     assignedTo: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
-      }
+      },
     ],
-
 
     comments: [
       {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Comment",
-      }
+      },
     ],
-
 
     order: {
       type: Number,
-      default: 0
+      default: 0,
     },
 
     projectId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Project",
-      required: true
+      required: true,
     },
 
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
-      required: true
+      required: true,
     },
   },
   { timestamps: true }
 );
+
+// Performance Indexes for Kanban boards, filters, and calendar deadlines
+taskSchema.index({ projectId: 1, status: 1, order: 1 });
+taskSchema.index({ assignedTo: 1 });
+taskSchema.index({ dueDate: 1 });
+taskSchema.index({ createdAt: -1 });
 
 export default mongoose.model("Task", taskSchema);

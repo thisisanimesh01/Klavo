@@ -9,5 +9,8 @@ const commentSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+commentSchema.index({ taskId: 1, createdAt: 1 });
+commentSchema.index({ userId: 1 });
+
 export const Comment = mongoose.model("Comment", commentSchema);
 export default Comment;
