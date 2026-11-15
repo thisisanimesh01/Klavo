@@ -315,3 +315,76 @@ test("FRONTEND PM-05: Gantt Timeline Calculations & Milestone Visual Mapping", a
     assert.equal(filterTasks("none", "all").length, 1);
   });
 });
+
+test("FRONTEND PM-06: Workflow Configuration & Dynamic Column Generation", async (t) => {
+  await t.test("Validates dynamic board columns derived from workflow statuses in order", () => {
+    const workflow = {
+      statuses: [
+        { key: "backlog", name: "Backlog", color: "#64748b", category: "todo", order: 0 },
+        { key: "in-flight", name: "In Flight", color: "#3b82f6", category: "in_progress", order: 1 },
+        { key: "staging-qa", name: "Staging QA", color: "#f59e0b", category: "review", order: 2 },
+        { key: "production", name: "Production", color: "#10b981", category: "done", order: 3 },
+      ],
+    };
+
+    const columns = workflow.statuses
+      .slice()
+      .sort((a, b) => a.order - b.order)
+      .map((st) => ({
+        id: st.key,
+        title: st.name,
+        color: st.color,
+        category: st.category,
+      }));
+
+    assert.equal(columns.length, 4);
+    assert.equal(columns[0].id, "backlog");
+    assert.equal(columns[2].id, "staging-qa");
+    assert.equal(columns[3].category, "done");
+  });
+
+  await t.test("Validates workflow validation: requires minimum 2 statuses with todo and done", () => {
+    const isValid = (statuses) => {
+      if (!Array.isArray(statuses) || statuses.length < 2) return false;
+      const hasTodo = statuses.some((s) => s.category === "todo");
+      const hasDone = statuses.some((s) => s.category === "done");
+      return hasTodo && hasDone;
+    };
+
+    assert.equal(
+      isValid([
+        { key: "a", category: "todo" },
+        { key: "b", category: "done" },
+      ]),
+      true
+    );
+
+    assert.equal(
+      isValid([
+        { key: "a", category: "in_progress" },
+        { key: "b", category: "done" },
+      ]),
+      false
+    );
+  });
+
+  await t.test("Validates subtask completion toggle against workflow category done", () => {
+    const workflow = {
+      statuses: [
+        { key: "todo", category: "todo" },
+        { key: "completed", category: "done" },
+      ],
+    };
+
+    const doneKey = workflow.statuses.find((s) => s.category === "done")?.key || "done";
+    const todoKey = workflow.statuses.find((s) => s.category === "todo")?.key || "todo";
+
+    const toggle = (curr) => {
+      const isDone = workflow.statuses.find((s) => s.key === curr)?.category === "done" || curr === "done";
+      return isDone ? todoKey : doneKey;
+    };
+
+    assert.equal(toggle("todo"), "completed");
+    assert.equal(toggle("completed"), "todo");
+  });
+});

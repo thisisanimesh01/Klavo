@@ -367,3 +367,30 @@ Milestones represent high-level project deliverables, roadmap phases, or deliver
 | **Milestone** | Update | `PUT /api/milestones/:milestoneId` | Member or Owner of project team |
 | **Milestone** | Batch Task Assignment | `POST /api/milestones/:milestoneId/tasks` | Member or Owner of project team |
 | **Milestone** | Delete | `DELETE /api/milestones/:milestoneId` | Member or Owner of project team |
+
+---
+
+## 16. Custom Workflows & Status Management (PM-06)
+
+### Workflow Schema & Status Items:
+Project workflows configure dynamic task stages, status ordering, and categorization:
+- `name`: Workflow display name.
+- `projectId`: One-to-one unique project association.
+- `statuses`: Ordered list of status definitions:
+  - `key`: Lowercase alphanumeric unique slug (e.g., `"todo"`, `"in-progress"`, `"staging-qa"`, `"shipped"`).
+  - `name`: User-facing title.
+  - `color`: Hex color accent for Kanban column headers and badges.
+  - `category`: Semantic lifecycle category (`"todo"`, `"in_progress"`, `"review"`, `"done"`).
+  - `order`: Display order index.
+
+### Category-Aware Invariants & Validation:
+- **Mandatory Categories**: Workflows must contain at least 2 statuses, including at least one status in `"todo"` category and at least one status in `"done"` category.
+- **Completion Semantics**: Blocker gates, subtask completion metrics, sprint rollover, and milestone completion dynamically evaluate whether a task status belongs to category `"done"` (`isStatusCompleted`).
+- **In-Use Status Deletion Safety**: Modifying a workflow rejects removing any status if active tasks in the project are currently assigned to that status, preventing orphan states.
+
+### REST Endpoints for Workflows:
+| Resource | Action | Endpoint | Required Role / Permission |
+| :--- | :--- | :--- | :--- |
+| **Workflow** | Get Project Workflow | `GET /api/workflows/project/:projectId` | Member or Owner of project team |
+| **Workflow** | Update Workflow | `PUT /api/workflows/project/:projectId` | Member or Owner of project team |
+| **Workflow** | Reset to Standard | `POST /api/workflows/project/:projectId/reset` | Member or Owner of project team |

@@ -1,3 +1,5 @@
+import { getCompletedStatusKeys, isStatusCompleted } from "../utils/workflowHelpers.js";
+import Workflow from "../models/Workflow.js";
 import Milestone from "../models/Milestone.js";
 import Task from "../models/Task.js";
 import { Project } from "../models/Project.js";
@@ -96,6 +98,7 @@ export const getMilestonesByProject = async (req, res) => {
       .sort({ dueDate: 1, createdAt: -1 });
 
     const milestoneIds = milestones.map((m) => m._id);
+    const projectWorkflow = await Workflow.findOne({ projectId });
     const tasks = await Task.find({ milestoneId: { $in: milestoneIds } }).select("milestoneId status estimatedHours");
 
     const now = new Date();
@@ -103,7 +106,7 @@ export const getMilestonesByProject = async (req, res) => {
     const milestonesWithMetrics = milestones.map((m) => {
       const mTasks = tasks.filter((t) => t.milestoneId?.toString() === m._id.toString());
       const totalTasks = mTasks.length;
-      const completedTasks = mTasks.filter((t) => t.status === "done").length;
+      const completedTasks = mTasks.filter((t) => isStatusCompleted(t.status, projectWorkflow)).length;
       const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
       const isOverdue = Boolean(m.dueDate && new Date(m.dueDate) < now && m.status !== "completed" && m.status !== "archived");
 
@@ -144,7 +147,7 @@ export const getMilestoneById = async (req, res) => {
       .sort({ order: 1 });
 
     const totalTasks = tasks.length;
-    const completedTasks = tasks.filter((t) => t.status === "done").length;
+    const completedTasks = tasks.filter((t) => isStatusCompleted(t.status, await Workflow.findOne({ projectId: milestone.projectId }))).length;
     const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
     const isOverdue = Boolean(
       milestone.dueDate &&
@@ -349,6 +352,7 @@ export const getGanttTimeline = async (req, res) => {
       taskQuery.assignedTo = assigneeId;
     }
 
+    const ganttWorkflow = await Workflow.findOne({ projectId });
     const tasks = await Task.find(taskQuery)
       .populate("assignedTo", "name email avatar")
       .populate("sprintId", "name status")
@@ -363,7 +367,7 @@ export const getGanttTimeline = async (req, res) => {
       // If task has no explicit startDate, use createdAt or dueDate - 2 days
       const startDate = t.createdAt || new Date();
       const dueDate = t.dueDate || null;
-      const isOverdue = Boolean(dueDate && new Date(dueDate) < now && t.status !== "done");
+      const isOverdue = Boolean(dueDate && new Date(dueDate) < now && !isStatusCompleted(t.status, ganttWorkflow));
 
       // Extract blocking dependencies
       const blockingDeps = (t.dependencies || [])
@@ -372,7 +376,7 @@ export const getGanttTimeline = async (req, res) => {
           targetTaskId: d.taskId?._id || d.taskId,
           targetTitle: d.taskId?.title,
           type: d.type,
-          isResolved: d.taskId?.status === "done",
+          isResolved: isStatusCompleted(d.taskId?.status, ganttWorkflow),
         }));
 
       return {
@@ -388,7 +392,7 @@ export const getGanttTimeline = async (req, res) => {
         milestone: t.milestoneId,
         dependencies: blockingDeps,
         isOverdue,
-        progress: t.status === "done" ? 100 : t.status === "review" ? 75 : t.status === "in-progress" ? 50 : 0,
+        progress: isStatusCompleted(t.status, ganttWorkflow) ? 100 : t.status === "review" ? 75 : t.status === "in-progress" ? 50 : 0,
       };
     });
 
@@ -398,7 +402,7 @@ export const getGanttTimeline = async (req, res) => {
         (t) => t.milestone?._id?.toString() === m._id.toString() || t.milestone?.toString() === m._id.toString()
       );
       const total = associatedTasks.length;
-      const completed = associatedTasks.filter((t) => t.status === "done").length;
+      const completed = associatedTasks.filter((t) => isStatusCompleted(t.status, ganttWorkflow)).length;
       const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
       const isOverdue = Boolean(m.dueDate && new Date(m.dueDate) < now && m.status !== "completed" && m.status !== "archived");
 

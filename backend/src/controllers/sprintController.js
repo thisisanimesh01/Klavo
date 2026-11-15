@@ -1,3 +1,5 @@
+import { getCompletedStatusKeys, isStatusCompleted } from "../utils/workflowHelpers.js";
+import Workflow from "../models/Workflow.js";
 import Sprint from "../models/Sprint.js";
 import Task from "../models/Task.js";
 import { Project } from "../models/Project.js";
@@ -92,12 +94,13 @@ export const getSprintsByProject = async (req, res) => {
 
     // Calculate quick task stats and capacity metrics for each sprint
     const sprintIds = sprints.map((s) => s._id);
+    const projectWorkflow = await Workflow.findOne({ projectId });
     const tasks = await Task.find({ sprintId: { $in: sprintIds } }).select("sprintId status estimatedHours");
 
     const sprintsWithStats = sprints.map((s) => {
       const sTasks = tasks.filter((t) => t.sprintId?.toString() === s._id.toString());
       const totalTasks = sTasks.length;
-      const completedTasks = sTasks.filter((t) => t.status === "done").length;
+      const completedTasks = sTasks.filter((t) => isStatusCompleted(t.status, projectWorkflow)).length;
       const committedHours = sTasks.reduce((sum, t) => sum + (t.estimatedHours || 0), 0);
       const capacity = s.capacity || null;
       const isOverloaded = capacity !== null && committedHours > capacity;
@@ -141,7 +144,7 @@ export const getSprintById = async (req, res) => {
       .sort({ status: 1, order: 1 });
 
     const totalTasks = tasks.length;
-    const completedTasks = tasks.filter((t) => t.status === "done").length;
+    const completedTasks = tasks.filter((t) => isStatusCompleted(t.status, await Workflow.findOne({ projectId: sprint.projectId }))).length;
     const committedHours = tasks.reduce((sum, t) => sum + (t.estimatedHours || 0), 0);
     const capacity = sprint.capacity || null;
     const isOverloaded = capacity !== null && committedHours > capacity;
@@ -312,8 +315,10 @@ export const completeSprint = async (req, res) => {
       }
     }
 
+    const sprintWorkflow = await Workflow.findOne({ projectId: sprint.projectId });
+    const doneKeys = getCompletedStatusKeys(sprintWorkflow);
     const uncompletedTasks = await Task.updateMany(
-      { sprintId: sprint._id, status: { $ne: "done" } },
+      { sprintId: sprint._id, status: { $nin: doneKeys } },
       { sprintId: rolloverDestination }
     );
 

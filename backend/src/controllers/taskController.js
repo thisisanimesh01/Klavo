@@ -1,3 +1,5 @@
+import { isStatusCompleted, getCompletedStatusKeys } from "../utils/workflowHelpers.js";
+import Workflow from "../models/Workflow.js";
 import Task from "../models/Task.js";
 import TaskTemplate from "../models/TaskTemplate.js";
 import Sprint from "../models/Sprint.js";
@@ -226,6 +228,7 @@ export const getTasksByProject = async (req, res) => {
       sort = { [sortBy]: order };
     }
 
+    const projectWorkflow = await Workflow.findOne({ projectId });
     const tasks = await Task.find(query)
       .populate("assignedTo", "name email avatar")
       .populate("templateId", "name")
@@ -242,11 +245,11 @@ export const getTasksByProject = async (req, res) => {
     const tasksWithDetails = tasks.map((t) => {
       const tSubtasks = subtasks.filter((st) => st.parentId?.toString() === t._id.toString());
       const totalSubtasks = tSubtasks.length;
-      const completedSubtasks = tSubtasks.filter((st) => st.status === "done").length;
+      const completedSubtasks = tSubtasks.filter((st) => isStatusCompleted(st.status, projectWorkflow)).length;
 
       // Check if blocked by any incomplete task
       const hasUnresolvedBlockers = (t.dependencies || []).some(
-        (d) => d.type === "blocked-by" && d.taskId && d.taskId.status !== "done"
+        (d) => d.type === "blocked-by" && d.taskId && !isStatusCompleted(d.taskId.status, projectWorkflow)
       );
 
       return {
@@ -296,7 +299,7 @@ export const getTaskById = async (req, res) => {
       ...task.toObject(),
       subtasks,
       totalSubtasks: subtasks.length,
-      completedSubtasks: subtasks.filter((s) => s.status === "done").length,
+      completedSubtasks: subtasks.filter((s) => isStatusCompleted(s.status, await Workflow.findOne({ projectId: task.projectId }))).length,
       isBlocked,
       blockingTasks,
     });
@@ -319,7 +322,10 @@ export const updateTask = async (req, res) => {
 
     // Blocker completion gate: If user is attempting to mark task as 'done',
     // verify there are no incomplete blocking tasks unless overrideBlockers flag is set
-    if (req.body.status === "done" && task.status !== "done" && !req.body.overrideBlockers) {
+    const taskWorkflow = await Workflow.findOne({ projectId: task.projectId });
+    const isTargetDone = isStatusCompleted(req.body.status, taskWorkflow);
+    const isCurrentDone = isStatusCompleted(task.status, taskWorkflow);
+    if (isTargetDone && !isCurrentDone && !req.body.overrideBlockers) {
       const { isBlocked, blockingTasks } = await checkTaskBlockers(taskId);
       if (isBlocked) {
         return res.status(400).json({
@@ -570,7 +576,10 @@ export const moveTask = async (req, res) => {
     }
 
     // Blocker gate: if moving to 'done', check active blockers
-    if (status === "done" && task.status !== "done" && !overrideBlockers) {
+    const moveWorkflow = await Workflow.findOne({ projectId: task.projectId });
+    const isMoveTargetDone = isStatusCompleted(status, moveWorkflow);
+    const isMoveCurrentDone = isStatusCompleted(task.status, moveWorkflow);
+    if (isMoveTargetDone && !isMoveCurrentDone && !overrideBlockers) {
       const { isBlocked, blockingTasks } = await checkTaskBlockers(taskId);
       if (isBlocked) {
         return res.status(400).json({
@@ -638,7 +647,7 @@ export const bulkUpdateTasks = async (req, res) => {
     if (updates.milestoneId !== undefined) {
       allowedUpdates.milestoneId = updates.milestoneId === "none" || !updates.milestoneId ? null : updates.milestoneId;
     }
-    if (updates.status && ["todo", "in-progress", "review", "done"].includes(updates.status)) {
+    if (updates.status && typeof updates.status === "string") {
       allowedUpdates.status = updates.status;
     }
     if (updates.priority && ["low", "medium", "high", "critical", "urgent"].includes(updates.priority)) {
