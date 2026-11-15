@@ -321,7 +321,10 @@ export default function TaskModal({
   };
 
   const handleToggleSubtaskStatus = async (subtaskId, currentStatus) => {
-    const nextStatus = currentStatus === "done" ? "todo" : "done";
+    const doneStatus = workflow?.statuses?.find((s) => s.category === "done")?.key || "done";
+    const todoStatus = workflow?.statuses?.find((s) => s.category === "todo")?.key || "todo";
+    const isDone = workflow?.statuses?.find((s) => s.key === currentStatus)?.category === "done" || currentStatus === "done";
+    const nextStatus = isDone ? todoStatus : doneStatus;
     try {
       const res = await axiosClient.put(`/tasks/${subtaskId}`, {
         status: nextStatus,
@@ -489,10 +492,20 @@ export default function TaskModal({
                 value={status}
                 onChange={(e) => setStatus(e.target.value)}
               >
-                <option value="todo">Todo</option>
-                <option value="in-progress">In Progress</option>
-                <option value="review">Review</option>
-                <option value="done">Done</option>
+                {Array.isArray(workflow?.statuses) && workflow.statuses.length > 0 ? (
+                  workflow.statuses.map((st) => (
+                    <option key={st.key} value={st.key}>
+                      {st.name}
+                    </option>
+                  ))
+                ) : (
+                  <>
+                    <option value="todo">Todo</option>
+                    <option value="in-progress">In Progress</option>
+                    <option value="review">Review</option>
+                    <option value="done">Done</option>
+                  </>
+                )}
               </select>
             </div>
 
@@ -687,11 +700,11 @@ export default function TaskModal({
                     <label className="flex items-center gap-2 cursor-pointer flex-1 truncate">
                       <input
                         type="checkbox"
-                        checked={st.status === "done"}
+                        checked={workflow?.statuses?.find((s) => s.key === st.status)?.category === "done" || st.status === "done"}
                         onChange={() => handleToggleSubtaskStatus(st._id, st.status)}
                         className="rounded text-indigo-600"
                       />
-                      <span className={st.status === "done" ? "line-through text-slate-400 truncate" : "font-medium text-slate-800 dark:text-slate-200 truncate"}>
+                      <span className={(workflow?.statuses?.find((s) => s.key === st.status)?.category === "done" || st.status === "done") ? "line-through text-slate-400 truncate" : "font-medium text-slate-800 dark:text-slate-200 truncate"}>
                         {st.title}
                       </span>
                     </label>

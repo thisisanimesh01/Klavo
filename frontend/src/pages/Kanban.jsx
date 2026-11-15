@@ -6,6 +6,7 @@ import TaskModal from "../components/TaskModal";
 import TaskTemplateModal from "../components/TaskTemplateModal";
 import SprintModal from "../components/SprintModal";
 import MilestoneModal from "../components/MilestoneModal";
+import WorkflowModal from "../components/WorkflowModal";
 import GanttTimelineView from "../components/GanttTimelineView";
 import BacklogView from "../components/BacklogView";
 import PriorityBadge from "../components/PriorityBadge";
@@ -36,6 +37,7 @@ import {
   CornerDownRight,
   Link,
   Flag,
+  Sliders,
 } from "lucide-react";
 
 const COLUMNS = [
@@ -51,6 +53,8 @@ export default function Kanban() {
   const [tasks, setTasks] = useState([]);
   const [sprints, setSprints] = useState([]);
   const [milestones, setMilestones] = useState([]);
+  const [workflow, setWorkflow] = useState(null);
+  const [workflowModalOpen, setWorkflowModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Modals
@@ -105,13 +109,23 @@ export default function Kanban() {
     }
   }, [projectId]);
 
+  const fetchWorkflow = useCallback(async () => {
+    try {
+      const res = await axiosClient.get(`/workflows/project/${projectId}`);
+      setWorkflow(res.data);
+    } catch (err) {
+      console.error("Failed to fetch workflow:", err);
+    }
+  }, [projectId]);
+
   useEffect(() => {
     if (projectId) {
       fetchTasks();
       fetchSprints();
       fetchMilestones();
+      fetchWorkflow();
     }
-  }, [projectId, fetchTasks, fetchSprints, fetchMilestones]);
+  }, [projectId, fetchTasks, fetchSprints, fetchMilestones, fetchWorkflow]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -215,6 +229,27 @@ export default function Kanban() {
     if (selectedSprintId === "all" || selectedSprintId === "backlog") return null;
     return sprints.find((s) => s._id === selectedSprintId);
   }, [sprints, selectedSprintId]);
+
+  // Dynamic Kanban columns resolved from workflow
+  const boardColumns = useMemo(() => {
+    if (workflow && Array.isArray(workflow.statuses) && workflow.statuses.length > 0) {
+      return workflow.statuses
+        .slice()
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        .map((st) => ({
+          id: st.key,
+          title: st.name,
+          color: st.color || "#6366f1",
+          category: st.category,
+        }));
+    }
+    return COLUMNS.map((c) => ({
+      id: c.id,
+      title: c.title,
+      color: c.id === "done" ? "#10b981" : c.id === "review" ? "#f59e0b" : c.id === "in-progress" ? "#3b82f6" : "#94a3b8",
+      category: c.id === "in-progress" ? "in_progress" : c.id,
+    }));
+  }, [workflow]);
 
   // Priority weight for sorting
   const priorityWeight = {
@@ -456,6 +491,7 @@ export default function Kanban() {
           <GanttTimelineView
             projectId={projectId}
             milestones={milestones}
+        workflow={workflow}
             tasks={tasks}
             sprints={sprints}
             onOpenCreateMilestone={openCreateMilestoneModal}
@@ -658,8 +694,8 @@ export default function Kanban() {
 
             {/* Drag & Drop Board */}
             <DragDropContext onDragEnd={handleDragEnd}>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                {COLUMNS.map((col) => {
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4" style={{ gridTemplateColumns: boardColumns.length > 4 ? `repeat(${boardColumns.length}, minmax(280px, 1fr))` : undefined }}>
+                {boardColumns.map((col) => {
                   const colTasks = tasksByStatus(col.id);
                   return (
                     <Droppable key={col.id} droppableId={col.id}>
@@ -893,6 +929,16 @@ export default function Kanban() {
         initialMilestone={editingMilestone}
         onSaved={() => {
           fetchMilestones();
+          fetchTasks();
+        }}
+      />
+      <WorkflowModal
+        open={workflowModalOpen}
+        onClose={() => setWorkflowModalOpen(false)}
+        projectId={projectId}
+        workflow={workflow}
+        onSaved={(updatedWf) => {
+          setWorkflow(updatedWf);
           fetchTasks();
         }}
       />

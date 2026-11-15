@@ -5,11 +5,12 @@ const taskSchema = new mongoose.Schema(
     title: { type: String, required: true },
     description: { type: String, default: "" },
 
-    // task status
+    // task status (supports custom workflow statuses)
     status: {
       type: String,
-      enum: ["todo", "in-progress", "review", "done"],
+      required: true,
       default: "todo",
+      trim: true,
     },
 
     priority: {
