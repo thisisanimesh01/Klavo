@@ -16,6 +16,7 @@ export const createTask = async (req, res) => {
       projectId,
       priority,
       sprintId,
+      milestoneId,
       parentId,
       dependencies,
       dueDate,
@@ -100,6 +101,7 @@ export const createTask = async (req, res) => {
       status: status || "todo",
       priority: finalPriority,
       sprintId: sprintId || null,
+      milestoneId: milestoneId || null,
       parentId: parentId || null,
       dependencies: Array.isArray(dependencies) ? dependencies : [],
       labels: finalLabels,
@@ -117,6 +119,7 @@ export const createTask = async (req, res) => {
     // Populate assignedTo and sprintId for immediate full response
     await task.populate("assignedTo", "name email avatar");
     await task.populate("sprintId", "name status");
+    await task.populate("milestoneId", "name status dueDate");
     if (task.parentId) {
       await task.populate("parentId", "title status");
     }
@@ -164,7 +167,7 @@ export const createTask = async (req, res) => {
 export const getTasksByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { priority, status, sprintId, parentId, label, search, sortBy, sortOrder } = req.query;
+    const { priority, status, sprintId, milestoneId, parentId, label, search, sortBy, sortOrder } = req.query;
 
     const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
     if (!project) return res.status(404).json({ message: "Project not found" });
@@ -189,6 +192,14 @@ export const getTasksByProject = async (req, res) => {
         query.sprintId = null;
       } else if (sprintId !== "all") {
         query.sprintId = sprintId;
+      }
+    }
+
+    if (milestoneId !== undefined) {
+      if (milestoneId === "none" || milestoneId === "null" || milestoneId === "") {
+        query.milestoneId = null;
+      } else if (milestoneId !== "all") {
+        query.milestoneId = milestoneId;
       }
     }
 
@@ -219,6 +230,7 @@ export const getTasksByProject = async (req, res) => {
       .populate("assignedTo", "name email avatar")
       .populate("templateId", "name")
       .populate("sprintId", "name status")
+      .populate("milestoneId", "name status dueDate")
       .populate("parentId", "title status")
       .populate("dependencies.taskId", "title status priority")
       .sort(sort);
@@ -265,6 +277,7 @@ export const getTaskById = async (req, res) => {
     await task.populate("assignedTo", "name email avatar");
     await task.populate("templateId", "name");
     await task.populate("sprintId", "name status");
+    await task.populate("milestoneId", "name status dueDate");
     await task.populate("parentId", "title status priority");
     await task.populate("dependencies.taskId", "title status priority assignedTo");
     await task.populate({
@@ -323,6 +336,7 @@ export const updateTask = async (req, res) => {
       "status",
       "priority",
       "sprintId",
+      "milestoneId",
       "parentId",
       "dueDate",
       "assignedTo",
@@ -343,6 +357,7 @@ export const updateTask = async (req, res) => {
       .populate("assignedTo", "name email avatar")
       .populate("templateId", "name")
       .populate("sprintId", "name status")
+      .populate("milestoneId", "name status dueDate")
       .populate("parentId", "title status")
       .populate("dependencies.taskId", "title status priority");
 
@@ -619,6 +634,9 @@ export const bulkUpdateTasks = async (req, res) => {
     const allowedUpdates = {};
     if (updates.sprintId !== undefined) {
       allowedUpdates.sprintId = updates.sprintId === "backlog" || !updates.sprintId ? null : updates.sprintId;
+    }
+    if (updates.milestoneId !== undefined) {
+      allowedUpdates.milestoneId = updates.milestoneId === "none" || !updates.milestoneId ? null : updates.milestoneId;
     }
     if (updates.status && ["todo", "in-progress", "review", "done"].includes(updates.status)) {
       allowedUpdates.status = updates.status;

@@ -245,3 +245,73 @@ test("FRONTEND PM-04: Dependencies, Blocker Gates & Subtasks Integration", async
     assert.equal(blockerCount, 2);
   });
 });
+
+test("FRONTEND PM-05: Gantt Timeline Calculations & Milestone Visual Mapping", async (t) => {
+  await t.test("Validates Gantt bar position & width percentages within boundary limits", () => {
+    const timelineStart = new Date("2026-06-01T00:00:00Z");
+    const timelineEnd = new Date("2026-06-30T23:59:59Z");
+    const totalMs = timelineEnd.getTime() - timelineStart.getTime();
+
+    const computeBar = (start, end) => {
+      const s = start ? new Date(start) : timelineStart;
+      let e = end ? new Date(end) : new Date(s);
+      if (!end || e < s) {
+        e = new Date(s);
+        e.setDate(e.getDate() + 2);
+      }
+      const startOffsetMs = Math.max(0, s.getTime() - timelineStart.getTime());
+      const durationMs = Math.max(1000 * 60 * 60 * 24, e.getTime() - s.getTime());
+      const leftPercent = Math.min(Math.max((startOffsetMs / totalMs) * 100, 0), 98);
+      const widthPercent = Math.min(Math.max((durationMs / totalMs) * 100, 2), 100 - leftPercent);
+      return { left: `${leftPercent}%`, width: `${widthPercent}%`, leftVal: leftPercent, widthVal: widthPercent };
+    };
+
+    // First week milestone
+    const bar1 = computeBar("2026-06-01T00:00:00Z", "2026-06-08T00:00:00Z");
+    assert.equal(bar1.leftVal, 0);
+    assert.ok(bar1.widthVal > 20 && bar1.widthVal < 30);
+
+    // Mid-month milestone
+    const bar2 = computeBar("2026-06-15T00:00:00Z", "2026-06-25T00:00:00Z");
+    assert.ok(bar2.leftVal > 40 && bar2.leftVal < 60);
+    assert.ok(bar2.leftVal + bar2.widthVal <= 100);
+  });
+
+  await t.test("Validates milestone overdue warning flag for non-completed items", () => {
+    const now = new Date("2026-06-15");
+    const isOverdue = (m) =>
+      Boolean(m.dueDate && new Date(m.dueDate) < now && m.status !== "completed" && m.status !== "archived");
+
+    assert.equal(isOverdue({ dueDate: "2026-06-10", status: "in_progress" }), true);
+    assert.equal(isOverdue({ dueDate: "2026-06-10", status: "completed" }), false);
+    assert.equal(isOverdue({ dueDate: "2026-06-20", status: "planned" }), false);
+  });
+
+  await t.test("Validates milestone task filtering by milestoneId and sprintId", () => {
+    const tasks = [
+      { _id: "t1", milestoneId: "m1", sprintId: "s1" },
+      { _id: "t2", milestoneId: "m1", sprintId: null },
+      { _id: "t3", milestoneId: null, sprintId: "s1" },
+      { _id: "t4", milestoneId: "m2", sprintId: "s2" },
+    ];
+
+    const filterTasks = (selectedMId, selectedSId) => {
+      return tasks.filter((t) => {
+        if (selectedMId !== "all") {
+          if (selectedMId === "none" && t.milestoneId) return false;
+          if (selectedMId !== "none" && t.milestoneId !== selectedMId) return false;
+        }
+        if (selectedSId !== "all") {
+          if (selectedSId === "backlog" && t.sprintId) return false;
+          if (selectedSId !== "backlog" && t.sprintId !== selectedSId) return false;
+        }
+        return true;
+      });
+    };
+
+    assert.equal(filterTasks("all", "all").length, 4);
+    assert.equal(filterTasks("m1", "all").length, 2);
+    assert.equal(filterTasks("m1", "backlog").length, 1);
+    assert.equal(filterTasks("none", "all").length, 1);
+  });
+});

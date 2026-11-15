@@ -333,3 +333,37 @@ Tasks support 3 distinct dependency edge types:
 | **Task Dependency** | Add Dependency | `POST /api/tasks/:taskId/dependencies` | Member or Owner of project team |
 | **Task Dependency** | Remove Dependency | `DELETE /api/tasks/:taskId/dependencies/:dependencyTaskId` | Member or Owner of project team |
 | **Task Subtasks** | Query Hierarchy | `GET /api/tasks/project/:projectId?parentId=:parentId` | Member or Owner of project team |
+
+---
+
+## 15. Project Milestones & Gantt Timeline (PM-05)
+
+### Milestone Schema & Lifecycle:
+Milestones represent high-level project deliverables, roadmap phases, or delivery deadlines:
+- `name`: Required string identifier.
+- `description`: Detailed deliverable goals and criteria.
+- `status`: `planned` | `in_progress` | `completed` | `archived`.
+- `startDate` / `dueDate`: Timeline range constraint (`startDate <= dueDate`).
+- `ownerId`: Assigned milestone lead user.
+- `completedAt`: Automatically marked when transitioning to `completed`.
+
+### Interactive Gantt / Timeline Engine:
+- **Timeline Range Bounds**: Dynamically computed across project milestones and scheduled tasks, calculating horizontal percentage offsets and proportional bar widths.
+- **Progress Tracking**: Aggregated completion ratio (`completedTasks / totalTasks * 100`) displayed as internal progress fill bars.
+- **Overdue Detection**: Dynamically flags overdue states when `dueDate < now` and status is not `completed` or `archived`.
+- **Dependency Visualization**: Exposes blocking task dependency edges on Gantt timeline items.
+
+### Authorization & Security Policies:
+- Project-level authorization: All milestone queries, mutations, and Gantt aggregations enforce that the authenticated user belongs to the project team (`checkProjectAccess` / `checkMilestoneAccess`).
+- Batch task assignment enforces `{ _id: { $in: taskIds }, projectId: milestone.projectId }` to prevent cross-project IDOR tampering.
+
+### REST Endpoints for Milestones & Gantt:
+| Resource | Action | Endpoint | Required Role / Permission |
+| :--- | :--- | :--- | :--- |
+| **Milestone** | Create | `POST /api/milestones` | Member or Owner of project team |
+| **Milestone** | List for Project | `GET /api/milestones/project/:projectId` | Member or Owner of project team |
+| **Milestone** | Get Gantt Timeline | `GET /api/milestones/project/:projectId/gantt` | Member or Owner of project team |
+| **Milestone** | Get Details | `GET /api/milestones/:milestoneId` | Member or Owner of project team |
+| **Milestone** | Update | `PUT /api/milestones/:milestoneId` | Member or Owner of project team |
+| **Milestone** | Batch Task Assignment | `POST /api/milestones/:milestoneId/tasks` | Member or Owner of project team |
+| **Milestone** | Delete | `DELETE /api/milestones/:milestoneId` | Member or Owner of project team |
