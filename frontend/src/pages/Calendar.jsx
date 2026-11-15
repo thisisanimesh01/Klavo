@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
+import PriorityBadge from "../components/PriorityBadge";
 import { Calendar as CalendarIcon, Clock, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default function Calendar() {
@@ -25,20 +26,6 @@ export default function Calendar() {
     fetchCalendarTasks();
   }, []);
 
-  const getPriorityBadge = (priority) => {
-    const styles = {
-      critical: "bg-red-500/10 text-red-400 border-red-500/20",
-      high: "bg-orange-500/10 text-orange-400 border-orange-500/20",
-      medium: "bg-indigo-500/10 text-indigo-400 border-indigo-500/20",
-      low: "bg-slate-500/10 text-slate-400 border-slate-500/20",
-    };
-    return (
-      <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium border ${styles[priority] || styles.medium}`}>
-        {priority}
-      </span>
-    );
-  };
-
   const getStatusBadge = (status) => {
     const styles = {
       done: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
@@ -57,12 +44,12 @@ export default function Calendar() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <CalendarIcon className="text-indigo-400" size={28} />
+          <h1 className="text-2xl font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+            <CalendarIcon className="text-indigo-600 dark:text-indigo-400" size={28} />
             My Calendar & Due Dates
           </h1>
-          <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
-            Upcoming deadlines for tasks assigned to you.
+          <p className="text-sm mt-1 text-slate-500">
+            Upcoming deadlines and priority schedules for tasks assigned to you.
           </p>
         </div>
       </div>
@@ -74,20 +61,17 @@ export default function Calendar() {
       )}
 
       {error && (
-        <div className="p-4 rounded-xl border border-red-500/30 bg-red-500/10 text-red-400 flex items-center gap-3">
+        <div className="p-4 rounded-xl border border-red-500/30 bg-red-500/10 text-red-500 flex items-center gap-3">
           <AlertCircle size={20} />
           <span>{error}</span>
         </div>
       )}
 
       {!loading && !error && tasks.length === 0 && (
-        <div
-          className="p-12 text-center rounded-2xl border"
-          style={{ background: "var(--bg-card)", borderColor: "var(--card-border)" }}
-        >
-          <CalendarIcon className="mx-auto text-slate-500 mb-3" size={48} />
-          <h3 className="text-lg font-semibold">No Scheduled Deadlines</h3>
-          <p className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
+        <div className="p-12 text-center rounded-2xl border border-slate-200 dark:border-slate-800 app-card">
+          <CalendarIcon className="mx-auto text-slate-400 mb-3" size={48} />
+          <h3 className="text-lg font-semibold text-slate-800 dark:text-slate-100">No Scheduled Deadlines</h3>
+          <p className="text-sm mt-1 text-slate-500">
             You have no assigned tasks with approaching due dates.
           </p>
         </div>
@@ -102,25 +86,39 @@ export default function Calendar() {
             return (
               <div
                 key={task._id}
-                className="p-5 rounded-xl border transition shadow-sm hover:shadow"
-                style={{
-                  background: "var(--bg-card)",
-                  borderColor: isOverdue ? "rgba(239, 68, 68, 0.4)" : "var(--card-border)",
-                }}
+                className={`p-5 rounded-xl border transition shadow-sm hover:shadow app-card ${
+                  isOverdue ? "border-red-400/80 bg-red-50/20 dark:bg-red-950/20" : "border-slate-200 dark:border-slate-800"
+                }`}
               >
                 <div className="flex items-start justify-between gap-2 mb-2">
-                  <h3 className="font-semibold text-base line-clamp-1">{task.title}</h3>
-                  {getPriorityBadge(task.priority)}
+                  <h3 className="font-semibold text-base line-clamp-1 text-slate-900 dark:text-white">
+                    {task.title}
+                  </h3>
+                  <PriorityBadge priority={task.priority} />
                 </div>
 
                 {task.description && (
-                  <p className="text-sm mb-4 line-clamp-2" style={{ color: "var(--text-muted)" }}>
+                  <p className="text-sm mb-4 line-clamp-2 text-slate-600 dark:text-slate-400">
                     {task.description}
                   </p>
                 )}
 
-                <div className="flex items-center justify-between text-xs pt-3 border-t" style={{ borderColor: "var(--card-border)" }}>
-                  <div className={`flex items-center gap-1.5 ${isOverdue ? "text-red-400 font-semibold" : "text-slate-400"}`}>
+                {task.labels?.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-3">
+                    {task.labels.map((lbl, i) => (
+                      <span
+                        key={i}
+                        className="px-2 py-0.5 rounded text-[10px] font-medium text-white shadow-xs"
+                        style={{ backgroundColor: lbl.color || "#6366f1" }}
+                      >
+                        {lbl.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between text-xs pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <div className={`flex items-center gap-1.5 ${isOverdue ? "text-red-500 font-semibold" : "text-slate-400"}`}>
                     <Clock size={14} />
                     <span>{dueDate ? dueDate.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "No date"}</span>
                     {isOverdue && <span className="text-[10px] uppercase font-bold">(Overdue)</span>}

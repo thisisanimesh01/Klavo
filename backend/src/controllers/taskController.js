@@ -1,4 +1,5 @@
 import Task from "../models/Task.js";
+import TaskTemplate from "../models/TaskTemplate.js";
 import { Project } from "../models/Project.js";
 import { logActivity } from "./activityController.js";
 import { checkProjectAccess, checkTaskAccess } from "../utils/authHelpers.js";
@@ -6,10 +7,23 @@ import { createTargetedNotification } from "../utils/notificationHelpers.js";
 
 export const createTask = async (req, res) => {
   try {
-    const { title, description, status, projectId, priority, dueDate, assignedTo } = req.body;
+    const {
+      title,
+      description,
+      status,
+      projectId,
+      priority,
+      dueDate,
+      assignedTo,
+      labels,
+      customFields,
+      checklist,
+      estimatedHours,
+      templateId,
+    } = req.body;
 
-    if (!title || !projectId) {
-      return res.status(400).json({ message: "Title and projectId are required" });
+    if (!projectId) {
+      return res.status(400).json({ message: "projectId is required" });
     }
 
     const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
@@ -20,16 +34,63 @@ export const createTask = async (req, res) => {
       return res.status(403).json({ message: "Forbidden: You are not authorized to create tasks in this project" });
     }
 
+    let finalTitle = title ? title.trim() : "";
+    let finalDescription = description || "";
+    let finalPriority = priority || "medium";
+    let finalLabels = Array.isArray(labels) ? labels : [];
+    let finalCustomFields = Array.isArray(customFields) ? customFields : [];
+    let finalChecklist = Array.isArray(checklist) ? checklist : [];
+    let finalEstimatedHours = estimatedHours !== undefined ? estimatedHours : null;
+
+    // If templateId provided, apply template defaults if fields not explicitly provided
+    if (templateId) {
+      const template = await TaskTemplate.findById(templateId);
+      if (template) {
+        if (!finalTitle && template.defaultTitle) finalTitle = template.defaultTitle;
+        if (!finalDescription && template.defaultDescription) finalDescription = template.defaultDescription;
+        if (!priority && template.defaultPriority) finalPriority = template.defaultPriority;
+        if (finalLabels.length === 0 && template.defaultLabels?.length > 0) {
+          finalLabels = template.defaultLabels.map((l) => ({ name: l.name, color: l.color }));
+        }
+        if (finalCustomFields.length === 0 && template.defaultCustomFields?.length > 0) {
+          finalCustomFields = template.defaultCustomFields.map((cf) => ({
+            name: cf.name,
+            type: cf.type,
+            value: cf.value,
+            options: cf.options,
+          }));
+        }
+        if (finalChecklist.length === 0 && template.checklist?.length > 0) {
+          finalChecklist = template.checklist.map((c) => ({
+            text: c.text,
+            completed: false,
+          }));
+        }
+        if (finalEstimatedHours === null && template.estimatedHours !== null) {
+          finalEstimatedHours = template.estimatedHours;
+        }
+      }
+    }
+
+    if (!finalTitle) {
+      return res.status(400).json({ message: "Title is required" });
+    }
+
     const existingCount = await Task.countDocuments({
       projectId,
       status: status || "todo",
     });
 
     const task = await Task.create({
-      title: title.trim(),
-      description: description || "",
+      title: finalTitle,
+      description: finalDescription,
       status: status || "todo",
-      priority: priority || "medium",
+      priority: finalPriority,
+      labels: finalLabels,
+      customFields: finalCustomFields,
+      checklist: finalChecklist,
+      estimatedHours: finalEstimatedHours,
+      templateId: templateId || null,
       dueDate: dueDate || null,
       assignedTo: assignedTo || [],
       projectId,
@@ -37,12 +98,15 @@ export const createTask = async (req, res) => {
       order: existingCount,
     });
 
+    // Populate assignedTo for immediate full response
+    await task.populate("assignedTo", "name email avatar");
+
     // Log activity
     await logActivity({
       projectId,
       userId: req.user._id,
       action: "Created Task",
-      message: `${req.user.name} created task "${title}"`,
+      message: `${req.user.name} created task "${finalTitle}"`,
     });
 
     const io = req.app.get("io");
@@ -51,7 +115,7 @@ export const createTask = async (req, res) => {
         projectId,
         user: { name: req.user.name },
         action: "Created Task",
-        message: `${req.user.name} created task "${title}"`,
+        message: `${req.user.name} created task "${finalTitle}"`,
         createdAt: new Date(),
       });
 
@@ -64,7 +128,7 @@ export const createTask = async (req, res) => {
             userId: assigneeId,
             senderId: req.user._id,
             type: "TASK_ASSIGNED",
-            message: `${req.user.name} assigned you to task "${title}"`,
+            message: `${req.user.name} assigned you to task "${finalTitle}"`,
             data: { taskId: task._id, projectId },
           });
         }
@@ -80,6 +144,7 @@ export const createTask = async (req, res) => {
 export const getTasksByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
+    const { priority, status, label, search, sortBy, sortOrder } = req.query;
 
     const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
     if (!project) return res.status(404).json({ message: "Project not found" });
@@ -89,11 +154,61 @@ export const getTasksByProject = async (req, res) => {
       return res.status(403).json({ message: "Forbidden: You are not authorized to view tasks in this project" });
     }
 
-    const tasks = await Task.find({ projectId })
+    const query = { projectId };
+
+    if (priority) {
+      query.priority = priority;
+    }
+
+    if (status) {
+      query.status = status;
+    }
+
+    if (label) {
+      query["labels.name"] = { $regex: new RegExp(`^${label.trim()}$`, "i") };
+    }
+
+    if (search && search.trim()) {
+      const regex = new RegExp(search.trim(), "i");
+      query.$or = [{ title: regex }, { description: regex }];
+    }
+
+    let sort = { status: 1, order: 1, createdAt: 1 };
+    if (sortBy) {
+      const order = sortOrder === "desc" ? -1 : 1;
+      sort = { [sortBy]: order };
+    }
+
+    const tasks = await Task.find(query)
       .populate("assignedTo", "name email avatar")
-      .sort({ status: 1, order: 1, createdAt: 1 });
+      .populate("templateId", "name")
+      .sort(sort);
 
     res.json(tasks);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const getTaskById = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+
+    const { hasAccess, task } = await checkTaskAccess(taskId, req.user._id);
+    if (!task) return res.status(404).json({ message: "Task not found" });
+
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to view this task" });
+    }
+
+    await task.populate("assignedTo", "name email avatar");
+    await task.populate("templateId", "name");
+    await task.populate({
+      path: "comments",
+      populate: { path: "userId", select: "name email avatar" },
+    });
+
+    res.json(task);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -111,7 +226,19 @@ export const updateTask = async (req, res) => {
       return res.status(403).json({ message: "Forbidden: You are not authorized to update this task" });
     }
 
-    const allowed = ["title", "description", "status", "priority", "dueDate", "assignedTo"];
+    const allowed = [
+      "title",
+      "description",
+      "status",
+      "priority",
+      "dueDate",
+      "assignedTo",
+      "labels",
+      "customFields",
+      "checklist",
+      "estimatedHours",
+      "templateId",
+    ];
     const updates = {};
 
     allowed.forEach((f) => {
@@ -119,7 +246,8 @@ export const updateTask = async (req, res) => {
     });
 
     const updatedTask = await Task.findByIdAndUpdate(taskId, updates, { new: true })
-      .populate("assignedTo", "name email avatar");
+      .populate("assignedTo", "name email avatar")
+      .populate("templateId", "name");
 
     // Activity log
     await logActivity({
