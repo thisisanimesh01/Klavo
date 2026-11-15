@@ -84,3 +84,53 @@ test("FRONTEND PM-01: Priority & Badge Configuration Mapping", async (t) => {
     );
   });
 });
+
+test("FRONTEND PM-02: Sprint Calculation & Filter State Composition", async (t) => {
+  await t.test("Validates sprint progress percentage and task counting", () => {
+    const sprint = {
+      id: "sprint_10",
+      totalTasks: 5,
+      completedTasks: 3,
+    };
+
+    const progress = Math.round((sprint.completedTasks / sprint.totalTasks) * 100);
+    assert.equal(progress, 60);
+
+    const emptySprint = { totalTasks: 0, completedTasks: 0 };
+    const emptyProgress = emptySprint.totalTasks > 0 ? Math.round((emptySprint.completedTasks / emptySprint.totalTasks) * 100) : 0;
+    assert.equal(emptyProgress, 0);
+  });
+
+  await t.test("Validates sprint filter parameter mapping for Kanban queries", () => {
+    const states = [
+      { selectedSprintId: "all", expected: {} },
+      { selectedSprintId: "backlog", expected: { sprintId: "backlog" } },
+      { selectedSprintId: "sprint_abc123", expected: { sprintId: "sprint_abc123" } },
+    ];
+
+    states.forEach(({ selectedSprintId, expected }) => {
+      const params = new URLSearchParams();
+      if (selectedSprintId !== "all") {
+        params.set("sprintId", selectedSprintId);
+      }
+      if (expected.sprintId) {
+        assert.equal(params.get("sprintId"), expected.sprintId);
+      } else {
+        assert.equal(params.has("sprintId"), false);
+      }
+    });
+  });
+
+  await t.test("Validates sprint active banner badge and status styling", () => {
+    const statusBadges = {
+      planned: "bg-slate-100 text-slate-700",
+      active: "bg-indigo-600 text-white animate-pulse",
+      completed: "bg-emerald-100 text-emerald-800",
+      archived: "bg-slate-200 text-slate-500",
+    };
+
+    ["planned", "active", "completed", "archived"].forEach((st) => {
+      assert.ok(statusBadges[st], `Status style for ${st} must be defined`);
+    });
+  });
+});

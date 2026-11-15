@@ -46,3 +46,18 @@ export const checkTaskAccess = async (taskId, userId) => {
   const { hasAccess, project, team } = await checkProjectAccess(task.projectId, userId);
   return { hasAccess, task, project, team };
 };
+
+/**
+ * Checks if a user has access to a sprint via its project and team.
+ * @param {string|ObjectId} sprintId
+ * @param {string|ObjectId} userId
+ * @returns {Promise<{hasAccess: boolean, isOwner: boolean, sprint: object|null, project: object|null, team: object|null}>}
+ */
+export const checkSprintAccess = async (sprintId, userId) => {
+  const { default: Sprint } = await import("../models/Sprint.js");
+  const sprint = await Sprint.findById(sprintId);
+  if (!sprint) return { hasAccess: false, isOwner: false, sprint: null, project: null, team: null };
+
+  const { hasAccess, isOwner, project, team } = await checkProjectAccess(sprint.projectId, userId);
+  return { hasAccess, isOwner, sprint, project, team };
+};

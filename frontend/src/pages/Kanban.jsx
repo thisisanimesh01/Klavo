@@ -4,6 +4,7 @@ import axiosClient from "../api/axiosClient";
 import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import TaskModal from "../components/TaskModal";
 import TaskTemplateModal from "../components/TaskTemplateModal";
+import SprintModal from "../components/SprintModal";
 import PriorityBadge from "../components/PriorityBadge";
 import ThemeToggle from "../components/ThemeToggle";
 import ActivityPanel from "../components/ActivityPanel";
@@ -21,6 +22,13 @@ import {
   Tag,
   ArrowUpDown,
   X,
+  Zap,
+  Play,
+  CheckCircle2,
+  Archive,
+  Layers,
+  ChevronRight,
+  TrendingUp,
 } from "lucide-react";
 
 const COLUMNS = [
@@ -34,15 +42,21 @@ export default function Kanban() {
   const { projectId } = useParams();
 
   const [tasks, setTasks] = useState([]);
+  const [sprints, setSprints] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Modals
   const [modalOpen, setModalOpen] = useState(false);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
+  const [sprintModalOpen, setSprintModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
+  const [editingSprint, setEditingSprint] = useState(null);
   const [createStatus, setCreateStatus] = useState("todo");
 
   const [activeTab, setActiveTab] = useState("board");
+
+  // Sprint view selection: 'all' | 'backlog' | sprintId
+  const [selectedSprintId, setSelectedSprintId] = useState("all");
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState("");
@@ -63,9 +77,21 @@ export default function Kanban() {
     }
   }, [projectId]);
 
+  const fetchSprints = useCallback(async () => {
+    try {
+      const res = await axiosClient.get(`/sprints/project/${projectId}`);
+      setSprints(res.data || []);
+    } catch (err) {
+      console.error("Failed to fetch sprints:", err);
+    }
+  }, [projectId]);
+
   useEffect(() => {
-    if (projectId) fetchTasks();
-  }, [projectId, fetchTasks]);
+    if (projectId) {
+      fetchTasks();
+      fetchSprints();
+    }
+  }, [projectId, fetchTasks, fetchSprints]);
 
   useEffect(() => {
     if (!projectId) return;
@@ -73,7 +99,7 @@ export default function Kanban() {
 
     socket.emit("joinProject", { projectId });
 
-    const created = (task) => {
+    const taskCreated = (task) => {
       if (String(task.projectId) === String(projectId)) {
         setTasks((prev) =>
           prev.some((t) => t._id === task._id) ? prev : [...prev, task]
@@ -81,31 +107,47 @@ export default function Kanban() {
       }
     };
 
-    const updated = (task) => {
+    const taskUpdated = (task) => {
       setTasks((prev) => prev.map((t) => (t._id === task._id ? task : t)));
     };
 
-    const moved = (task) => {
+    const taskMoved = (task) => {
       setTasks((prev) => prev.map((t) => (t._id === task._id ? task : t)));
     };
 
-    const deleted = ({ _id }) => {
+    const taskDeleted = ({ _id }) => {
       setTasks((prev) => prev.filter((t) => t._id !== _id));
     };
 
-    socket.on("taskCreated", created);
-    socket.on("taskUpdated", updated);
-    socket.on("taskMoved", moved);
-    socket.on("taskDeleted", deleted);
+    const sprintCreated = () => fetchSprints();
+    const sprintUpdated = () => fetchSprints();
+    const sprintStarted = () => fetchSprints();
+    const sprintCompleted = () => {
+      fetchSprints();
+      fetchTasks();
+    };
+
+    socket.on("taskCreated", taskCreated);
+    socket.on("taskUpdated", taskUpdated);
+    socket.on("taskMoved", taskMoved);
+    socket.on("taskDeleted", taskDeleted);
+    socket.on("sprintCreated", sprintCreated);
+    socket.on("sprintUpdated", sprintUpdated);
+    socket.on("sprintStarted", sprintStarted);
+    socket.on("sprintCompleted", sprintCompleted);
 
     return () => {
       socket.emit("leaveProject", { projectId });
-      socket.off("taskCreated", created);
-      socket.off("taskUpdated", updated);
-      socket.off("taskMoved", moved);
-      socket.off("taskDeleted", deleted);
+      socket.off("taskCreated", taskCreated);
+      socket.off("taskUpdated", taskUpdated);
+      socket.off("taskMoved", taskMoved);
+      socket.off("taskDeleted", taskDeleted);
+      socket.off("sprintCreated", sprintCreated);
+      socket.off("sprintUpdated", sprintUpdated);
+      socket.off("sprintStarted", sprintStarted);
+      socket.off("sprintCompleted", sprintCompleted);
     };
-  }, [projectId]);
+  }, [projectId, fetchSprints, fetchTasks]);
 
   // Extract unique labels and assignees for filter dropdowns
   const availableLabels = useMemo(() => {
@@ -130,6 +172,17 @@ export default function Kanban() {
     return Array.from(assigneeMap.entries()).map(([id, name]) => ({ id, name }));
   }, [tasks]);
 
+  // Currently active sprint if any
+  const activeSprint = useMemo(() => {
+    return sprints.find((s) => s.status === "active");
+  }, [sprints]);
+
+  // Currently inspected sprint from filter dropdown
+  const currentViewSprint = useMemo(() => {
+    if (selectedSprintId === "all" || selectedSprintId === "backlog") return null;
+    return sprints.find((s) => s._id === selectedSprintId);
+  }, [sprints, selectedSprintId]);
+
   // Priority weight for sorting
   const priorityWeight = {
     urgent: 5,
@@ -141,6 +194,14 @@ export default function Kanban() {
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((t) => {
+      // Sprint scoping
+      if (selectedSprintId === "backlog") {
+        if (t.sprintId) return false;
+      } else if (selectedSprintId !== "all") {
+        const tSprint = t.sprintId?._id || t.sprintId;
+        if (tSprint !== selectedSprintId) return false;
+      }
+
       // Search
       if (searchQuery.trim()) {
         const query = searchQuery.toLowerCase();
@@ -173,7 +234,7 @@ export default function Kanban() {
 
       return true;
     });
-  }, [tasks, searchQuery, selectedPriority, selectedLabel, selectedAssignee]);
+  }, [tasks, selectedSprintId, searchQuery, selectedPriority, selectedLabel, selectedAssignee]);
 
   const tasksByStatus = (status) =>
     filteredTasks
@@ -230,6 +291,7 @@ export default function Kanban() {
 
   const handleTaskSaved = () => {
     fetchTasks();
+    fetchSprints();
     setModalOpen(false);
   };
 
@@ -239,8 +301,31 @@ export default function Kanban() {
     try {
       await axiosClient.delete(`/tasks/${id}`);
       fetchTasks();
+      fetchSprints();
     } catch (err) {
       alert("Failed to delete task");
+    }
+  };
+
+  // Sprint Action Handlers
+  const handleStartSprint = async (sprintId) => {
+    try {
+      await axiosClient.post(`/sprints/${sprintId}/start`);
+      fetchSprints();
+      setSelectedSprintId(sprintId);
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to start sprint");
+    }
+  };
+
+  const handleCompleteSprint = async (sprintId) => {
+    if (!confirm("Complete this active sprint? Incomplete tasks will return to the product backlog.")) return;
+    try {
+      await axiosClient.post(`/sprints/${sprintId}/complete`);
+      fetchSprints();
+      fetchTasks();
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to complete sprint");
     }
   };
 
@@ -249,6 +334,7 @@ export default function Kanban() {
     setSelectedPriority("all");
     setSelectedLabel("all");
     setSelectedAssignee("all");
+    setSelectedSprintId("all");
     setSortBy("order");
   };
 
@@ -257,9 +343,12 @@ export default function Kanban() {
     selectedPriority !== "all" ||
     selectedLabel !== "all" ||
     selectedAssignee !== "all" ||
+    selectedSprintId !== "all" ||
     sortBy !== "order";
 
-  if (loading) return <div className="p-6 text-slate-500">Loading Kanban board...</div>;
+  if (loading && tasks.length === 0) {
+    return <div className="p-6 text-slate-500">Loading Kanban board...</div>;
+  }
 
   return (
     <div className="min-h-screen app-bg p-4 sm:p-6">
@@ -268,19 +357,29 @@ export default function Kanban() {
         <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-              Project Kanban
+              Project Kanban & Sprints
             </h1>
             <p className="text-xs text-slate-500">
-              Interactive task board with real-time sync, priorities, and blueprints
+              Agile iterations, sprint backlogs, blueprints, and real-time execution
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => {
+                setEditingSprint(null);
+                setSprintModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-xl text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-sm text-indigo-600 dark:text-indigo-400"
+            >
+              <Zap className="w-4 h-4 text-indigo-600" />
+              New Sprint
+            </button>
             <button
               onClick={() => setTemplateModalOpen(true)}
               className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-xl text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-sm"
             >
-              <LayoutTemplate className="w-4 h-4 text-indigo-600" />
-              Templates
+              <LayoutTemplate className="w-4 h-4 text-slate-500" />
+              Blueprints
             </button>
             <button
               onClick={() => openCreateModal("todo")}
@@ -312,10 +411,84 @@ export default function Kanban() {
 
         {activeTab === "board" && (
           <div className="space-y-4">
-            {/* Filter and Search Bar */}
+            {/* Active Sprint Banner (if one exists) */}
+            {activeSprint && (
+              <div className="p-4 bg-gradient-to-r from-indigo-500/10 via-purple-500/10 to-transparent border border-indigo-200 dark:border-indigo-900/60 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xs">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-indigo-600 text-white shadow-xs">
+                      <Zap className="w-3 h-3" /> ACTIVE SPRINT
+                    </span>
+                    <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                      {activeSprint.name}
+                    </h2>
+                  </div>
+                  {activeSprint.goal && (
+                    <p className="text-xs text-slate-600 dark:text-slate-300">
+                      <span className="font-semibold">Goal:</span> {activeSprint.goal}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-3 text-[11px] text-slate-500 pt-0.5">
+                    {activeSprint.startDate && (
+                      <span>Started: {new Date(activeSprint.startDate).toLocaleDateString()}</span>
+                    )}
+                    {activeSprint.endDate && (
+                      <span>Target: {new Date(activeSprint.endDate).toLocaleDateString()}</span>
+                    )}
+                    <span>• {activeSprint.completedTasks || 0}/{activeSprint.totalTasks || 0} tasks done ({activeSprint.progress || 0}%)</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setSelectedSprintId(activeSprint._id)}
+                    className="px-3 py-1.5 border border-indigo-300 dark:border-indigo-800 rounded-xl text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                  >
+                    Focus Board
+                  </button>
+                  <button
+                    onClick={() => handleCompleteSprint(activeSprint._id)}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-xs"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Complete Sprint
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Filter and Sprint Navigation Bar */}
             <div className="app-card border border-slate-200 dark:border-slate-800 p-3 rounded-2xl shadow-sm flex flex-wrap items-center gap-3">
+              {/* Sprint Scope Selector */}
+              <div className="flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                <select
+                  className="border border-slate-200 dark:border-slate-700 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900 text-xs font-semibold text-indigo-600 dark:text-indigo-400"
+                  value={selectedSprintId}
+                  onChange={(e) => setSelectedSprintId(e.target.value)}
+                >
+                  <option value="all">All Sprints & Backlog</option>
+                  <option value="backlog">Product Backlog (No Sprint)</option>
+                  {sprints.map((s) => (
+                    <option key={s._id} value={s._id}>
+                      {s.name} ({s.status.toUpperCase()})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Quick sprint status action button if selected */}
+              {currentViewSprint && currentViewSprint.status === "planned" && (
+                <button
+                  onClick={() => handleStartSprint(currentViewSprint._id)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-indigo-600 text-white text-xs font-medium rounded-xl hover:bg-indigo-700 shadow-xs"
+                  title="Start Sprint"
+                >
+                  <Play className="w-3 h-3 fill-white" /> Start
+                </button>
+              )}
+
               {/* Search */}
-              <div className="relative flex-1 min-w-[200px]">
+              <div className="relative flex-1 min-w-[180px]">
                 <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
                 <input
                   type="text"
@@ -458,15 +631,22 @@ export default function Kanban() {
                                           : ""
                                       }`}
                                     >
-                                      {/* Top Row: Priority & Template Tag */}
+                                      {/* Top Row: Priority & Sprint / Template Tag */}
                                       <div className="flex items-center justify-between gap-2">
                                         <PriorityBadge priority={task.priority} />
-                                        {task.templateId && (
-                                          <span className="text-[10px] text-slate-400 flex items-center gap-1 font-mono">
-                                            <LayoutTemplate className="w-3 h-3 text-indigo-500" />
-                                            {task.templateId.name || "Template"}
-                                          </span>
-                                        )}
+                                        <div className="flex items-center gap-1.5">
+                                          {task.sprintId && (
+                                            <span className="text-[10px] text-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-900 px-1.5 py-0.5 rounded flex items-center gap-1 font-medium truncate max-w-[110px]">
+                                              <Zap className="w-2.5 h-2.5" />
+                                              {task.sprintId.name || "Sprint"}
+                                            </span>
+                                          )}
+                                          {task.templateId && (
+                                            <span className="text-[10px] text-slate-400 flex items-center gap-1 font-mono">
+                                              <LayoutTemplate className="w-3 h-3 text-indigo-500" />
+                                            </span>
+                                          )}
+                                        </div>
                                       </div>
 
                                       {/* Task Title */}
@@ -575,6 +755,7 @@ export default function Kanban() {
         projectId={projectId}
         initialTask={editingTask}
         defaultStatus={createStatus}
+        defaultSprintId={selectedSprintId !== "all" && selectedSprintId !== "backlog" ? selectedSprintId : ""}
         onSaved={handleTaskSaved}
       />
 
@@ -584,6 +765,16 @@ export default function Kanban() {
         projectId={projectId}
         onTemplateCreated={() => {
           fetchTasks();
+        }}
+      />
+
+      <SprintModal
+        open={sprintModalOpen}
+        onClose={() => setSprintModalOpen(false)}
+        projectId={projectId}
+        initialSprint={editingSprint}
+        onSaved={() => {
+          fetchSprints();
         }}
       />
     </div>

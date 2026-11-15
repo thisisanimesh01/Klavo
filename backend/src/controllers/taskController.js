@@ -1,5 +1,6 @@
 import Task from "../models/Task.js";
 import TaskTemplate from "../models/TaskTemplate.js";
+import Sprint from "../models/Sprint.js";
 import { Project } from "../models/Project.js";
 import { logActivity } from "./activityController.js";
 import { checkProjectAccess, checkTaskAccess } from "../utils/authHelpers.js";
@@ -13,6 +14,7 @@ export const createTask = async (req, res) => {
       status,
       projectId,
       priority,
+      sprintId,
       dueDate,
       assignedTo,
       labels,
@@ -86,6 +88,7 @@ export const createTask = async (req, res) => {
       description: finalDescription,
       status: status || "todo",
       priority: finalPriority,
+      sprintId: sprintId || null,
       labels: finalLabels,
       customFields: finalCustomFields,
       checklist: finalChecklist,
@@ -98,8 +101,9 @@ export const createTask = async (req, res) => {
       order: existingCount,
     });
 
-    // Populate assignedTo for immediate full response
+    // Populate assignedTo and sprintId for immediate full response
     await task.populate("assignedTo", "name email avatar");
+    await task.populate("sprintId", "name status");
 
     // Log activity
     await logActivity({
@@ -144,7 +148,7 @@ export const createTask = async (req, res) => {
 export const getTasksByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { priority, status, label, search, sortBy, sortOrder } = req.query;
+    const { priority, status, sprintId, label, search, sortBy, sortOrder } = req.query;
 
     const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
     if (!project) return res.status(404).json({ message: "Project not found" });
@@ -162,6 +166,14 @@ export const getTasksByProject = async (req, res) => {
 
     if (status) {
       query.status = status;
+    }
+
+    if (sprintId !== undefined) {
+      if (sprintId === "backlog" || sprintId === "null" || sprintId === "") {
+        query.sprintId = null;
+      } else if (sprintId !== "all") {
+        query.sprintId = sprintId;
+      }
     }
 
     if (label) {
@@ -182,6 +194,7 @@ export const getTasksByProject = async (req, res) => {
     const tasks = await Task.find(query)
       .populate("assignedTo", "name email avatar")
       .populate("templateId", "name")
+      .populate("sprintId", "name status")
       .sort(sort);
 
     res.json(tasks);
@@ -203,6 +216,7 @@ export const getTaskById = async (req, res) => {
 
     await task.populate("assignedTo", "name email avatar");
     await task.populate("templateId", "name");
+    await task.populate("sprintId", "name status");
     await task.populate({
       path: "comments",
       populate: { path: "userId", select: "name email avatar" },
@@ -231,6 +245,7 @@ export const updateTask = async (req, res) => {
       "description",
       "status",
       "priority",
+      "sprintId",
       "dueDate",
       "assignedTo",
       "labels",
@@ -247,7 +262,8 @@ export const updateTask = async (req, res) => {
 
     const updatedTask = await Task.findByIdAndUpdate(taskId, updates, { new: true })
       .populate("assignedTo", "name email avatar")
-      .populate("templateId", "name");
+      .populate("templateId", "name")
+      .populate("sprintId", "name status");
 
     // Activity log
     await logActivity({
