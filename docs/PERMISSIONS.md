@@ -126,3 +126,22 @@ Unauthenticated or unauthorized socket clients cannot eavesdrop on private proje
   - `GET /api/notifications`: Returns user's notifications sorted by newest first.
   - `PUT /api/notifications/:id`: Marks specific notification as read (with user ID authorization check).
   - `PUT /api/notifications/read-all`: Batch marks all unread notifications for the user as read.
+
+---
+
+## 8. Dashboard & Activity Feed Consistency (MOD-03)
+
+### Dashboard Metrics Scoping (`GET /api/dashboard`):
+- All metrics are strictly scoped to the requesting user's authorized teams (`members: userId` or `owner: userId`) and their child projects (`Project.find({ teamId: { $in: teamIds } })`).
+- Foreign teams, projects, and tasks are strictly isolated and never included in counts or aggregates.
+- **Weekly Task Activity**: Aggregates tasks by creation day, normalized to all 7 days of the week (`Sun` through `Sat`) with zero-filled gaps for predictable chart rendering.
+- **Status Distribution**: Returns standard breakdown for `todo`, `in-progress`, and `done`.
+- **Recent Activity**: Returns the 10 most recent activity logs across all accessible projects, populated with user and project details.
+
+### Activity Logging & Feeds (`/api/activity`):
+- `GET /api/activity/feed`: User-scoped team activity stream returning the 30 most recent actions across all authorized projects.
+- `GET /api/activity/:projectId`: Scoped to a specific project with team membership verification (IDOR protection).
+- Comprehensive activity logging:
+  - Task Creation, Updating, Deletion, and Column Movement.
+  - File Uploads.
+  - Real-time `activityCreated` emission across project rooms.

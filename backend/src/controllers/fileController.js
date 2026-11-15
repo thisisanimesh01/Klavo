@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import File from "../models/File.js";
 import { checkProjectAccess } from "../utils/authHelpers.js";
+import { logActivity } from "./activityController.js";
 
 // Upload File
 export const uploadFile = async (req, res) => {
@@ -31,6 +32,25 @@ export const uploadFile = async (req, res) => {
 
     // Populate user
     const populated = await File.findById(saved._id).populate("userId", "name email avatar");
+
+    // Log activity and emit
+    await logActivity({
+      projectId,
+      userId: req.user._id,
+      action: "Uploaded File",
+      message: `${req.user.name} uploaded "${file.originalname}"`,
+    });
+
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`project_${projectId}`).emit("activityCreated", {
+        projectId,
+        user: { name: req.user.name },
+        action: "Uploaded File",
+        message: `${req.user.name} uploaded "${file.originalname}"`,
+        createdAt: new Date(),
+      });
+    }
 
     res.status(201).json(populated);
   } catch (err) {

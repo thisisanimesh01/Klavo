@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
 import { Link } from "react-router-dom";
+import socket from "../socket";
 
 import {
   AreaChart,
@@ -12,157 +13,247 @@ import {
   PieChart,
   Pie,
   Cell,
-  ResponsiveContainer
+  ResponsiveContainer,
 } from "recharts";
 
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
+  const [recentActivities, setRecentActivities] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const loadStats = async () => {
+    try {
+      const { data } = await axiosClient.get("/dashboard");
+      setStats(data);
+      if (Array.isArray(data.recentActivity)) {
+        setRecentActivities(data.recentActivity);
+      }
+    } catch (err) {
+      console.error("Dashboard stats failed to load:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadStats = async () => {
-      try {
-        const { data } = await axiosClient.get("/dashboard");
-        setStats(data);
-      } catch (err) {
-        console.error("Dashboard stats failed to load:", err);
-      }
-    };
     loadStats();
+
+    if (!socket.connected) socket.connect();
+
+    const handleRealtimeActivity = (newActivity) => {
+      setRecentActivities((prev) => [newActivity, ...prev.slice(0, 9)]);
+      // Refresh metrics on relevant project events
+      loadStats();
+    };
+
+    socket.on("activityCreated", handleRealtimeActivity);
+    socket.on("taskCreated", loadStats);
+    socket.on("taskMoved", loadStats);
+    socket.on("taskDeleted", loadStats);
+
+    return () => {
+      socket.off("activityCreated", handleRealtimeActivity);
+      socket.off("taskCreated", loadStats);
+      socket.off("taskMoved", loadStats);
+      socket.off("taskDeleted", loadStats);
+    };
   }, []);
 
-  if (!stats) return <p className="p-6">Loading dashboard metrics...</p>;
+  if (loading || !stats) {
+    return (
+      <div className="flex items-center justify-center p-12">
+        <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    );
+  }
 
-  const colors = ["#6366F1", "#10B981", "#EF4444"];
+  const colors = ["#6366F1", "#F59E0B", "#10B981"];
+
+  const getActivityIcon = (action) => {
+    if (!action) return "📌";
+    const act = action.toLowerCase();
+    if (act.includes("moved")) return "🔀";
+    if (act.includes("created")) return "🆕";
+    if (act.includes("deleted")) return "🗑️";
+    if (act.includes("file") || act.includes("upload")) return "📁";
+    if (act.includes("comment")) return "💬";
+    return "📌";
+  };
 
   return (
-    <div
-      className="space-y-6"
-      style={{ color: "var(--text-main)" }}
-    >
-      <div className="space-y-6">
+    <div className="space-y-6" style={{ color: "var(--text-main)" }}>
+      {/* Stat Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <StatCard label="Projects" value={stats.projectCount} />
+        <StatCard label="Tasks" value={stats.taskCount} />
+        <StatCard label="Completed" value={stats.completedCount} color="text-green-500" />
+        <StatCard label="Teams" value={stats.teamCount} />
+      </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <StatCard label="Projects" value={stats.projectCount} />
-          <StatCard label="Tasks" value={stats.taskCount} />
-          <StatCard label="Completed" value={stats.completedCount} color="text-green-500" />
-          <StatCard label="Teams" value={stats.teamCount} />
+      {/* Visual Graphs */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Weekly Activity */}
+        <div
+          className="p-4 rounded-xl shadow"
+          style={{
+            background: "var(--bg-card)",
+            border: "1px solid var(--card-border)",
+          }}
+        >
+          <h2 className="font-semibold mb-3">Weekly Task Activity</h2>
+
+          <ResponsiveContainer width="100%" height={250}>
+            <AreaChart data={stats.weeklyActivity}>
+              <defs>
+                <linearGradient id="colorActivity" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6366F1" stopOpacity={0.8} />
+                  <stop offset="95%" stopColor="#6366F1" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+
+              <CartesianGrid stroke="var(--card-border)" />
+              <XAxis dataKey="_id" tick={{ fill: "var(--text-main)" }} />
+              <YAxis tick={{ fill: "var(--text-main)" }} allowDecimals={false} />
+
+              <Tooltip
+                contentStyle={{
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--card-border)",
+                  color: "var(--text-main)",
+                }}
+              />
+
+              <Area
+                type="monotone"
+                dataKey="count"
+                stroke="#6366F1"
+                fillOpacity={1}
+                fill="url(#colorActivity)"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
         </div>
 
-        {/* Graphs */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Task Status */}
+        <div
+          className="p-4 rounded-xl shadow"
+          style={{
+            background: "var(--bg-card)",
+            border: "1px solid var(--card-border)",
+          }}
+        >
+          <h2 className="font-semibold mb-3">Task Status Breakdown</h2>
 
-          {/* Weekly Activity */}
-          <div
-            className="p-4 rounded-xl shadow"
-            style={{
-              background: "var(--bg-card)",
-              border: "1px solid var(--card-border)"
-            }}
-          >
-            <h2 className="font-semibold mb-3">Weekly Task Activity</h2>
+          <ResponsiveContainer width="100%" height={250}>
+            <PieChart>
+              <Pie
+                data={stats.statusDistribution}
+                dataKey="count"
+                nameKey="_id"
+                cx="50%"
+                cy="50%"
+                outerRadius={80}
+              >
+                {stats.statusDistribution.map((_, i) => (
+                  <Cell key={i} fill={colors[i % colors.length]} />
+                ))}
+              </Pie>
 
-            <ResponsiveContainer width="100%" height={250}>
-              <AreaChart data={stats.weeklyActivity}>
-                <defs>
-                  <linearGradient id="color" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366F1" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#6366F1" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-
-                <CartesianGrid stroke="var(--card-border)" />
-
-                <XAxis dataKey="_id" tick={{ fill: "var(--text-main)" }} />
-                <YAxis tick={{ fill: "var(--text-main)" }} />
-
-                <Tooltip
-                  contentStyle={{
-                    background: "var(--bg-card)",
-                    border: "1px solid var(--card-border)",
-                    color: "var(--text-main)"
-                  }}
-                />
-
-                <Area
-                  type="monotone"
-                  dataKey="count"
-                  stroke="#6366F1"
-                  fillOpacity={1}
-                  fill="url(#color)"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Task Status */}
-          <div
-            className="p-4 rounded-xl shadow"
-            style={{
-              background: "var(--bg-card)",
-              border: "1px solid var(--card-border)"
-            }}
-          >
-            <h2 className="font-semibold mb-3">Task Status</h2>
-
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie
-                  data={stats.statusDistribution}
-                  dataKey="count"
-                  nameKey="_id"
-                  cx="50%"
-                  cy="50%"
-                  outerRadius={80}
-                >
-                  {stats.statusDistribution.map((_, i) => (
-                    <Cell key={i} fill={colors[i]} />
-                  ))}
-                </Pie>
-
-                <Tooltip
-                  contentStyle={{
-                    background: "var(--bg-card)",
-                    border: "1px solid var(--card-border)",
-                    color: "var(--text-main)"
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-
-        </div>
-
-        {/* Buttons */}
-        <div className="flex gap-6 mt-8">
-          <Link className="bg-indigo-600 hover:bg-indigo-700 text-white px-8 py-3 rounded-xl text-lg font-semibold transition" to="/teams">
-            Create Teams
-          </Link>
-
-          <Link className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-xl text-lg font-semibold transition" to="/projects">
-            Manage Projects
-          </Link>
+              <Tooltip
+                contentStyle={{
+                  background: "var(--bg-card)",
+                  border: "1px solid var(--card-border)",
+                  color: "var(--text-main)",
+                }}
+              />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
+      {/* Recent Team Activity Feed */}
+      <div
+        className="p-5 rounded-xl shadow"
+        style={{
+          background: "var(--bg-card)",
+          border: "1px solid var(--card-border)",
+        }}
+      >
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-lg">Recent Team Activity</h2>
+          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Live updates across authorized projects
+          </span>
+        </div>
+
+        {recentActivities.length === 0 ? (
+          <p className="text-sm py-4 text-center" style={{ color: "var(--text-muted)" }}>
+            🚀 No recent team activity yet. Create a task or upload files to get started!
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {recentActivities.map((act, idx) => (
+              <div
+                key={act._id || idx}
+                className="flex items-center justify-between p-3 rounded-lg border text-sm"
+                style={{
+                  background: "var(--bg-main)",
+                  borderColor: "var(--card-border)",
+                }}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="text-xl">{getActivityIcon(act.action)}</span>
+                  <div className="min-w-0">
+                    <p className="font-medium truncate">{act.message}</p>
+                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      {act.user?.name || "Team Member"}
+                      {act.projectId?.name ? ` • Project: ${act.projectId.name}` : ""}
+                    </p>
+                  </div>
+                </div>
+                <span className="text-xs shrink-0 ml-4" style={{ color: "var(--text-muted)" }}>
+                  {act.createdAt
+                    ? new Date(act.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                    : "Just now"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Action Buttons */}
+      <div className="flex gap-4 pt-2">
+        <Link
+          className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl text-sm font-semibold transition shadow-sm"
+          to="/teams"
+        >
+          Manage Teams
+        </Link>
+
+        <Link
+          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl text-sm font-semibold transition shadow-sm"
+          to="/projects"
+        >
+          Manage Projects
+        </Link>
+      </div>
     </div>
   );
 }
 
-function StatCard({ label, value, color }) {
+function StatCard({ label, value, color = "" }) {
   return (
     <div
       className="p-5 rounded-xl shadow text-center"
       style={{
         background: "var(--bg-card)",
         border: "1px solid var(--card-border)",
-        color: "var(--text-main)"
+        color: "var(--text-main)",
       }}
     >
       <p style={{ color: "var(--text-muted)" }}>{label}</p>
-      <p className={`text-3xl font-bold ${color}`} style={{ color: "var(--text-main)" }}>
-        {value}
-      </p>
+      <p className={`text-3xl font-bold mt-1 ${color}`}>{value}</p>
     </div>
   );
 }
