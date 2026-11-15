@@ -188,3 +188,34 @@ Unauthenticated or unauthorized socket clients cannot eavesdrop on private proje
   - *Current Design*: High-speed local disk storage (`uploads/`) with UUID keys and MongoDB metadata tracking.
   - *Limitation*: Ephemeral local disk storage is tied to a single compute container/instance and does not automatically share state across horizontally scaled multi-container clusters.
   - *Production Recommendation*: An S3-compatible object store (e.g., AWS S3, Cloudflare R2, Google Cloud Storage) or Cloudinary should be adopted when migrating from single-node deployments to multi-instance serverless/container clusters. The existing controller structure cleanly isolates storage key generation, streaming, and deletion, making an S3 client adapter a seamless drop-in replacement.
+
+---
+
+## 10. File Security, MIME Verification & Storage Readiness (SEC-05)
+
+### MIME Spoofing & Whitelist Enforcement:
+- `backend/src/routes/fileRoutes.js` enforces strict cross-validation between file extensions and incoming MIME types:
+  - Whitelist: `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.pdf`, `.doc`, `.docx`, `.xls`, `.xlsx`, `.csv`, `.txt`, `.zip`.
+  - Rejects disguised executables, scripts, HTML files, or mismatched MIME headers (e.g. `application/x-php` uploaded with a `.png` filename).
+- Upload file size capped strictly at 25MB via Multer limits.
+
+### SVG Injection & Active Script Sanitization:
+- SVGs can contain active HTML/JavaScript that executes in the context of the user's session.
+- `validateUploadedContent` inspects all `.svg` file buffers before saving.
+- Rejects files containing `<script>` tags, inline event handlers (`onload`, `onerror`, `onclick`, `onmouseover`), `javascript:` URIs, or `<foreignObject>` tags, immediately removing the temporary file from disk.
+
+### Path Traversal Hardening:
+- `storageService.js` strips all path traversal sequences (`..`, `/`, `\`) and leading dots from storage keys.
+- Resolves file paths against `baseDir` (`path.resolve("uploads")`) and verifies that `resolvedPath.startsWith(baseDir)`.
+
+### Download Security Headers:
+- `GET /api/files/download/:fileId`:
+  - `X-Content-Type-Options: nosniff`: Prevents browser MIME sniffing.
+  - `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; sandbox`: Restricts active script or inline frame execution when viewing/downloading assets.
+  - `Content-Disposition: attachment`: Forces direct download.
+
+### Storage Service Provider Abstraction:
+- `backend/src/services/storageService.js`:
+  - Implements a uniform `StorageService` interface (`save`, `getFilePath`, `delete`, `exists`).
+  - Defaults to `LocalDiskStorageProvider` without requiring external cloud accounts or paid services.
+  - Architecture provides a plug-and-play adapter path to S3-compatible persistent object stores (AWS S3, Cloudflare R2, MinIO, Google Cloud Storage) without changes to controllers or frontend clients.

@@ -1,8 +1,8 @@
-import fs from "fs";
 import path from "path";
 import File from "../models/File.js";
 import { checkProjectAccess } from "../utils/authHelpers.js";
 import { logActivity } from "./activityController.js";
+import { storageService } from "../services/storageService.js";
 
 // Upload File
 export const uploadFile = async (req, res) => {
@@ -11,23 +11,36 @@ export const uploadFile = async (req, res) => {
     if (!file) return res.status(400).json({ message: "No file uploaded" });
 
     const { projectId } = req.body;
-    if (!projectId) return res.status(400).json({ message: "Project ID is required" });
+    if (!projectId) {
+      await storageService.delete(file.filename);
+      return res.status(400).json({ message: "Project ID is required" });
+    }
 
     const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
-    if (!project) return res.status(404).json({ message: "Project not found" });
+    if (!project) {
+      await storageService.delete(file.filename);
+      return res.status(404).json({ message: "Project not found" });
+    }
 
     // IDOR protection: User must be a member of the project team
     if (!hasAccess) {
+      await storageService.delete(file.filename);
       return res.status(403).json({ message: "Forbidden: You are not authorized to upload files to this project" });
     }
+
+    // Persist via StorageService abstraction
+    const storageResult = await storageService.save(file, file.filename);
+
+    // Sanitize original filename (remove dangerous characters/path separators)
+    const sanitizedOriginalName = path.basename(file.originalname).replace(/[\r\n\0]/g, "");
 
     const saved = await File.create({
       projectId,
       userId: req.user._id,
-      url: `/api/files/download/`, // will be referenced with file._id
-      filename: file.originalname,
+      url: `/api/files/download/`,
+      filename: sanitizedOriginalName,
       size: file.size,
-      storageKey: file.filename, // local storage filename in backend/uploads/
+      storageKey: storageResult.storageKey,
     });
 
     // Populate user
@@ -38,7 +51,7 @@ export const uploadFile = async (req, res) => {
       projectId,
       userId: req.user._id,
       action: "Uploaded File",
-      message: `${req.user.name} uploaded "${file.originalname}"`,
+      message: `${req.user.name} uploaded "${sanitizedOriginalName}"`,
     });
 
     const io = req.app.get("io");
@@ -47,13 +60,16 @@ export const uploadFile = async (req, res) => {
         projectId,
         user: { name: req.user.name },
         action: "Uploaded File",
-        message: `${req.user.name} uploaded "${file.originalname}"`,
+        message: `${req.user.name} uploaded "${sanitizedOriginalName}"`,
         createdAt: new Date(),
       });
     }
 
     res.status(201).json(populated);
   } catch (err) {
+    if (req.file) {
+      await storageService.delete(req.file.filename);
+    }
     res.status(500).json({ message: err.message });
   }
 };
@@ -81,7 +97,7 @@ export const getProjectFiles = async (req, res) => {
   }
 };
 
-// Download / stream file with authorization
+// Download / stream file with authorization and security headers
 export const downloadFile = async (req, res) => {
   try {
     const { fileId } = req.params;
@@ -95,11 +111,27 @@ export const downloadFile = async (req, res) => {
     }
 
     const storageFilename = fileRecord.storageKey || fileRecord.filename;
-    const filePath = path.resolve("uploads", storageFilename);
+    let filePath;
+    try {
+      filePath = storageService.getFilePath(storageFilename);
+    } catch (e) {
+      return res.status(400).json({ message: "Invalid file storage key" });
+    }
 
-    if (!fs.existsSync(filePath)) {
+    const exists = await storageService.exists(storageFilename);
+    if (!exists) {
       return res.status(404).json({ message: "File binary not found on server" });
     }
+
+    // Security Headers:
+    // 1. Content-Disposition attachment forces download rather than inline execution
+    // 2. nosniff prevents browser MIME type sniffing
+    // 3. CSP restricts any active SVG or HTML script execution
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+    );
 
     res.download(filePath, fileRecord.filename);
   } catch (err) {
@@ -127,16 +159,9 @@ export const deleteFile = async (req, res) => {
       return res.status(403).json({ message: "Forbidden: Only the file uploader or project/team admin can delete this file" });
     }
 
-    // Remove local file if exists
+    // Remove file binary via storage service
     const storageFilename = fileRecord.storageKey || fileRecord.filename;
-    const filePath = path.resolve("uploads", storageFilename);
-    if (fs.existsSync(filePath)) {
-      try {
-        fs.unlinkSync(filePath);
-      } catch (e) {
-        console.warn("Could not delete local file binary:", e.message);
-      }
-    }
+    await storageService.delete(storageFilename);
 
     await File.findByIdAndDelete(fileId);
 
