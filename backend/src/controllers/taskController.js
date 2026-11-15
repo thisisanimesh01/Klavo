@@ -392,3 +392,99 @@ export const moveTask = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+/**
+ * Bulk updates tasks (sprint assignment, status change, or priority update).
+ */
+export const bulkUpdateTasks = async (req, res) => {
+  try {
+    const { taskIds, updates, projectId } = req.body;
+
+    if (!Array.isArray(taskIds) || taskIds.length === 0) {
+      return res.status(400).json({ message: "taskIds must be a non-empty array" });
+    }
+
+    if (!projectId) {
+      return res.status(400).json({ message: "projectId is required" });
+    }
+
+    const { hasAccess } = await checkProjectAccess(projectId, req.user._id);
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to update tasks in this project" });
+    }
+
+    const allowedUpdates = {};
+    if (updates.sprintId !== undefined) {
+      allowedUpdates.sprintId = updates.sprintId === "backlog" || !updates.sprintId ? null : updates.sprintId;
+    }
+    if (updates.status && ["todo", "in-progress", "review", "done"].includes(updates.status)) {
+      allowedUpdates.status = updates.status;
+    }
+    if (updates.priority && ["low", "medium", "high", "critical", "urgent"].includes(updates.priority)) {
+      allowedUpdates.priority = updates.priority;
+    }
+
+    const result = await Task.updateMany(
+      { _id: { $in: taskIds }, projectId },
+      { $set: allowedUpdates }
+    );
+
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`project_${projectId}`).emit("tasksBatchUpdated", {
+        taskIds,
+        updates: allowedUpdates,
+      });
+    }
+
+    res.json({
+      message: "Bulk update successful",
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Reorders tasks in the backlog or a sprint for rank prioritization.
+ */
+export const reorderTasks = async (req, res) => {
+  try {
+    const { taskOrderList, projectId } = req.body; // array of { taskId, order }
+
+    if (!Array.isArray(taskOrderList) || taskOrderList.length === 0) {
+      return res.status(400).json({ message: "taskOrderList must be an array" });
+    }
+
+    if (!projectId) {
+      return res.status(400).json({ message: "projectId is required" });
+    }
+
+    const { hasAccess } = await checkProjectAccess(projectId, req.user._id);
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to reorder tasks in this project" });
+    }
+
+    // Execute bulk write operations
+    const bulkOps = taskOrderList.map(({ taskId, order }) => ({
+      updateOne: {
+        filter: { _id: taskId, projectId },
+        update: { $set: { order: Number(order) || 0 } },
+      },
+    }));
+
+    await Task.bulkWrite(bulkOps);
+
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`project_${projectId}`).emit("tasksReordered", {
+        taskOrderList,
+      });
+    }
+
+    res.json({ message: "Tasks reordered successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};

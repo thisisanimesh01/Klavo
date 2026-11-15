@@ -9,7 +9,7 @@ import { checkProjectAccess, checkSprintAccess } from "../utils/authHelpers.js";
  */
 export const createSprint = async (req, res) => {
   try {
-    const { name, goal, projectId, startDate, endDate } = req.body;
+    const { name, goal, projectId, startDate, endDate, capacity } = req.body;
 
     if (!name || !projectId) {
       return res.status(400).json({ message: "Sprint name and projectId are required" });
@@ -34,6 +34,7 @@ export const createSprint = async (req, res) => {
       teamId: project.teamId,
       startDate: startDate || null,
       endDate: endDate || null,
+      capacity: capacity !== undefined && capacity !== "" ? Number(capacity) : null,
       status: "planned",
       createdBy: req.user._id,
     });
@@ -65,7 +66,7 @@ export const createSprint = async (req, res) => {
 };
 
 /**
- * List all sprints for a project.
+ * List all sprints for a project. Includes committed hours and capacity overload calculation.
  */
 export const getSprintsByProject = async (req, res) => {
   try {
@@ -89,18 +90,26 @@ export const getSprintsByProject = async (req, res) => {
       .populate("createdBy", "name email")
       .sort({ createdAt: -1 });
 
-    // Calculate quick task stats for each sprint
+    // Calculate quick task stats and capacity metrics for each sprint
     const sprintIds = sprints.map((s) => s._id);
-    const tasks = await Task.find({ sprintId: { $in: sprintIds } }).select("sprintId status");
+    const tasks = await Task.find({ sprintId: { $in: sprintIds } }).select("sprintId status estimatedHours");
 
     const sprintsWithStats = sprints.map((s) => {
       const sTasks = tasks.filter((t) => t.sprintId?.toString() === s._id.toString());
       const totalTasks = sTasks.length;
       const completedTasks = sTasks.filter((t) => t.status === "done").length;
+      const committedHours = sTasks.reduce((sum, t) => sum + (t.estimatedHours || 0), 0);
+      const capacity = s.capacity || null;
+      const isOverloaded = capacity !== null && committedHours > capacity;
+      const capacityUtilization = capacity !== null && capacity > 0 ? Math.round((committedHours / capacity) * 100) : null;
+
       return {
         ...s.toObject(),
         totalTasks,
         completedTasks,
+        committedHours,
+        isOverloaded,
+        capacityUtilization,
         progress: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
       };
     });
@@ -112,7 +121,7 @@ export const getSprintsByProject = async (req, res) => {
 };
 
 /**
- * Get details for a specific sprint, including full task list.
+ * Get details for a specific sprint, including full task list and capacity stats.
  */
 export const getSprintById = async (req, res) => {
   try {
@@ -133,12 +142,19 @@ export const getSprintById = async (req, res) => {
 
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter((t) => t.status === "done").length;
+    const committedHours = tasks.reduce((sum, t) => sum + (t.estimatedHours || 0), 0);
+    const capacity = sprint.capacity || null;
+    const isOverloaded = capacity !== null && committedHours > capacity;
+    const capacityUtilization = capacity !== null && capacity > 0 ? Math.round((committedHours / capacity) * 100) : null;
 
     res.json({
       ...sprint.toObject(),
       tasks,
       totalTasks,
       completedTasks,
+      committedHours,
+      isOverloaded,
+      capacityUtilization,
       progress: totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0,
     });
   } catch (err) {
@@ -147,7 +163,7 @@ export const getSprintById = async (req, res) => {
 };
 
 /**
- * Update sprint details (name, goal, dates).
+ * Update sprint details (name, goal, dates, capacity).
  */
 export const updateSprint = async (req, res) => {
   try {
@@ -160,12 +176,13 @@ export const updateSprint = async (req, res) => {
       return res.status(403).json({ message: "Forbidden: You are not authorized to update this sprint" });
     }
 
-    const { name, goal, startDate, endDate } = req.body;
+    const { name, goal, startDate, endDate, capacity } = req.body;
 
     if (name) sprint.name = name.trim();
     if (goal !== undefined) sprint.goal = goal ? goal.trim() : "";
     if (startDate !== undefined) sprint.startDate = startDate || null;
     if (endDate !== undefined) sprint.endDate = endDate || null;
+    if (capacity !== undefined) sprint.capacity = capacity !== "" && capacity !== null ? Number(capacity) : null;
 
     if (sprint.startDate && sprint.endDate && new Date(sprint.startDate) > new Date(sprint.endDate)) {
       return res.status(400).json({ message: "Start date cannot be after end date" });
@@ -266,7 +283,7 @@ export const startSprint = async (req, res) => {
 export const completeSprint = async (req, res) => {
   try {
     const { sprintId } = req.params;
-    const { targetSprintId } = req.body; // optional: roll over to next sprint
+    const { targetSprintId } = req.body;
 
     const { hasAccess, sprint, project } = await checkSprintAccess(sprintId, req.user._id);
     if (!sprint) return res.status(404).json({ message: "Sprint not found" });
@@ -393,6 +410,10 @@ export const assignTasksToSprint = async (req, res) => {
         sprintId: sprint._id,
         taskIds,
         action,
+      });
+      io.to(`project_${sprint.projectId}`).emit("tasksBatchUpdated", {
+        taskIds,
+        sprintId: newSprintId,
       });
     }
 

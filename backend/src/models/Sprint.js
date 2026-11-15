@@ -25,6 +25,11 @@ const sprintSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    // Configurable sprint capacity in estimated hours (e.g. 40h per member or team target)
+    capacity: {
+      type: Number,
+      default: null,
+    },
     projectId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Project",

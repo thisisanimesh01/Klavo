@@ -278,3 +278,26 @@ Unauthenticated or unauthorized socket clients cannot eavesdrop on private proje
 ### Anti-IDOR Protections for Sprints:
 - `checkSprintAccess` resolves sprint -> project -> team hierarchy and denies any read/write request if the authenticated user does not belong to the project team.
 - Batch task assignment enforces `{ _id: { $in: taskIds }, projectId: sprint.projectId }` to prevent cross-project task leakage or IDOR mutation.
+
+---
+
+## 13. Backlog Management & Prioritization (PM-03)
+
+### Backlog Concept & Rank Reordering:
+- Tasks with `sprintId === null` represent the **Product Backlog**.
+- The backlog supports drag-and-drop rank ordering persisted via `order` integer index.
+- `PUT /api/tasks/reorder`: Executes MongoDB `bulkWrite` operations updating task indices atomically.
+
+### Sprint Capacity & Workload Estimation:
+- Sprints include an optional `capacity` limit (in estimated hours).
+- The system aggregates `estimatedHours` across assigned tasks.
+- If committed hours exceed configured capacity, `isOverloaded: true` is computed dynamically, surfacing visual overload warnings and progress alerts.
+
+### Bulk Operations & Anti-IDOR Protections:
+- `POST /api/tasks/bulk`: Allows multi-task movement between backlog and sprints, status transitions, and priority shifts.
+- Strictly bounds execution by `{ _id: { $in: taskIds }, projectId }` to prevent cross-tenant IDOR manipulation.
+
+| Resource | Action | Endpoint | Required Role / Permission |
+| :--- | :--- | :--- | :--- |
+| **Task** | Bulk Update | `POST /api/tasks/bulk` | Member or Owner of project's team |
+| **Task** | Reorder Backlog | `PUT /api/tasks/reorder` | Member or Owner of project's team |

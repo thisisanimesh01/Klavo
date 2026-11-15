@@ -7,6 +7,8 @@ import {
   updateTask,
   deleteTask,
   moveTask,
+  bulkUpdateTasks,
+  reorderTasks,
 } from "../controllers/taskController.js";
 
 const router = express.Router();
@@ -14,6 +16,8 @@ const router = express.Router();
 router.use(authRequired);
 
 router.post("/", createTask);
+router.post("/bulk", bulkUpdateTasks);
+router.put("/reorder", reorderTasks);
 router.get("/project/:projectId", getTasksByProject);
 router.get("/:taskId", getTaskById);
 router.put("/:taskId", updateTask);
