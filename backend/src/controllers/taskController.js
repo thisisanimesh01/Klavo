@@ -5,6 +5,7 @@ import { Project } from "../models/Project.js";
 import { logActivity } from "./activityController.js";
 import { checkProjectAccess, checkTaskAccess } from "../utils/authHelpers.js";
 import { createTargetedNotification } from "../utils/notificationHelpers.js";
+import { detectCircularDependency, checkTaskBlockers } from "../utils/dependencyHelpers.js";
 
 export const createTask = async (req, res) => {
   try {
@@ -15,6 +16,8 @@ export const createTask = async (req, res) => {
       projectId,
       priority,
       sprintId,
+      parentId,
+      dependencies,
       dueDate,
       assignedTo,
       labels,
@@ -34,6 +37,14 @@ export const createTask = async (req, res) => {
     // IDOR protection: User must belong to the project team
     if (!hasAccess) {
       return res.status(403).json({ message: "Forbidden: You are not authorized to create tasks in this project" });
+    }
+
+    // If parentId provided, verify it exists and belongs to the same project
+    if (parentId) {
+      const parentTask = await Task.findOne({ _id: parentId, projectId });
+      if (!parentTask) {
+        return res.status(400).json({ message: "Parent task not found or belongs to a different project" });
+      }
     }
 
     let finalTitle = title ? title.trim() : "";
@@ -89,6 +100,8 @@ export const createTask = async (req, res) => {
       status: status || "todo",
       priority: finalPriority,
       sprintId: sprintId || null,
+      parentId: parentId || null,
+      dependencies: Array.isArray(dependencies) ? dependencies : [],
       labels: finalLabels,
       customFields: finalCustomFields,
       checklist: finalChecklist,
@@ -104,6 +117,9 @@ export const createTask = async (req, res) => {
     // Populate assignedTo and sprintId for immediate full response
     await task.populate("assignedTo", "name email avatar");
     await task.populate("sprintId", "name status");
+    if (task.parentId) {
+      await task.populate("parentId", "title status");
+    }
 
     // Log activity
     await logActivity({
@@ -148,7 +164,7 @@ export const createTask = async (req, res) => {
 export const getTasksByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { priority, status, sprintId, label, search, sortBy, sortOrder } = req.query;
+    const { priority, status, sprintId, parentId, label, search, sortBy, sortOrder } = req.query;
 
     const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
     if (!project) return res.status(404).json({ message: "Project not found" });
@@ -176,6 +192,14 @@ export const getTasksByProject = async (req, res) => {
       }
     }
 
+    if (parentId !== undefined) {
+      if (parentId === "null" || parentId === "") {
+        query.parentId = null;
+      } else {
+        query.parentId = parentId;
+      }
+    }
+
     if (label) {
       query["labels.name"] = { $regex: new RegExp(`^${label.trim()}$`, "i") };
     }
@@ -195,9 +219,33 @@ export const getTasksByProject = async (req, res) => {
       .populate("assignedTo", "name email avatar")
       .populate("templateId", "name")
       .populate("sprintId", "name status")
+      .populate("parentId", "title status")
+      .populate("dependencies.taskId", "title status priority")
       .sort(sort);
 
-    res.json(tasks);
+    // Compute subtask counts and blocker presence for each task
+    const taskIds = tasks.map((t) => t._id);
+    const subtasks = await Task.find({ parentId: { $in: taskIds } }).select("parentId status");
+
+    const tasksWithDetails = tasks.map((t) => {
+      const tSubtasks = subtasks.filter((st) => st.parentId?.toString() === t._id.toString());
+      const totalSubtasks = tSubtasks.length;
+      const completedSubtasks = tSubtasks.filter((st) => st.status === "done").length;
+
+      // Check if blocked by any incomplete task
+      const hasUnresolvedBlockers = (t.dependencies || []).some(
+        (d) => d.type === "blocked-by" && d.taskId && d.taskId.status !== "done"
+      );
+
+      return {
+        ...t.toObject(),
+        totalSubtasks,
+        completedSubtasks,
+        isBlocked: hasUnresolvedBlockers,
+      };
+    });
+
+    res.json(tasksWithDetails);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -217,12 +265,28 @@ export const getTaskById = async (req, res) => {
     await task.populate("assignedTo", "name email avatar");
     await task.populate("templateId", "name");
     await task.populate("sprintId", "name status");
+    await task.populate("parentId", "title status priority");
+    await task.populate("dependencies.taskId", "title status priority assignedTo");
     await task.populate({
       path: "comments",
       populate: { path: "userId", select: "name email avatar" },
     });
 
-    res.json(task);
+    // Fetch direct subtasks
+    const subtasks = await Task.find({ parentId: task._id })
+      .populate("assignedTo", "name email avatar")
+      .sort({ order: 1, createdAt: 1 });
+
+    const { isBlocked, blockingTasks } = await checkTaskBlockers(task._id);
+
+    res.json({
+      ...task.toObject(),
+      subtasks,
+      totalSubtasks: subtasks.length,
+      completedSubtasks: subtasks.filter((s) => s.status === "done").length,
+      isBlocked,
+      blockingTasks,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -240,12 +304,26 @@ export const updateTask = async (req, res) => {
       return res.status(403).json({ message: "Forbidden: You are not authorized to update this task" });
     }
 
+    // Blocker completion gate: If user is attempting to mark task as 'done',
+    // verify there are no incomplete blocking tasks unless overrideBlockers flag is set
+    if (req.body.status === "done" && task.status !== "done" && !req.body.overrideBlockers) {
+      const { isBlocked, blockingTasks } = await checkTaskBlockers(taskId);
+      if (isBlocked) {
+        return res.status(400).json({
+          message: `Cannot complete task: Blocked by ${blockingTasks.length} unresolved task(s): ${blockingTasks.map((b) => `"${b.title}"`).join(", ")}`,
+          isBlocked: true,
+          blockingTasks,
+        });
+      }
+    }
+
     const allowed = [
       "title",
       "description",
       "status",
       "priority",
       "sprintId",
+      "parentId",
       "dueDate",
       "assignedTo",
       "labels",
@@ -253,6 +331,7 @@ export const updateTask = async (req, res) => {
       "checklist",
       "estimatedHours",
       "templateId",
+      "dependencies",
     ];
     const updates = {};
 
@@ -263,7 +342,9 @@ export const updateTask = async (req, res) => {
     const updatedTask = await Task.findByIdAndUpdate(taskId, updates, { new: true })
       .populate("assignedTo", "name email avatar")
       .populate("templateId", "name")
-      .populate("sprintId", "name status");
+      .populate("sprintId", "name status")
+      .populate("parentId", "title status")
+      .populate("dependencies.taskId", "title status priority");
 
     // Activity log
     await logActivity({
@@ -308,6 +389,106 @@ export const updateTask = async (req, res) => {
   }
 };
 
+/**
+ * Add a dependency relationship to a task (blocks, blocked-by, relates-to).
+ * Enforces cycle detection, self-dependency rejection, and cross-project boundaries.
+ */
+export const addTaskDependency = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { targetTaskId, type } = req.body;
+
+    if (!targetTaskId || !type) {
+      return res.status(400).json({ message: "targetTaskId and type are required" });
+    }
+
+    if (!["blocks", "blocked-by", "relates-to"].includes(type)) {
+      return res.status(400).json({ message: "Invalid dependency type" });
+    }
+
+    if (taskId.toString() === targetTaskId.toString()) {
+      return res.status(400).json({ message: "Task cannot depend on itself (self-dependency)" });
+    }
+
+    const { hasAccess, task } = await checkTaskAccess(taskId, req.user._id);
+    if (!task) return res.status(404).json({ message: "Source task not found" });
+
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to update this task" });
+    }
+
+    // Verify target task exists and belongs to the same project (cross-project prevention)
+    const targetTask = await Task.findOne({ _id: targetTaskId, projectId: task.projectId });
+    if (!targetTask) {
+      return res.status(400).json({
+        message: "Target task not found or belongs to a different project (cross-project isolation)",
+      });
+    }
+
+    // Check if dependency already exists
+    const alreadyExists = (task.dependencies || []).some(
+      (d) => d.taskId?.toString() === targetTaskId.toString() && d.type === type
+    );
+    if (alreadyExists) {
+      return res.status(400).json({ message: "Dependency relationship already exists" });
+    }
+
+    // Circular dependency detection
+    const { hasCycle } = await detectCircularDependency(taskId, targetTaskId, type);
+    if (hasCycle) {
+      return res.status(400).json({
+        message: "Circular dependency detected: Adding this relationship creates a blocking cycle",
+      });
+    }
+
+    task.dependencies.push({ taskId: targetTaskId, type });
+    await task.save();
+
+    await task.populate("dependencies.taskId", "title status priority");
+
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`project_${task.projectId}`).emit("taskUpdated", task);
+    }
+
+    res.status(201).json(task);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Remove a dependency relationship from a task.
+ */
+export const removeTaskDependency = async (req, res) => {
+  try {
+    const { taskId, dependencyTaskId } = req.params;
+
+    const { hasAccess, task } = await checkTaskAccess(taskId, req.user._id);
+    if (!task) return res.status(404).json({ message: "Task not found" });
+
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to update this task" });
+    }
+
+    task.dependencies = (task.dependencies || []).filter(
+      (d) => d.taskId?.toString() !== dependencyTaskId.toString()
+    );
+    await task.save();
+
+    await task.populate("dependencies.taskId", "title status priority");
+
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`project_${task.projectId}`).emit("taskUpdated", task);
+    }
+
+    res.json(task);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
 export const deleteTask = async (req, res) => {
   try {
     const { taskId } = req.params;
@@ -322,7 +503,17 @@ export const deleteTask = async (req, res) => {
 
     const projectId = task.projectId;
 
+    // Delete task and clean up references
     await Task.findByIdAndDelete(taskId);
+
+    // If task was a parent, orphan subtasks by unsetting parentId
+    await Task.updateMany({ parentId: taskId }, { $set: { parentId: null } });
+
+    // Clean up dependency references from other tasks
+    await Task.updateMany(
+      { "dependencies.taskId": taskId },
+      { $pull: { dependencies: { taskId } } }
+    );
 
     await logActivity({
       projectId,
@@ -353,7 +544,7 @@ export const deleteTask = async (req, res) => {
 export const moveTask = async (req, res) => {
   try {
     const { taskId } = req.params;
-    const { status, order } = req.body;
+    const { status, order, overrideBlockers } = req.body;
 
     const { hasAccess, task } = await checkTaskAccess(taskId, req.user._id);
     if (!task) return res.status(404).json({ message: "Task not found" });
@@ -361,6 +552,18 @@ export const moveTask = async (req, res) => {
     // IDOR protection: User must belong to the project team
     if (!hasAccess) {
       return res.status(403).json({ message: "Forbidden: You are not authorized to move this task" });
+    }
+
+    // Blocker gate: if moving to 'done', check active blockers
+    if (status === "done" && task.status !== "done" && !overrideBlockers) {
+      const { isBlocked, blockingTasks } = await checkTaskBlockers(taskId);
+      if (isBlocked) {
+        return res.status(400).json({
+          message: `Cannot move to Done: Task is blocked by ${blockingTasks.length} unresolved task(s): ${blockingTasks.map((b) => `"${b.title}"`).join(", ")}`,
+          isBlocked: true,
+          blockingTasks,
+        });
+      }
     }
 
     task.status = status;
@@ -451,7 +654,7 @@ export const bulkUpdateTasks = async (req, res) => {
  */
 export const reorderTasks = async (req, res) => {
   try {
-    const { taskOrderList, projectId } = req.body; // array of { taskId, order }
+    const { taskOrderList, projectId } = req.body;
 
     if (!Array.isArray(taskOrderList) || taskOrderList.length === 0) {
       return res.status(400).json({ message: "taskOrderList must be an array" });
@@ -466,7 +669,6 @@ export const reorderTasks = async (req, res) => {
       return res.status(403).json({ message: "Forbidden: You are not authorized to reorder tasks in this project" });
     }
 
-    // Execute bulk write operations
     const bulkOps = taskOrderList.map(({ taskId, order }) => ({
       updateOne: {
         filter: { _id: taskId, projectId },

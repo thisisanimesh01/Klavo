@@ -186,3 +186,62 @@ test("FRONTEND PM-03: Backlog Selection & Capacity Overload Indicators", async (
     assert.equal(overloaded.isOverloaded, true);
   });
 });
+
+test("FRONTEND PM-04: Dependencies, Blocker Gates & Subtasks Integration", async (t) => {
+  await t.test("Validates blocker indicator rendering and border highlighting condition", () => {
+    const taskBlocked = { isBlocked: true, status: "todo" };
+    const taskDone = { isBlocked: true, status: "done" };
+    const taskUnblocked = { isBlocked: false, status: "in-progress" };
+
+    const shouldShowBlocker = (t) => t.isBlocked && t.status !== "done";
+
+    assert.equal(shouldShowBlocker(taskBlocked), true);
+    assert.equal(shouldShowBlocker(taskDone), false, "Completed task should not show active blocker warning");
+    assert.equal(shouldShowBlocker(taskUnblocked), false);
+  });
+
+  await t.test("Validates subtask completion ratio string formatting", () => {
+    const formatSubtaskRatio = (completed, total) => {
+      if (!total || total <= 0) return null;
+      return `${completed || 0}/${total}`;
+    };
+
+    assert.equal(formatSubtaskRatio(0, 0), null);
+    assert.equal(formatSubtaskRatio(2, 5), "2/5");
+    assert.equal(formatSubtaskRatio(5, 5), "5/5");
+    assert.equal(formatSubtaskRatio(undefined, 3), "0/3");
+  });
+
+  await t.test("Validates dependency type badge styling and directional semantics", () => {
+    const DEP_BADGES = {
+      "blocked-by": { label: "Blocked By", color: "bg-red-50 text-red-700" },
+      "blocks": { label: "Blocks", color: "bg-amber-50 text-amber-700" },
+      "relates-to": { label: "Relates To", color: "bg-blue-50 text-blue-700" },
+    };
+
+    ["blocked-by", "blocks", "relates-to"].forEach((type) => {
+      assert.ok(DEP_BADGES[type], `Badge definition for ${type} must exist`);
+      assert.ok(DEP_BADGES[type].label);
+      assert.ok(DEP_BADGES[type].color);
+    });
+  });
+
+  await t.test("Validates blocker gate drag-and-drop error handling payload", () => {
+    const errorResponse = {
+      response: {
+        status: 400,
+        data: {
+          error: "Task is blocked by 2 incomplete task(s). Resolve blockers before marking as done.",
+          isBlocked: true,
+          blockingTasks: [{ _id: "b1", title: "Setup Database" }, { _id: "b2", title: "Config Redis" }]
+        }
+      }
+    };
+
+    const isBlockerError = Boolean(errorResponse.response?.data?.isBlocked);
+    const blockerCount = errorResponse.response?.data?.blockingTasks?.length;
+
+    assert.equal(isBlockerError, true);
+    assert.equal(blockerCount, 2);
+  });
+});

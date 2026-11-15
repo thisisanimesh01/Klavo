@@ -301,3 +301,35 @@ Unauthenticated or unauthorized socket clients cannot eavesdrop on private proje
 | :--- | :--- | :--- | :--- |
 | **Task** | Bulk Update | `POST /api/tasks/bulk` | Member or Owner of project's team |
 | **Task** | Reorder Backlog | `PUT /api/tasks/reorder` | Member or Owner of project's team |
+
+---
+
+## 14. Task Dependencies & Subtasks (PM-04)
+
+### Dependency Graph Model & Relationships:
+Tasks support 3 distinct dependency edge types:
+- `blocks`: Current task blocks the target task (current task must finish before target can be completed).
+- `blocked-by`: Current task is blocked by the target task (target task must finish before current task can be completed).
+- `relates-to`: Non-blocking bi-directional associative relationship.
+
+### Cycle Detection & Graph Integrity:
+- **Depth-First Search (DFS) / BFS Cycle Traversal**: When adding or updating a dependency, the graph is traversed to verify that no circular dependencies (e.g., $A \to B \to A$ or $A \to B \to C \to A$) can be formed.
+- **Self-Dependency Rejection**: Tasks cannot block or be blocked by themselves ($A \to A$ rejected with 400 Bad Request).
+- **Cross-Project Boundary Isolation**: Target tasks must belong to the exact same `projectId` as the source task; cross-project dependency links are rejected with 400 Bad Request.
+
+### Dependency-Aware Completion Validation (Blocker Gates):
+- Updating a task status or moving a Kanban card to `"done"` checks whether the task has unresolved blocking dependencies (either direct `blocked-by` tasks not in `"done"` status or reverse `blocks` edges).
+- If incomplete blockers exist, the mutation is rejected with 400 Bad Request (`isBlocked: true` and array of `blockingTasks`).
+- Authorized users can pass `overrideBlockers: true` to bypass the blocker gate with explicit intent.
+
+### Subtasks & Parent-Child Hierarchy:
+- Tasks support a `parentId` reference.
+- Top-level tasks on the Kanban board and Backlog have `parentId: null`.
+- Subtasks inherit the project boundary and are queried with direct parent relations, exposing aggregated subtask completion counters (`completedSubtasks` / `totalSubtasks`).
+
+### REST Endpoints for Dependencies:
+| Resource | Action | Endpoint | Required Role / Permission |
+| :--- | :--- | :--- | :--- |
+| **Task Dependency** | Add Dependency | `POST /api/tasks/:taskId/dependencies` | Member or Owner of project team |
+| **Task Dependency** | Remove Dependency | `DELETE /api/tasks/:taskId/dependencies/:dependencyTaskId` | Member or Owner of project team |
+| **Task Subtasks** | Query Hierarchy | `GET /api/tasks/project/:projectId?parentId=:parentId` | Member or Owner of project team |

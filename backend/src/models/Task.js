@@ -25,6 +25,29 @@ const taskSchema = new mongoose.Schema(
       default: null,
     },
 
+    // Subtask hierarchy: parentId is null for top-level tasks
+    parentId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Task",
+      default: null,
+    },
+
+    // Task dependencies (blocks, blocked-by, relates-to)
+    dependencies: [
+      {
+        taskId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "Task",
+          required: true,
+        },
+        type: {
+          type: String,
+          enum: ["blocks", "blocked-by", "relates-to"],
+          required: true,
+        },
+      },
+    ],
+
     // Labels/Tags with name and customizable hex/color
     labels: [
       {
@@ -107,9 +130,12 @@ const taskSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Performance Indexes for Kanban boards, filters, sprints, labels, priorities, and deadlines
+// Performance Indexes for Kanban boards, filters, sprints, labels, priorities, parent-child, and dependencies
 taskSchema.index({ projectId: 1, status: 1, order: 1 });
 taskSchema.index({ projectId: 1, sprintId: 1, status: 1 });
+taskSchema.index({ projectId: 1, parentId: 1 });
+taskSchema.index({ parentId: 1 });
+taskSchema.index({ "dependencies.taskId": 1 });
 taskSchema.index({ projectId: 1, priority: 1 });
 taskSchema.index({ projectId: 1, "labels.name": 1 });
 taskSchema.index({ sprintId: 1 });

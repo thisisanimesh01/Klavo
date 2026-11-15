@@ -30,6 +30,9 @@ import {
   Layers,
   ChevronRight,
   TrendingUp,
+  ShieldAlert,
+  CornerDownRight,
+  Link,
 } from "lucide-react";
 
 const COLUMNS = [
@@ -287,7 +290,10 @@ export default function Kanban() {
         order: destination.index,
       });
       fetchTasks();
-    } catch {
+    } catch (err) {
+      if (err.response?.data?.isBlocked) {
+        alert(err.response.data.message);
+      }
       fetchTasks();
     }
   };
@@ -374,7 +380,7 @@ export default function Kanban() {
               Project Kanban & Backlog
             </h1>
             <p className="text-xs text-slate-500">
-              Product backlog prioritization, sprint iterations, blueprints, and agile execution
+              Product backlog prioritization, sprint iterations, dependencies, and agile execution
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -656,6 +662,7 @@ export default function Kanban() {
                               const checklistCount = task.checklist?.length || 0;
                               const completedChecklist =
                                 task.checklist?.filter((i) => i.completed)?.length || 0;
+                              const isBlocked = task.isBlocked;
 
                               return (
                                 <Draggable
@@ -673,11 +680,26 @@ export default function Kanban() {
                                         dragSnap.isDragging
                                           ? "ring-2 ring-indigo-500 rotate-1 shadow-lg"
                                           : ""
+                                      } ${
+                                        isBlocked && task.status !== "done"
+                                          ? "border-l-4 border-l-red-500"
+                                          : ""
                                       }`}
                                     >
-                                      {/* Top Row: Priority & Sprint / Template Tag */}
+                                      {/* Top Row: Priority & Sprint / Blocker Badge */}
                                       <div className="flex items-center justify-between gap-2">
-                                        <PriorityBadge priority={task.priority} />
+                                        <div className="flex items-center gap-1.5">
+                                          <PriorityBadge priority={task.priority} />
+                                          {isBlocked && task.status !== "done" && (
+                                            <span
+                                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 dark:bg-red-950/80 dark:text-red-300"
+                                              title="Blocked by incomplete dependency"
+                                            >
+                                              <ShieldAlert className="w-3 h-3" /> BLOCKED
+                                            </span>
+                                          )}
+                                        </div>
+
                                         <div className="flex items-center gap-1.5">
                                           {task.sprintId && (
                                             <span className="text-[10px] text-indigo-500 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-900 px-1.5 py-0.5 rounded flex items-center gap-1 font-medium truncate max-w-[110px]">
@@ -713,7 +735,7 @@ export default function Kanban() {
                                         </div>
                                       )}
 
-                                      {/* Metadata Row: Due Date, Checklist, Custom Fields */}
+                                      {/* Metadata Row: Due Date, Checklist, Subtasks, Hours */}
                                       <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-500 dark:text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/80">
                                         {task.dueDate && (
                                           <div
@@ -729,6 +751,15 @@ export default function Kanban() {
                                                 month: "short",
                                                 day: "numeric",
                                               })}
+                                            </span>
+                                          </div>
+                                        )}
+
+                                        {task.totalSubtasks > 0 && (
+                                          <div className="flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-medium">
+                                            <CornerDownRight className="w-3 h-3" />
+                                            <span>
+                                              {task.completedSubtasks}/{task.totalSubtasks}
                                             </span>
                                           </div>
                                         )}

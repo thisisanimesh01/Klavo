@@ -9,6 +9,8 @@ import {
   moveTask,
   bulkUpdateTasks,
   reorderTasks,
+  addTaskDependency,
+  removeTaskDependency,
 } from "../controllers/taskController.js";
 
 const router = express.Router();
@@ -23,5 +25,9 @@ router.get("/:taskId", getTaskById);
 router.put("/:taskId", updateTask);
 router.delete("/:taskId", deleteTask);
 router.put("/:taskId/move", moveTask);
+
+// Task Dependency Relationships
+router.post("/:taskId/dependencies", addTaskDependency);
+router.delete("/:taskId/dependencies/:dependencyTaskId", removeTaskDependency);
 
 export default router;
