@@ -5,6 +5,7 @@ import { DragDropContext, Droppable, Draggable } from "@hello-pangea/dnd";
 import TaskModal from "../components/TaskModal";
 import TaskTemplateModal from "../components/TaskTemplateModal";
 import SprintModal from "../components/SprintModal";
+import BacklogView from "../components/BacklogView";
 import PriorityBadge from "../components/PriorityBadge";
 import ThemeToggle from "../components/ThemeToggle";
 import ActivityPanel from "../components/ActivityPanel";
@@ -53,7 +54,7 @@ export default function Kanban() {
   const [editingSprint, setEditingSprint] = useState(null);
   const [createStatus, setCreateStatus] = useState("todo");
 
-  const [activeTab, setActiveTab] = useState("board");
+  const [activeTab, setActiveTab] = useState("board"); // 'board' | 'backlog' | 'activity' | 'chat'
 
   // Sprint view selection: 'all' | 'backlog' | sprintId
   const [selectedSprintId, setSelectedSprintId] = useState("all");
@@ -63,7 +64,7 @@ export default function Kanban() {
   const [selectedPriority, setSelectedPriority] = useState("all");
   const [selectedLabel, setSelectedLabel] = useState("all");
   const [selectedAssignee, setSelectedAssignee] = useState("all");
-  const [sortBy, setSortBy] = useState("order"); // 'order', 'dueDate', 'priority', 'createdAt'
+  const [sortBy, setSortBy] = useState("order");
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -119,6 +120,15 @@ export default function Kanban() {
       setTasks((prev) => prev.filter((t) => t._id !== _id));
     };
 
+    const tasksBatchUpdated = () => {
+      fetchTasks();
+      fetchSprints();
+    };
+
+    const tasksReordered = () => {
+      fetchTasks();
+    };
+
     const sprintCreated = () => fetchSprints();
     const sprintUpdated = () => fetchSprints();
     const sprintStarted = () => fetchSprints();
@@ -131,6 +141,8 @@ export default function Kanban() {
     socket.on("taskUpdated", taskUpdated);
     socket.on("taskMoved", taskMoved);
     socket.on("taskDeleted", taskDeleted);
+    socket.on("tasksBatchUpdated", tasksBatchUpdated);
+    socket.on("tasksReordered", tasksReordered);
     socket.on("sprintCreated", sprintCreated);
     socket.on("sprintUpdated", sprintUpdated);
     socket.on("sprintStarted", sprintStarted);
@@ -142,6 +154,8 @@ export default function Kanban() {
       socket.off("taskUpdated", taskUpdated);
       socket.off("taskMoved", taskMoved);
       socket.off("taskDeleted", taskDeleted);
+      socket.off("tasksBatchUpdated", tasksBatchUpdated);
+      socket.off("tasksReordered", tasksReordered);
       socket.off("sprintCreated", sprintCreated);
       socket.off("sprintUpdated", sprintUpdated);
       socket.off("sprintStarted", sprintStarted);
@@ -357,10 +371,10 @@ export default function Kanban() {
         <header className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2">
           <div>
             <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
-              Project Kanban & Sprints
+              Project Kanban & Backlog
             </h1>
             <p className="text-xs text-slate-500">
-              Agile iterations, sprint backlogs, blueprints, and real-time execution
+              Product backlog prioritization, sprint iterations, blueprints, and agile execution
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -394,21 +408,46 @@ export default function Kanban() {
 
         {/* Tab switcher */}
         <div className="flex gap-2 border-b border-slate-200 dark:border-slate-800">
-          {["board", "activity", "chat"].map((tab) => (
+          {[
+            { id: "board", label: "Kanban Board" },
+            { id: "backlog", label: "Product Backlog" },
+            { id: "activity", label: "Activity" },
+            { id: "chat", label: "Chat" },
+          ].map((tab) => (
             <button
-              key={tab}
+              key={tab.id}
               className={`px-4 py-2 text-sm font-medium transition ${
-                activeTab === tab
+                activeTab === tab.id
                   ? "border-b-2 border-indigo-600 text-indigo-600 font-semibold"
                   : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
               }`}
-              onClick={() => setActiveTab(tab)}
+              onClick={() => setActiveTab(tab.id)}
             >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+              {tab.label}
             </button>
           ))}
         </div>
 
+        {/* Dedicated Backlog View Tab */}
+        {activeTab === "backlog" && (
+          <BacklogView
+            projectId={projectId}
+            tasks={tasks}
+            sprints={sprints}
+            onTasksUpdated={() => {
+              fetchTasks();
+              fetchSprints();
+            }}
+            onOpenCreateTask={openCreateModal}
+            onOpenEditTask={openEditModal}
+            onOpenCreateSprint={() => {
+              setEditingSprint(null);
+              setSprintModalOpen(true);
+            }}
+          />
+        )}
+
+        {/* Interactive Kanban Board Tab */}
         {activeTab === "board" && (
           <div className="space-y-4">
             {/* Active Sprint Banner (if one exists) */}
@@ -422,6 +461,11 @@ export default function Kanban() {
                     <h2 className="text-base font-bold text-slate-900 dark:text-white">
                       {activeSprint.name}
                     </h2>
+                    {activeSprint.isOverloaded && (
+                      <span className="text-[10px] bg-red-100 text-red-700 dark:bg-red-950/80 dark:text-red-400 px-2 py-0.5 rounded-full font-bold border border-red-200 dark:border-red-900">
+                        OVERLOADED ({activeSprint.committedHours}h / {activeSprint.capacity}h)
+                      </span>
+                    )}
                   </div>
                   {activeSprint.goal && (
                     <p className="text-xs text-slate-600 dark:text-slate-300">

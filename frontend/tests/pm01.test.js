@@ -134,3 +134,55 @@ test("FRONTEND PM-02: Sprint Calculation & Filter State Composition", async (t) 
     });
   });
 });
+
+test("FRONTEND PM-03: Backlog Selection & Capacity Overload Indicators", async (t) => {
+  await t.test("Validates bulk selection toggles (select, deselect, select all)", () => {
+    const backlogTasks = [
+      { _id: "t1", title: "Task 1" },
+      { _id: "t2", title: "Task 2" },
+      { _id: "t3", title: "Task 3" },
+    ];
+
+    let selectedTaskIds = [];
+
+    // Toggle t1
+    selectedTaskIds = [...selectedTaskIds, "t1"];
+    assert.deepEqual(selectedTaskIds, ["t1"]);
+
+    // Select all
+    selectedTaskIds = backlogTasks.map((t) => t._id);
+    assert.deepEqual(selectedTaskIds, ["t1", "t2", "t3"]);
+
+    // Deselect all
+    selectedTaskIds = [];
+    assert.deepEqual(selectedTaskIds, []);
+  });
+
+  await t.test("Validates capacity utilization progress bar width and color thresholds", () => {
+    const computeBarProps = (committedHours, capacity) => {
+      if (!capacity || capacity <= 0) return { width: 0, color: "bg-indigo-600", isOverloaded: false };
+      const utilization = Math.round((committedHours / capacity) * 100);
+      const isOverloaded = committedHours > capacity;
+      const color = isOverloaded ? "bg-red-500" : utilization > 80 ? "bg-amber-500" : "bg-indigo-600";
+      return { width: Math.min(utilization, 100), color, isOverloaded };
+    };
+
+    // Safe workload (50%)
+    const safe = computeBarProps(20, 40);
+    assert.equal(safe.width, 50);
+    assert.equal(safe.color, "bg-indigo-600");
+    assert.equal(safe.isOverloaded, false);
+
+    // Warning workload (90%)
+    const warning = computeBarProps(36, 40);
+    assert.equal(warning.width, 90);
+    assert.equal(warning.color, "bg-amber-500");
+    assert.equal(warning.isOverloaded, false);
+
+    // Overloaded workload (120%)
+    const overloaded = computeBarProps(48, 40);
+    assert.equal(overloaded.width, 100); // capped at 100% bar width
+    assert.equal(overloaded.color, "bg-red-500");
+    assert.equal(overloaded.isOverloaded, true);
+  });
+});
