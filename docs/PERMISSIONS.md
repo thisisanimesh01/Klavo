@@ -101,3 +101,28 @@ Unauthenticated or unauthorized socket clients cannot eavesdrop on private proje
 ### Analytics & Project Metrics:
 - `GET /api/analytics/project/:projectId`: Computes project-level metrics (total tasks, completion percentage, status breakdown, and priority distribution) with verified project access.
 - `GET /api/dashboard`: Aggregates cross-project activity across user's teams.
+
+---
+
+## 7. Real-Time Collaboration & Notification Specifications (MOD-02)
+
+### Real-Time Socket Architecture:
+- Handshake middleware validates JWT tokens and attaches authenticated user identity.
+- Sub-socket handlers registered in `backend/src/index.js`:
+  - `initNotificationSockets`: Listens for `joinUser` and `leaveUser`. Prevents authenticated users from subscribing to foreign user notification rooms.
+  - `initCommentSockets`: Listens for `joinCommentThread` and `leaveCommentThread` (`comment_${commentId}`).
+  - `initReactionSockets`: Listens for `joinReactions` and `leaveReactions` (`comment_${commentId}`).
+  - Project/Team rooms: Listens for `joinProject`, `leaveProject`, `joinTeam`, `leaveTeam` with verified RBAC checks.
+
+### Targeted Notifications & Event Dispatching:
+- **Task Assignment (`TASK_ASSIGNED`)**: Dispatched to newly assigned team members. Self-assignment notifications are suppressed.
+- **Comments (`COMMENT_ADDED`)**: Broadcast to `project_${projectId}` and `comment_${taskId}`. Dispatches targeted notifications to task assignees and task creator (suppressing self-notifications).
+- **Mentions (`MENTION`)**: Parses `@username` tokens in comment bodies and dispatches targeted notifications to mentioned users.
+- **Reactions (`REACTION_ADDED`, `REACTION_REMOVED`)**:
+  - `POST /api/reactions/:commentId`: Validates task access, rejects duplicate identical reactions (409 Conflict), emits `reactionAdded` to thread and project rooms, and notifies comment author.
+  - `DELETE /api/reactions/:commentId/:emoji`: Removes user reaction and emits `reactionRemoved`.
+  - Database uniqueness index `{ commentId: 1, userId: 1, emoji: 1 }` prevents race duplicates.
+- **Notification State Management**:
+  - `GET /api/notifications`: Returns user's notifications sorted by newest first.
+  - `PUT /api/notifications/:id`: Marks specific notification as read (with user ID authorization check).
+  - `PUT /api/notifications/read-all`: Batch marks all unread notifications for the user as read.

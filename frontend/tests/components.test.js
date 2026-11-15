@@ -82,3 +82,111 @@ test("FRONTEND: Theme context state toggling", async (t) => {
     assert.equal(toggleTheme("dark"), "light");
   });
 });
+
+test("FRONTEND: Notification slice state management", async (t) => {
+  const initialState = {
+    items: [],
+    unreadCount: 0,
+    loading: false,
+  };
+
+  const notificationReducer = (state = initialState, action) => {
+    switch (action.type) {
+      case "notifications/setNotifications": {
+        const items = action.payload || [];
+        return {
+          ...state,
+          items,
+          unreadCount: items.filter((n) => !n.read).length,
+        };
+      }
+      case "notifications/addNotification": {
+        const exists = state.items.some((n) => n._id === action.payload._id);
+        if (exists) return state;
+        return {
+          ...state,
+          items: [action.payload, ...state.items],
+          unreadCount: action.payload.read ? state.unreadCount : state.unreadCount + 1,
+        };
+      }
+      case "notifications/markRead": {
+        const items = state.items.map((n) =>
+          n._id === action.payload ? { ...n, read: true } : n
+        );
+        return {
+          ...state,
+          items,
+          unreadCount: items.filter((n) => !n.read).length,
+        };
+      }
+      case "notifications/markAllRead": {
+        return {
+          ...state,
+          items: state.items.map((n) => ({ ...n, read: true })),
+          unreadCount: 0,
+        };
+      }
+      default:
+        return state;
+    }
+  };
+
+  await t.test("setNotifications initializes list and calculates unread count", () => {
+    const list = [
+      { _id: "1", message: "Task assigned", read: false },
+      { _id: "2", message: "Comment added", read: true },
+    ];
+    const state = notificationReducer(initialState, {
+      type: "notifications/setNotifications",
+      payload: list,
+    });
+    assert.equal(state.items.length, 2);
+    assert.equal(state.unreadCount, 1);
+  });
+
+  await t.test("addNotification prepends without duplicating and increments unread count", () => {
+    const start = {
+      items: [{ _id: "1", message: "Task assigned", read: false }],
+      unreadCount: 1,
+      loading: false,
+    };
+    const next = notificationReducer(start, {
+      type: "notifications/addNotification",
+      payload: { _id: "2", message: "Mentioned in comment", read: false },
+    });
+    assert.equal(next.items.length, 2);
+    assert.equal(next.unreadCount, 2);
+    assert.equal(next.items[0]._id, "2");
+
+    // Duplicate prevention
+    const dup = notificationReducer(next, {
+      type: "notifications/addNotification",
+      payload: { _id: "2", message: "Mentioned in comment", read: false },
+    });
+    assert.equal(dup.items.length, 2);
+    assert.equal(dup.unreadCount, 2);
+  });
+
+  await t.test("markRead and markAllRead update flags and unread counts", () => {
+    const start = {
+      items: [
+        { _id: "1", read: false },
+        { _id: "2", read: false },
+      ],
+      unreadCount: 2,
+      loading: false,
+    };
+    const step1 = notificationReducer(start, {
+      type: "notifications/markRead",
+      payload: "1",
+    });
+    assert.equal(step1.unreadCount, 1);
+    assert.equal(step1.items[0].read, true);
+
+    const step2 = notificationReducer(step1, {
+      type: "notifications/markAllRead",
+    });
+    assert.equal(step2.unreadCount, 0);
+    assert.equal(step2.items.every((n) => n.read), true);
+  });
+});

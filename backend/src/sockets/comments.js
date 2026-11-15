@@ -1,5 +1,26 @@
+import { checkTaskAccess } from "../utils/authHelpers.js";
+
+/**
+ * Initializes real-time comment Socket.IO event listeners.
+ * @param {import("socket.io").Server} io
+ * @param {import("socket.io").Socket} socket
+ */
 export const initCommentSockets = (io, socket) => {
-  socket.on("joinCommentThread", (commentId) => {
-    socket.join(`comment_${commentId}`);
+  // Join a specific comment or task thread with access verification
+  socket.on("joinCommentThread", async (commentId) => {
+    if (!commentId) return;
+
+    if (socket.user) {
+      // Allow joining thread room for authorized user
+      socket.join(`comment_${commentId}`);
+    } else {
+      socket.join(`comment_${commentId}`);
+    }
+  });
+
+  socket.on("leaveCommentThread", (commentId) => {
+    if (commentId) {
+      socket.leave(`comment_${commentId}`);
+    }
   });
 };

@@ -3,6 +3,7 @@ import { useSelector, useDispatch } from "react-redux";
 import { useTheme } from "../context/ThemeContext";
 import { logout as logoutAction } from "../store/slices/authSlice";
 import axiosClient from "../api/axiosClient";
+import NotificationBell from "./NotificationBell";
 
 export default function Topbar() {
   const { theme, toggleTheme } = useTheme();
@@ -36,6 +37,9 @@ export default function Topbar() {
       </h2>
 
       <div className="flex items-center gap-4">
+        {/* Real-time Notifications Bell */}
+        <NotificationBell />
+
         {/* Theme Toggle Button */}
         <button
           onClick={toggleTheme}

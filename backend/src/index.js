@@ -8,6 +8,9 @@ import { env } from "./config/env.js";
 import { connectDB } from "./config/db.js";
 import { User } from "./models/User.js";
 import { checkTeamAccess, checkProjectAccess } from "./utils/authHelpers.js";
+import { initCommentSockets } from "./sockets/comments.js";
+import { initReactionSockets } from "./sockets/reactions.js";
+import { initNotificationSockets } from "./sockets/notifications.js";
 
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
@@ -65,13 +68,14 @@ io.use(async (socket, next) => {
 });
 
 io.on("connection", (socket) => {
-  // Join own user room
-  socket.on("joinUser", ({ userId }) => {
-    if (socket.user && socket.user._id.toString() === userId) {
-      socket.join(`user_${userId}`);
-    } else if (!socket.user && userId) {
-      socket.join(`user_${userId}`);
-    }
+  // Initialize sub-socket handlers
+  initNotificationSockets(io, socket);
+  initCommentSockets(io, socket);
+  initReactionSockets(io, socket);
+
+  // Leave user room
+  socket.on("leaveUser", ({ userId }) => {
+    if (userId) socket.leave(`user_${userId}`);
   });
 
   // Join team room with authorization
@@ -90,6 +94,10 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("leaveTeam", ({ teamId }) => {
+    if (teamId) socket.leave(`team_${teamId}`);
+  });
+
   // Join project room with authorization
   socket.on("joinProject", async ({ projectId }) => {
     if (!projectId) return;
@@ -104,6 +112,10 @@ io.on("connection", (socket) => {
     } else {
       socket.join(`project_${projectId}`);
     }
+  });
+
+  socket.on("leaveProject", ({ projectId }) => {
+    if (projectId) socket.leave(`project_${projectId}`);
   });
 
   socket.on("disconnect", () => {});
