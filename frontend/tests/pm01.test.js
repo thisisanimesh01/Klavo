@@ -601,3 +601,56 @@ test("FRONTEND PM-08: Workflow Automation & Recurring Tasks State Helpers", asyn
     assert.equal(isValidAction({ type: "set_status", payload: "" }), false);
   });
 });
+
+test("FRONTEND DOC-01: Document Foundation & TipTap Editor Helpers", async (t) => {
+  await t.test("Validates safe hyperlink URL formatting", () => {
+    const formatLink = (url) => {
+      let u = (url || "").trim();
+      if (!u) return "";
+      if (!/^https?:\/\//i.test(u) && !u.startsWith("mailto:") && !u.startsWith("/")) {
+        return `https://${u}`;
+      }
+      return u;
+    };
+
+    assert.equal(formatLink("github.com"), "https://github.com");
+    assert.equal(formatLink("http://example.com"), "http://example.com");
+    assert.equal(formatLink("mailto:test@example.com"), "mailto:test@example.com");
+    assert.equal(formatLink("/internal-link"), "/internal-link");
+  });
+
+  await t.test("Validates document excerpt generator for list item subtitles", () => {
+    const extractExcerpt = (html, max = 50) => {
+      if (!html) return "";
+      const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      if (text.length <= max) return text;
+      return text.slice(0, max).trim() + "...";
+    };
+
+    const preview = extractExcerpt("<p>This is a <strong>rich document</strong> designed for team collaboration.</p>", 30);
+    assert.equal(preview, "This is a rich document design...");
+    assert.equal(preview.includes("<p>"), false);
+  });
+
+  await t.test("Validates autosave debounce status transitions", () => {
+    const getStatusText = (status) => {
+      switch (status) {
+        case "saving":
+          return "Saving...";
+        case "saved":
+          return "All changes saved";
+        case "unsaved":
+          return "Unsaved changes";
+        case "error":
+          return "Error saving";
+        default:
+          return "";
+      }
+    };
+
+    assert.equal(getStatusText("saving"), "Saving...");
+    assert.equal(getStatusText("saved"), "All changes saved");
+    assert.equal(getStatusText("unsaved"), "Unsaved changes");
+    assert.equal(getStatusText("error"), "Error saving");
+  });
+});
