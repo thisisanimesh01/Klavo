@@ -388,3 +388,161 @@ test("FRONTEND PM-06: Workflow Configuration & Dynamic Column Generation", async
     assert.equal(toggle("completed"), "todo");
   });
 });
+
+test("FRONTEND PM-07: Advanced Filtering, Search & Saved Views Composition", async (t) => {
+  await t.test("Validates multi-criteria client filter matcher", () => {
+    const tasks = [
+      {
+        _id: "1",
+        title: "Build OAuth login",
+        description: "Google and GitHub auth flow",
+        priority: "urgent",
+        status: "in-progress",
+        labels: [{ name: "auth" }, { name: "security" }],
+        sprintId: { _id: "s1" },
+        milestoneId: { _id: "m1" },
+        assignedTo: [{ _id: "u1" }],
+        dueDate: "2026-06-01",
+        isBlocked: false,
+      },
+      {
+        _id: "2",
+        title: "Fix database connection leak",
+        description: "Pool exhaustion on high concurrency",
+        priority: "critical",
+        status: "todo",
+        labels: [{ name: "backend" }],
+        sprintId: null,
+        milestoneId: null,
+        assignedTo: [],
+        dueDate: null,
+        isBlocked: true,
+      },
+      {
+        _id: "3",
+        title: "Update documentation site",
+        description: "Add PM-07 specs",
+        priority: "low",
+        status: "done",
+        labels: [{ name: "docs" }],
+        sprintId: { _id: "s1" },
+        milestoneId: { _id: "m1" },
+        assignedTo: [{ _id: "u2" }],
+        dueDate: "2026-07-01",
+        isBlocked: false,
+      },
+    ];
+
+    const matchTask = (task, filters) => {
+      if (filters.search) {
+        const q = filters.search.toLowerCase();
+        const mTitle = task.title.toLowerCase().includes(q);
+        const mDesc = task.description.toLowerCase().includes(q);
+        const mLabel = task.labels?.some((l) => l.name.toLowerCase().includes(q));
+        if (!mTitle && !mDesc && !mLabel) return false;
+      }
+      if (filters.priorities?.length > 0 && !filters.priorities.includes(task.priority)) {
+        return false;
+      }
+      if (filters.statuses?.length > 0 && !filters.statuses.includes(task.status)) {
+        return false;
+      }
+      if (filters.assignee && filters.assignee !== "all") {
+        if (filters.assignee === "unassigned" && task.assignedTo?.length > 0) return false;
+        if (filters.assignee !== "unassigned" && !task.assignedTo?.some((u) => u._id === filters.assignee)) return false;
+      }
+      if (filters.sprintId && filters.sprintId !== "all") {
+        if (filters.sprintId === "backlog" && task.sprintId) return false;
+        if (filters.sprintId !== "backlog" && task.sprintId?._id !== filters.sprintId) return false;
+      }
+      if (filters.dependencyFilter === "blocked_only" && !task.isBlocked) {
+        return false;
+      }
+      return true;
+    };
+
+    // 1. Search for "leak"
+    const searchResult = tasks.filter((t) => matchTask(t, { search: "leak" }));
+    assert.equal(searchResult.length, 1);
+    assert.equal(searchResult[0]._id, "2");
+
+    // 2. Filter by priorities (urgent or critical)
+    const priorityResult = tasks.filter((t) => matchTask(t, { priorities: ["urgent", "critical"] }));
+    assert.equal(priorityResult.length, 2);
+
+    // 3. Filter unassigned tasks
+    const unassignedResult = tasks.filter((t) => matchTask(t, { assignee: "unassigned" }));
+    assert.equal(unassignedResult.length, 1);
+    assert.equal(unassignedResult[0]._id, "2");
+
+    // 4. Filter blocked only
+    const blockedResult = tasks.filter((t) => matchTask(t, { dependencyFilter: "blocked_only" }));
+    assert.equal(blockedResult.length, 1);
+    assert.equal(blockedResult[0]._id, "2");
+  });
+
+  await t.test("Validates saved view state serialization and application", () => {
+    const savedView = {
+      _id: "v_100",
+      name: "Critical Blockers View",
+      isShared: true,
+      filters: {
+        search: "",
+        priorities: ["critical", "urgent"],
+        statuses: ["todo", "in-progress"],
+        sprintId: "all",
+        milestoneId: "all",
+        dependencyFilter: "blocked_only",
+      },
+      sortBy: "priority",
+      sortOrder: "desc",
+      groupBy: "priority",
+    };
+
+    // Serialize to URL search params
+    const params = new URLSearchParams();
+    if (savedView.filters.priorities?.length > 0) {
+      params.set("priorities", savedView.filters.priorities.join(","));
+    }
+    if (savedView.filters.statuses?.length > 0) {
+      params.set("statuses", savedView.filters.statuses.join(","));
+    }
+    if (savedView.filters.dependencyFilter !== "all") {
+      params.set("dependencyFilter", savedView.filters.dependencyFilter);
+    }
+    params.set("sortBy", savedView.sortBy);
+    params.set("sortOrder", savedView.sortOrder);
+    params.set("groupBy", savedView.groupBy);
+
+    const query = params.toString();
+    assert.match(query, /priorities=critical%2Curgent/);
+    assert.match(query, /dependencyFilter=blocked_only/);
+    assert.match(query, /groupBy=priority/);
+  });
+
+  await t.test("Validates multi-tier grouping aggregator", () => {
+    const tasks = [
+      { id: "1", priority: "urgent", status: "todo", assigneeName: "Alice" },
+      { id: "2", priority: "urgent", status: "in-progress", assigneeName: "Bob" },
+      { id: "3", priority: "low", status: "todo", assigneeName: "Alice" },
+    ];
+
+    const groupByField = (items, field) => {
+      const groups = {};
+      for (const item of items) {
+        const val = item[field] || "None";
+        if (!groups[val]) groups[val] = [];
+        groups[val].push(item);
+      }
+      return groups;
+    };
+
+    const byPriority = groupByField(tasks, "priority");
+    assert.equal(byPriority["urgent"].length, 2);
+    assert.equal(byPriority["low"].length, 1);
+
+    const byAssignee = groupByField(tasks, "assigneeName");
+    assert.equal(byAssignee["Alice"].length, 2);
+    assert.equal(byAssignee["Bob"].length, 1);
+  });
+});

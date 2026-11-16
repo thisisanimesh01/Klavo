@@ -394,3 +394,42 @@ Project workflows configure dynamic task stages, status ordering, and categoriza
 | **Workflow** | Get Project Workflow | `GET /api/workflows/project/:projectId` | Member or Owner of project team |
 | **Workflow** | Update Workflow | `PUT /api/workflows/project/:projectId` | Member or Owner of project team |
 | **Workflow** | Reset to Standard | `POST /api/workflows/project/:projectId/reset` | Member or Owner of project team |
+
+---
+
+## 17. Advanced Search, Filtering & Saved Views (PM-07)
+
+### Advanced Search & Multi-Attribute Filtering Engine:
+- **Comprehensive Text Search**: Performs case-insensitive regular expression search across task `title`, `description`, and `labels.name`.
+- **Multi-Status & Multi-Priority Arrays**: Supports array or comma-separated query parameters (`statuses`, `priorities`) for multi-select filtering.
+- **Assignee Targeting**: Supports user ObjectIds, special token `"me"` (resolved to authenticated requester), and `"unassigned"` (matching empty or nonexistent assignee arrays).
+- **Date Range Filters**: Evaluates relative intervals including `overdue`, `today`, `this_week`, `next_week`, and `no_due_date`.
+- **Dependency Relationships**: Filters tasks based on dependency criteria (`blocked_only`, `unblocked_only`, `has_dependencies`, `no_dependencies`).
+- **Custom Field Filtering**: Queries nested custom fields by field name, existence, equality, and substring matching.
+
+### Saved Views Schema & Multi-Tenant Access Model:
+- `name`: View display title.
+- `description`: Optional context for team members.
+- `projectId` / `teamId`: Strictly bounded project and team references.
+- `createdBy`: User ID of creator.
+- `isShared`: 
+  - `false` (Personal): Visible only to `createdBy`.
+  - `true` (Shared): Visible to all members of the project team.
+- `viewType`: `"kanban"` | `"backlog"` | `"all"`.
+- `filters`: Stored query criteria matching filter configuration.
+- `sortBy` / `sortOrder`: Preferred ordering (`order`, `priority`, `dueDate`, `createdAt`, `updatedAt`, `title`, `estimatedHours`).
+- `groupBy`: Dynamic section grouping (`none`, `status`, `priority`, `assignee`, `milestone`).
+- `isDefault`: Marks preferred view upon project initialization (scoped by user for personal views, or project-wide for shared views).
+
+### Authorization & IDOR Security Policies:
+- Project-level authorization: View creation and retrieval require team membership in the parent project (`checkProjectAccess`).
+- View mutation & deletion: Strictly restricted to the **view creator** (`createdBy === req.user._id`) or the **Team Owner**. Other team members cannot mutate or delete another user's saved views.
+
+### REST Endpoints for Saved Views:
+| Resource | Action | Endpoint | Required Role / Permission |
+| :--- | :--- | :--- | :--- |
+| **Saved View** | Create View | `POST /api/saved-views` | Member or Owner of project team |
+| **Saved View** | List Project Views | `GET /api/saved-views/project/:projectId` | Member or Owner of project team |
+| **Saved View** | Get View Details | `GET /api/saved-views/:viewId` | Member (if shared) or Creator / Team Owner |
+| **Saved View** | Update View | `PUT /api/saved-views/:viewId` | Creator of view or Team Owner |
+| **Saved View** | Delete View | `DELETE /api/saved-views/:viewId` | Creator of view or Team Owner |

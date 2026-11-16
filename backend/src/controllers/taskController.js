@@ -8,6 +8,7 @@ import { logActivity } from "./activityController.js";
 import { checkProjectAccess, checkTaskAccess } from "../utils/authHelpers.js";
 import { createTargetedNotification } from "../utils/notificationHelpers.js";
 import { detectCircularDependency, checkTaskBlockers } from "../utils/dependencyHelpers.js";
+import { buildTaskFilterQuery, buildTaskSortConfig } from "../utils/filterHelpers.js";
 
 export const createTask = async (req, res) => {
   try {
@@ -169,7 +170,26 @@ export const createTask = async (req, res) => {
 export const getTasksByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { priority, status, sprintId, milestoneId, parentId, label, search, sortBy, sortOrder } = req.query;
+    const {
+      priority,
+      priorities,
+      status,
+      statuses,
+      sprintId,
+      milestoneId,
+      parentId,
+      label,
+      labels,
+      search,
+      assignee,
+      assignees,
+      assignedTo,
+      dueDateFilter,
+      dependencyFilter,
+      customFieldFilters,
+      sortBy,
+      sortOrder,
+    } = req.query;
 
     const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
     if (!project) return res.status(404).json({ message: "Project not found" });
@@ -179,54 +199,40 @@ export const getTasksByProject = async (req, res) => {
       return res.status(403).json({ message: "Forbidden: You are not authorized to view tasks in this project" });
     }
 
-    const query = { projectId };
-
-    if (priority) {
-      query.priority = priority;
-    }
-
-    if (status) {
-      query.status = status;
-    }
-
-    if (sprintId !== undefined) {
-      if (sprintId === "backlog" || sprintId === "null" || sprintId === "") {
-        query.sprintId = null;
-      } else if (sprintId !== "all") {
-        query.sprintId = sprintId;
+    // Parse customFieldFilters if passed as JSON string
+    let parsedCustomFieldFilters = customFieldFilters;
+    if (typeof customFieldFilters === "string") {
+      try {
+        parsedCustomFieldFilters = JSON.parse(customFieldFilters);
+      } catch {
+        parsedCustomFieldFilters = [];
       }
     }
 
-    if (milestoneId !== undefined) {
-      if (milestoneId === "none" || milestoneId === "null" || milestoneId === "") {
-        query.milestoneId = null;
-      } else if (milestoneId !== "all") {
-        query.milestoneId = milestoneId;
-      }
-    }
+    const query = buildTaskFilterQuery(
+      projectId,
+      {
+        priority,
+        priorities,
+        status,
+        statuses,
+        sprintId,
+        milestoneId,
+        parentId,
+        label,
+        labels,
+        search,
+        assignee,
+        assignees: assignees || assignee,
+        assignedTo,
+        dueDateFilter,
+        dependencyFilter,
+        customFieldFilters: parsedCustomFieldFilters,
+      },
+      req.user._id
+    );
 
-    if (parentId !== undefined) {
-      if (parentId === "null" || parentId === "") {
-        query.parentId = null;
-      } else {
-        query.parentId = parentId;
-      }
-    }
-
-    if (label) {
-      query["labels.name"] = { $regex: new RegExp(`^${label.trim()}$`, "i") };
-    }
-
-    if (search && search.trim()) {
-      const regex = new RegExp(search.trim(), "i");
-      query.$or = [{ title: regex }, { description: regex }];
-    }
-
-    let sort = { status: 1, order: 1, createdAt: 1 };
-    if (sortBy) {
-      const order = sortOrder === "desc" ? -1 : 1;
-      sort = { [sortBy]: order };
-    }
+    const sortConfig = buildTaskSortConfig(sortBy, sortOrder);
 
     const projectWorkflow = await Workflow.findOne({ projectId });
     const tasks = await Task.find(query)
@@ -236,7 +242,7 @@ export const getTasksByProject = async (req, res) => {
       .populate("milestoneId", "name status dueDate")
       .populate("parentId", "title status")
       .populate("dependencies.taskId", "title status priority")
-      .sort(sort);
+      .sort(sortConfig);
 
     // Compute subtask counts and blocker presence for each task
     const taskIds = tasks.map((t) => t._id);
