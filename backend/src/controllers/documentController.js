@@ -1,4 +1,5 @@
 import Document from "../models/Document.js";
+import DocumentFolder from "../models/DocumentFolder.js";
 import { checkProjectAccess } from "../utils/authHelpers.js";
 import { logActivity } from "./activityController.js";
 import {
@@ -8,11 +9,11 @@ import {
 } from "../utils/documentSanitizer.js";
 
 /**
- * Creates a new document within a project.
+ * Creates a new document within a project and optional folder.
  */
 export const createDocument = async (req, res) => {
   try {
-    const { title, content, contentHtml, projectId } = req.body;
+    const { title, content, contentHtml, projectId, folderId } = req.body;
 
     if (!projectId) {
       return res.status(400).json({ message: "projectId is required" });
@@ -28,6 +29,18 @@ export const createDocument = async (req, res) => {
       });
     }
 
+    // Validate folder if specified
+    let safeFolderId = null;
+    if (folderId && folderId !== "null" && folderId !== "root") {
+      const folder = await DocumentFolder.findOne({ _id: folderId, projectId });
+      if (!folder) {
+        return res.status(400).json({
+          message: "Folder not found or belongs to a different project",
+        });
+      }
+      safeFolderId = folder._id;
+    }
+
     const safeTitle = (title && title.trim()) || "Untitled Document";
     const safeHtml = sanitizeDocumentHtml(contentHtml || "<p></p>");
     const safeJson = sanitizeDocumentJson(content);
@@ -38,6 +51,7 @@ export const createDocument = async (req, res) => {
       content: safeJson,
       contentHtml: safeHtml,
       description: excerpt,
+      folderId: safeFolderId,
       projectId,
       teamId: project.teamId,
       createdBy: req.user._id,
@@ -46,6 +60,9 @@ export const createDocument = async (req, res) => {
 
     await doc.populate("createdBy", "name email avatar");
     await doc.populate("lastUpdatedBy", "name email avatar");
+    if (doc.folderId) {
+      await doc.populate("folderId", "name color icon");
+    }
 
     await logActivity({
       projectId,
@@ -73,12 +90,12 @@ export const createDocument = async (req, res) => {
 };
 
 /**
- * Retrieves all documents for a project.
+ * Retrieves all documents for a project, with optional folderId, search, and sort filtering.
  */
 export const getDocumentsByProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { search } = req.query;
+    const { search, folderId, sortBy, sortOrder } = req.query;
 
     const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
     if (!project) return res.status(404).json({ message: "Project not found" });
@@ -90,16 +107,39 @@ export const getDocumentsByProject = async (req, res) => {
     }
 
     const query = { projectId, isArchived: false };
+
+    // Folder filtering:
+    // "all": return all project documents across all folders
+    // "root" / "null": return unfiled/root documents only
+    // ":folderId": return documents within that folder
+    if (folderId !== undefined && folderId !== "all") {
+      if (folderId === "root" || folderId === "null" || folderId === "") {
+        query.folderId = null;
+      } else {
+        query.folderId = folderId;
+      }
+    }
+
     if (search && search.trim()) {
       const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       const regex = new RegExp(escaped, "i");
       query.$or = [{ title: regex }, { description: regex }];
     }
 
+    // Configurable sorting
+    let sort = { updatedAt: -1 };
+    if (sortBy) {
+      const order = sortOrder === "asc" ? 1 : -1;
+      if (sortBy === "title") sort = { title: order };
+      else if (sortBy === "createdAt") sort = { createdAt: order };
+      else if (sortBy === "updatedAt") sort = { updatedAt: order };
+    }
+
     const documents = await Document.find(query)
       .populate("createdBy", "name email avatar")
       .populate("lastUpdatedBy", "name email avatar")
-      .sort({ updatedAt: -1 });
+      .populate("folderId", "name color icon")
+      .sort(sort);
 
     res.json(documents);
   } catch (err) {
@@ -116,7 +156,8 @@ export const getDocumentById = async (req, res) => {
 
     const doc = await Document.findById(documentId)
       .populate("createdBy", "name email avatar")
-      .populate("lastUpdatedBy", "name email avatar");
+      .populate("lastUpdatedBy", "name email avatar")
+      .populate("folderId", "name color icon");
 
     if (!doc) return res.status(404).json({ message: "Document not found" });
 
@@ -134,12 +175,12 @@ export const getDocumentById = async (req, res) => {
 };
 
 /**
- * Updates an existing document (content, title, or HTML snapshot).
+ * Updates an existing document (content, title, folder move, or cross-project transfer).
  */
 export const updateDocument = async (req, res) => {
   try {
     const { documentId } = req.params;
-    const { title, content, contentHtml } = req.body;
+    const { title, content, contentHtml, folderId, targetProjectId } = req.body;
 
     const doc = await Document.findById(documentId);
     if (!doc) return res.status(404).json({ message: "Document not found" });
@@ -149,6 +190,37 @@ export const updateDocument = async (req, res) => {
       return res.status(403).json({
         message: "Forbidden: You are not authorized to update this document",
       });
+    }
+
+    // Moving document to a different project
+    if (targetProjectId && targetProjectId.toString() !== doc.projectId.toString()) {
+      const targetAccess = await checkProjectAccess(targetProjectId, req.user._id);
+      if (!targetAccess.hasAccess || !targetAccess.project) {
+        return res.status(403).json({
+          message: "Forbidden: You are not authorized to move documents to the target project",
+        });
+      }
+      doc.projectId = targetProjectId;
+      doc.teamId = targetAccess.project.teamId;
+      doc.folderId = null; // Reset folder on cross-project move unless re-assigned
+    }
+
+    // Moving document to a different folder within the same project
+    if (folderId !== undefined) {
+      if (folderId === "root" || folderId === "null" || folderId === null || folderId === "") {
+        doc.folderId = null;
+      } else {
+        const targetFolder = await DocumentFolder.findOne({
+          _id: folderId,
+          projectId: doc.projectId,
+        });
+        if (!targetFolder) {
+          return res.status(400).json({
+            message: "Target folder not found or belongs to a different project",
+          });
+        }
+        doc.folderId = targetFolder._id;
+      }
     }
 
     if (title && title.trim()) {
@@ -169,6 +241,9 @@ export const updateDocument = async (req, res) => {
 
     await doc.populate("createdBy", "name email avatar");
     await doc.populate("lastUpdatedBy", "name email avatar");
+    if (doc.folderId) {
+      await doc.populate("folderId", "name color icon");
+    }
 
     const io = req.app.get("io");
     if (io) {
