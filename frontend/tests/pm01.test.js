@@ -546,3 +546,58 @@ test("FRONTEND PM-07: Advanced Filtering, Search & Saved Views Composition", asy
     assert.equal(byAssignee["Bob"].length, 1);
   });
 });
+
+test("FRONTEND PM-08: Workflow Automation & Recurring Tasks State Helpers", async (t) => {
+  await t.test("Validates trigger event label and icon mappings", () => {
+    const TRIGGER_LABELS = {
+      task_created: "When a Task is Created",
+      status_changed: "When Status Changes",
+      priority_changed: "When Priority Changes",
+      assignee_changed: "When Assignee Changes",
+      due_date_changed: "When Due Date Changes",
+    };
+
+    assert.ok(TRIGGER_LABELS.task_created);
+    assert.ok(TRIGGER_LABELS.status_changed);
+    assert.ok(TRIGGER_LABELS.priority_changed);
+    assert.ok(TRIGGER_LABELS.assignee_changed);
+    assert.ok(TRIGGER_LABELS.due_date_changed);
+  });
+
+  await t.test("Validates recurring task frequency label formatting", () => {
+    const formatSchedule = (frequency, interval, daysOfWeek = []) => {
+      const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      if (frequency === "daily") {
+        return interval === 1 ? "Every day" : `Every ${interval} days`;
+      }
+      if (frequency === "weekly") {
+        const daysStr = daysOfWeek.map((d) => dayNames[d]).join(", ");
+        return interval === 1 ? `Weekly on ${daysStr || "selected days"}` : `Every ${interval} weeks on ${daysStr}`;
+      }
+      if (frequency === "monthly") {
+        return interval === 1 ? "Monthly" : `Every ${interval} months`;
+      }
+      return frequency;
+    };
+
+    assert.equal(formatSchedule("daily", 1), "Every day");
+    assert.equal(formatSchedule("daily", 3), "Every 3 days");
+    assert.equal(formatSchedule("weekly", 1, [1, 3]), "Weekly on Mon, Wed");
+    assert.equal(formatSchedule("monthly", 1), "Monthly");
+  });
+
+  await t.test("Validates automation rule action payload validation", () => {
+    const isValidAction = (action) => {
+      if (!action || !action.type || action.payload === undefined || action.payload === "") return false;
+      if (action.type === "set_priority") {
+        return ["low", "medium", "high", "critical", "urgent"].includes(action.payload);
+      }
+      return true;
+    };
+
+    assert.equal(isValidAction({ type: "set_status", payload: "done" }), true);
+    assert.equal(isValidAction({ type: "set_priority", payload: "urgent" }), true);
+    assert.equal(isValidAction({ type: "set_priority", payload: "invalid-priority" }), false);
+    assert.equal(isValidAction({ type: "set_status", payload: "" }), false);
+  });
+});

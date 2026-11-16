@@ -433,3 +433,49 @@ Project workflows configure dynamic task stages, status ordering, and categoriza
 | **Saved View** | Get View Details | `GET /api/saved-views/:viewId` | Member (if shared) or Creator / Team Owner |
 | **Saved View** | Update View | `PUT /api/saved-views/:viewId` | Creator of view or Team Owner |
 | **Saved View** | Delete View | `DELETE /api/saved-views/:viewId` | Creator of view or Team Owner |
+
+---
+
+## 18. Workflow Automation & Recurring Tasks (PM-08)
+
+### Automation Rule Engine & Event Lifecycle:
+- **Event Triggers**:
+  - `task_created`: Evaluates when any task is created in the project.
+  - `status_changed`: Evaluates when a task status transitions (supports `fromValue` and `toValue` constraints).
+  - `priority_changed`: Evaluates on priority mutations.
+  - `assignee_changed`: Evaluates on assignment updates.
+  - `due_date_changed`: Evaluates on due date adjustments.
+- **Conditions Engine**:
+  - Multi-operator matching (`equals`, `not_equals`, `in`, `not_in`, `is_empty`, `is_not_empty`, `contains`).
+  - Supports field checks across `status`, `priority`, `assignedTo`, `labels`, `milestoneId`, `sprintId`, and `dueDate`.
+- **Action Execution**:
+  - State transitions (`set_status`, `set_priority`, `assign_user`, `add_assignee`, `remove_assignee`, `add_label`, `set_due_date_relative`).
+  - Real-time notifications dispatched to target members (`send_notification`).
+- **Loop Protection & Safeguards**:
+  - Enforces a maximum recursion cascade depth (`MAX_EXECUTION_DEPTH = 3`).
+  - Tracks rule execution chains (`seenRules` set) to prevent circular cascades.
+  - Full execution audit logging (`AutomationLog`) for auditability and failure analysis.
+
+### Recurring Task Schedules:
+- Configurable recurrence frequencies (`daily`, `weekly`, `monthly`) with step intervals (`interval >= 1`).
+- Weekday masks for weekly recurrences (`daysOfWeek: [0..6]`) and calendar days for monthly schedules (`dayOfMonth: [1..31]`).
+- Timezone-aware date calculations and expiration constraints (`endDate`).
+- Manual trigger capabilities for testing and instant generation.
+
+### Authorization & Access Control:
+- Project team members can create, inspect, pause, resume, and delete automation rules and recurring task schedules (`checkProjectAccess`).
+- Real-time Socket.IO broadcasts ensure all collaborators receive live updates on rule and schedule mutations (`automationRuleCreated`, `recurringTaskCreated`, `automationExecuted`).
+
+### REST Endpoints for Automations & Recurring Tasks:
+| Resource | Action | Endpoint | Required Role / Permission |
+| :--- | :--- | :--- | :--- |
+| **Automation Rule** | Create Rule | `POST /api/automations/rules` | Member or Owner of project team |
+| **Automation Rule** | List Project Rules | `GET /api/automations/rules/project/:projectId` | Member or Owner of project team |
+| **Automation Rule** | Update Rule | `PUT /api/automations/rules/:ruleId` | Member or Owner of project team |
+| **Automation Rule** | Delete Rule | `DELETE /api/automations/rules/:ruleId` | Member or Owner of project team |
+| **Automation Log** | Get Logs | `GET /api/automations/logs/project/:projectId` | Member or Owner of project team |
+| **Recurring Task** | Create Schedule | `POST /api/automations/recurring` | Member or Owner of project team |
+| **Recurring Task** | List Project Schedules | `GET /api/automations/recurring/project/:projectId` | Member or Owner of project team |
+| **Recurring Task** | Update Schedule | `PUT /api/automations/recurring/:recurringId` | Member or Owner of project team |
+| **Recurring Task** | Delete Schedule | `DELETE /api/automations/recurring/:recurringId` | Member or Owner of project team |
+| **Recurring Task** | Trigger Execution Now | `POST /api/automations/recurring/:recurringId/trigger` | Member or Owner of project team |
