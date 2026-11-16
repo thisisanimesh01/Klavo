@@ -479,3 +479,35 @@ Project workflows configure dynamic task stages, status ordering, and categoriza
 | **Recurring Task** | Update Schedule | `PUT /api/automations/recurring/:recurringId` | Member or Owner of project team |
 | **Recurring Task** | Delete Schedule | `DELETE /api/automations/recurring/:recurringId` | Member or Owner of project team |
 | **Recurring Task** | Trigger Execution Now | `POST /api/automations/recurring/:recurringId/trigger` | Member or Owner of project team |
+
+---
+
+## 19. Rich Text Editor & Document Foundation (DOC-01)
+
+### Document Data Model:
+- `title`: String identifier (default: `"Untitled Document"`).
+- `content`: ProseMirror / TipTap structured JSON object tree.
+- `contentHtml`: Sanitized HTML snapshot for safe rendering, exports, and previews.
+- `description`: Plain text excerpt extracted from document body for search indexing.
+- `projectId` / `teamId`: Multi-tenant ownership and tenancy scoping.
+- `createdBy` / `lastUpdatedBy`: User audit references.
+- `isArchived`: Boolean flag for non-destructive lifecycle management.
+
+### HTML & JSON Sanitization Engine (`documentSanitizer.js`):
+- Strips active executable tags (`<script>`, `<iframe>`, `<object>`, `<embed>`, `<form>`, `<base>`, `<link>`, `<meta>`).
+- Strips all inline event handlers (`onload`, `onerror`, `onclick`, `onmouseover`, etc.).
+- Neutralizes dangerous pseudo-protocols (`javascript:`, `data:`, `vbscript:`) in hyperlinks (`href="#"`).
+- Preserves all valid TipTap rich text markup: headings (H1–H3), paragraphs, lists (bullet, numbered), blockquotes, code blocks, bold, italic, underline, and secure external/internal URLs.
+
+### Client-Side Autosave & Real-Time Sync:
+- Debounced autosave mechanism (1200ms) with visible save status indicators (`saved`, `saving`, `unsaved`, `error`).
+- Real-time Socket.IO broadcasts for document creation, content updates, and deletion (`documentCreated`, `documentUpdated`, `documentDeleted`).
+
+### Authorization Matrix for Documents:
+| Resource | Action | Endpoint | Required Role / Permission |
+| :--- | :--- | :--- | :--- |
+| **Document** | Create Document | `POST /api/documents` | Member or Owner of project team |
+| **Document** | List Documents | `GET /api/documents/project/:projectId` | Member or Owner of project team |
+| **Document** | Get Document | `GET /api/documents/:documentId` | Member or Owner of project team |
+| **Document** | Update Document | `PUT /api/documents/:documentId` | Member or Owner of project team |
+| **Document** | Delete Document | `DELETE /api/documents/:documentId` | Document Creator or Team Owner |

@@ -10,6 +10,7 @@ import Kanban from "./pages/Kanban";
 import Calendar from "./pages/Calendar";
 import Files from "./pages/Files";
 import Analytics from "./pages/Analytics";
+import Documents from "./pages/Documents";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./layout/Layout";
 
@@ -59,6 +60,24 @@ export default function App() {
             element={
               <Layout>
                 <Kanban />
+              </Layout>
+            }
+          />
+
+          {/* Documents */}
+          <Route
+            path="/documents/:projectId"
+            element={
+              <Layout>
+                <Documents />
+              </Layout>
+            }
+          />
+          <Route
+            path="/documents/:projectId/:documentId"
+            element={
+              <Layout>
+                <Documents />
               </Layout>
             }
           />
