@@ -1,8 +1,10 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Underline from "@tiptap/extension-underline";
 import Link from "@tiptap/extension-link";
+import Collaboration from "@tiptap/extension-collaboration";
+import CollaborationCursor from "@tiptap/extension-collaboration-cursor";
 import {
   Bold,
   Italic,
@@ -20,6 +22,7 @@ import {
   Unlink,
   Check,
   X,
+  Users,
 } from "lucide-react";
 
 export default function TipTapEditor({
@@ -27,38 +30,70 @@ export default function TipTapEditor({
   onChange,
   readOnly = false,
   placeholder = "Start writing your document...",
+  // Yjs collaborative editing props
+  ydoc = null,
+  provider = null,
+  user = null,
 }) {
   const [linkInputOpen, setLinkInputOpen] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
 
-  const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        heading: {
-          levels: [1, 2, 3],
-        },
-      }),
-      Underline,
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: {
-          class: "text-indigo-600 dark:text-indigo-400 underline cursor-pointer hover:text-indigo-700",
-          rel: "noopener noreferrer",
-          target: "_blank",
-        },
-      }),
-    ],
-    content: content || "<p></p>",
-    editable: !readOnly,
-    onUpdate: ({ editor }) => {
-      if (onChange) {
-        onChange({
-          json: editor.getJSON(),
-          html: editor.getHTML(),
-        });
-      }
+  // Build extension pipeline based on whether collaborative mode (Y.Doc) is provided
+  const extensions = [
+    StarterKit.configure({
+      heading: {
+        levels: [1, 2, 3],
+      },
+      // In collaborative mode, Yjs handles history instead of ProseMirror history
+      history: !ydoc,
+    }),
+    Underline,
+    Link.configure({
+      openOnClick: false,
+      HTMLAttributes: {
+        class: "text-indigo-600 dark:text-indigo-400 underline cursor-pointer hover:text-indigo-700",
+        rel: "noopener noreferrer",
+        target: "_blank",
+      },
+    }),
+  ];
+
+  if (ydoc) {
+    extensions.push(
+      Collaboration.configure({
+        document: ydoc,
+      })
+    );
+
+    if (provider && provider.awareness) {
+      extensions.push(
+        CollaborationCursor.configure({
+          provider: provider,
+          user: {
+            name: user?.name || "Anonymous",
+            color: user?.color || "#6366f1",
+          },
+        })
+      );
+    }
+  }
+
+  const editor = useEditor(
+    {
+      extensions,
+      content: ydoc ? undefined : content || "<p></p>",
+      editable: !readOnly,
+      onUpdate: ({ editor }) => {
+        if (onChange) {
+          onChange({
+            json: editor.getJSON(),
+            html: editor.getHTML(),
+          });
+        }
+      },
     },
-  });
+    [ydoc, provider]
+  );
 
   if (!editor) {
     return <div className="p-8 text-center text-xs text-slate-400">Loading editor...</div>;
@@ -170,7 +205,7 @@ export default function TipTapEditor({
 
           <div className="w-px h-4 bg-slate-300 dark:bg-slate-700 mx-1" />
 
-          {/* Lists: Bullet & Ordered */}
+          {/* Lists */}
           <button
             type="button"
             onClick={() => editor.chain().focus().toggleBulletList().run()}
@@ -192,12 +227,10 @@ export default function TipTapEditor({
                 ? "bg-indigo-600 text-white font-bold"
                 : "hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300"
             }`}
-            title="Numbered List"
+            title="Ordered List"
           >
             <ListOrdered className="w-4 h-4" />
           </button>
-
-          <div className="w-px h-4 bg-slate-300 dark:bg-slate-700 mx-1" />
 
           {/* Blockquote & Code Block */}
           <button
@@ -257,27 +290,29 @@ export default function TipTapEditor({
             </button>
           )}
 
-          {/* Undo / Redo */}
-          <div className="ml-auto flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => editor.chain().focus().undo().run()}
-              disabled={!editor.can().undo()}
-              className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300"
-              title="Undo"
-            >
-              <Undo2 className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => editor.chain().focus().redo().run()}
-              disabled={!editor.can().redo()}
-              className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300"
-              title="Redo"
-            >
-              <Redo2 className="w-4 h-4" />
-            </button>
-          </div>
+          {/* Undo / Redo (non-collab fallback) */}
+          {!ydoc && (
+            <div className="ml-auto flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => editor.chain().focus().undo().run()}
+                disabled={!editor.can().undo()}
+                className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300"
+                title="Undo"
+              >
+                <Undo2 className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => editor.chain().focus().redo().run()}
+                disabled={!editor.can().redo()}
+                className="p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-30 disabled:hover:bg-transparent text-slate-600 dark:text-slate-300"
+                title="Redo"
+              >
+                <Redo2 className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </div>
       )}
 

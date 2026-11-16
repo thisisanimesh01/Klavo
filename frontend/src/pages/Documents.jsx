@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useSelector } from "react-redux";
+import * as Y from "yjs";
 import axiosClient from "../api/axiosClient";
 import TipTapEditor from "../components/TipTapEditor";
 import ThemeToggle from "../components/ThemeToggle";
+import { CollabSocketProvider } from "../utils/collabSocketProvider";
 import socket from "../socket";
 import {
   FileText,
@@ -27,11 +30,14 @@ import {
   SlidersHorizontal,
   X,
   Edit2,
+  Users,
+  Eye,
 } from "lucide-react";
 
 export default function Documents() {
   const { projectId, documentId } = useParams();
   const navigate = useNavigate();
+  const authUser = useSelector((state) => state.auth.user);
 
   const [documents, setDocuments] = useState([]);
   const [folders, setFolders] = useState([]);
@@ -43,6 +49,11 @@ export default function Documents() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState("updatedAt");
   const [sortOrder, setSortOrder] = useState("desc");
+
+  // Collaborator presence state
+  const [collaborators, setCollaborators] = useState([]);
+  const [collabYDoc, setCollabYDoc] = useState(null);
+  const [collabProvider, setCollabProvider] = useState(null);
 
   // Folder Modals State
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
@@ -107,7 +118,44 @@ export default function Documents() {
     }
   }, [projectId, fetchDocuments, fetchFolders]);
 
-  // Socket.IO real-time synchronization
+  // Setup real-time collaborative editing session when selectedDoc changes
+  useEffect(() => {
+    if (!selectedDoc?._id) {
+      setCollabYDoc(null);
+      setCollabProvider(null);
+      setCollaborators([]);
+      return;
+    }
+
+    const ydoc = new Y.Doc();
+    const provider = new CollabSocketProvider(selectedDoc._id, ydoc, {
+      id: authUser?._id,
+      name: authUser?.name || "Anonymous",
+      email: authUser?.email,
+      avatar: authUser?.avatar,
+    });
+
+    provider.onCollaboratorsChange = (updater) => {
+      if (typeof updater === "function") {
+        setCollaborators(updater);
+      } else {
+        setCollaborators(updater || []);
+      }
+    };
+
+    setCollabYDoc(ydoc);
+    setCollabProvider(provider);
+
+    return () => {
+      provider.destroy();
+      ydoc.destroy();
+      setCollabYDoc(null);
+      setCollabProvider(null);
+      setCollaborators([]);
+    };
+  }, [selectedDoc?._id, authUser]);
+
+  // Socket.IO real-time project-level events (CRUD)
   useEffect(() => {
     if (!projectId) return;
     if (!socket.connected) socket.connect();
@@ -166,517 +214,555 @@ export default function Documents() {
       socket.off("documentFolderCreated", handleFolderCreated);
       socket.off("documentFolderUpdated", handleFolderUpdated);
       socket.off("documentFolderDeleted", handleFolderDeleted);
+      socket.emit("leaveProject", { projectId });
     };
   }, [projectId, selectedDoc, selectedFolderId, fetchDocuments]);
 
-  // Autosave executor (debounced 1200ms)
-  const executeSave = async (docId, newTitle, contentData) => {
-    if (!docId) return;
-    try {
-      setSaving(true);
-      setSaveStatus("saving");
-      const res = await axiosClient.put(`/documents/${docId}`, {
-        title: newTitle,
-        content: contentData?.json || contentRef.current,
-        contentHtml: contentData?.html,
-      });
-      setSelectedDoc(res.data);
-      setSaveStatus("saved");
-    } catch (err) {
-      console.error("Autosave failed:", err);
-      setSaveStatus("error");
-    } finally {
-      setSaving(false);
-    }
-  };
+  // Debounced Autosave
+  const triggerAutosave = useCallback(
+    (newTitle, newContent, newHtml) => {
+      if (!selectedDoc) return;
+      setSaveStatus("unsaved");
 
-  const handleEditorChange = (editorData) => {
-    contentRef.current = editorData.json;
-    setSaveStatus("unsaved");
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
 
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
+      saveTimeoutRef.current = setTimeout(async () => {
+        try {
+          setSaving(true);
+          setSaveStatus("saving");
 
-    if (selectedDoc) {
-      saveTimeoutRef.current = setTimeout(() => {
-        executeSave(selectedDoc._id, title, editorData);
+          const res = await axiosClient.put(`/documents/${selectedDoc._id}`, {
+            title: newTitle !== undefined ? newTitle : title,
+            content: newContent !== undefined ? newContent : contentRef.current,
+            contentHtml: newHtml,
+          });
+
+          setSelectedDoc(res.data);
+          setSaveStatus("saved");
+        } catch (err) {
+          console.error("Autosave failed:", err);
+          setSaveStatus("error");
+        } finally {
+          setSaving(false);
+        }
       }, 1200);
-    }
+    },
+    [selectedDoc, title]
+  );
+
+  const handleTitleChange = (e) => {
+    const val = e.target.value;
+    setTitle(val);
+    triggerAutosave(val, contentRef.current);
   };
 
-  const handleTitleChange = (newTitle) => {
-    setTitle(newTitle);
-    setSaveStatus("unsaved");
-
-    if (saveTimeoutRef.current) {
-      clearTimeout(saveTimeoutRef.current);
-    }
-
-    if (selectedDoc) {
-      saveTimeoutRef.current = setTimeout(() => {
-        executeSave(selectedDoc._id, newTitle, null);
-      }, 1000);
-    }
+  const handleEditorChange = ({ json, html }) => {
+    contentRef.current = json;
+    triggerAutosave(title, json, html);
   };
 
+  // Create new document
   const handleCreateDocument = async () => {
     try {
-      const targetFolder =
-        selectedFolderId !== "all" && selectedFolderId !== "root" ? selectedFolderId : null;
-
-      const res = await axiosClient.post("/documents", {
-        projectId,
+      const payload = {
         title: "Untitled Document",
-        folderId: targetFolder,
-        content: {
-          type: "doc",
-          content: [{ type: "paragraph", content: [] }],
-        },
-        contentHtml: "<p></p>",
-      });
-      const newDoc = res.data;
-      setDocuments((prev) => [newDoc, ...prev]);
-      setSelectedDoc(newDoc);
-      setTitle(newDoc.title);
-      contentRef.current = newDoc.content;
-      setSaveStatus("saved");
-      fetchFolders();
+        projectId,
+        folderId: selectedFolderId !== "all" && selectedFolderId !== "root" ? selectedFolderId : null,
+      };
+      const res = await axiosClient.post("/documents", payload);
+      setDocuments((prev) => [res.data, ...prev]);
+      setSelectedDoc(res.data);
+      setTitle(res.data.title);
+      contentRef.current = res.data.content;
+      navigate(`/projects/${projectId}/documents/${res.data._id}`);
     } catch (err) {
-      alert("Failed to create document");
+      console.error("Failed to create document:", err);
     }
   };
 
-  const handleDeleteDocument = async (e, docId) => {
-    e.stopPropagation();
-    if (!confirm("Are you sure you want to delete this document?")) return;
+  // Delete current document
+  const handleDeleteDocument = async (docId) => {
+    if (!window.confirm("Are you sure you want to delete this document?")) return;
     try {
       await axiosClient.delete(`/documents/${docId}`);
-      const remaining = documents.filter((d) => d._id !== docId);
-      setDocuments(remaining);
-      if (selectedDoc?._id === docId) {
+      setDocuments((prev) => prev.filter((d) => d._id !== docId));
+      if (selectedDoc && selectedDoc._id === docId) {
+        const remaining = documents.filter((d) => d._id !== docId);
         if (remaining.length > 0) {
           setSelectedDoc(remaining[0]);
           setTitle(remaining[0].title);
           contentRef.current = remaining[0].content;
         } else {
           setSelectedDoc(null);
+          setTitle("");
         }
       }
-      fetchFolders();
     } catch (err) {
+      console.error("Failed to delete document:", err);
       alert(err.response?.data?.message || "Failed to delete document");
     }
   };
 
-  // Folder Operations
+  // Create new folder
   const handleCreateFolder = async (e) => {
     e.preventDefault();
     if (!newFolderName.trim()) return;
-
     try {
-      const parent =
-        selectedFolderId !== "all" && selectedFolderId !== "root" ? selectedFolderId : null;
-
-      await axiosClient.post("/documents/folders", {
+      const res = await axiosClient.post("/documents/folders", {
         name: newFolderName.trim(),
-        color: newFolderColor,
-        parentId: parent,
         projectId,
+        color: newFolderColor,
       });
-
+      setFolders((prev) => [...prev, res.data]);
       setNewFolderName("");
       setCreateFolderModalOpen(false);
-      fetchFolders();
+      setSelectedFolderId(res.data._id);
     } catch (err) {
+      console.error("Failed to create folder:", err);
       alert(err.response?.data?.message || "Failed to create folder");
     }
   };
 
-  const handleDeleteFolder = async (e, folderId) => {
-    e.stopPropagation();
-    if (
-      !confirm(
-        "Delete this folder? Child folders and documents will be moved safely to the root level."
-      )
-    )
-      return;
-
-    try {
-      await axiosClient.delete(`/documents/folders/${folderId}`);
-      fetchFolders();
-      fetchDocuments();
-    } catch (err) {
-      alert(err.response?.data?.message || "Failed to delete folder");
-    }
-  };
-
+  // Move document into a folder
   const handleMoveDocument = async () => {
     if (!selectedDoc) return;
     try {
-      const targetFolder = targetMoveFolderId === "root" ? null : targetMoveFolderId;
+      const folderVal = targetMoveFolderId === "root" ? null : targetMoveFolderId;
       const res = await axiosClient.put(`/documents/${selectedDoc._id}`, {
-        folderId: targetFolder,
+        folderId: folderVal,
       });
       setSelectedDoc(res.data);
+      setDocuments((prev) => prev.map((d) => (d._id === res.data._id ? res.data : d)));
       setMoveDocModalOpen(false);
-      fetchDocuments();
       fetchFolders();
     } catch (err) {
+      console.error("Failed to move document:", err);
       alert(err.response?.data?.message || "Failed to move document");
     }
   };
 
-  // Current active folder object
-  const activeFolder = useMemo(() => {
-    if (selectedFolderId === "all" || selectedFolderId === "root") return null;
-    return folders.find((f) => f._id === selectedFolderId);
-  }, [folders, selectedFolderId]);
+  // Delete folder
+  const handleDeleteFolder = async (folderId) => {
+    if (!window.confirm("Delete this folder? Contained documents will safely move to Root.")) return;
+    try {
+      await axiosClient.delete(`/documents/folders/${folderId}`);
+      setFolders((prev) => prev.filter((f) => f._id !== folderId));
+      if (selectedFolderId === folderId) {
+        setSelectedFolderId("all");
+      }
+      fetchDocuments();
+    } catch (err) {
+      console.error("Failed to delete folder:", err);
+      alert(err.response?.data?.message || "Failed to delete folder");
+    }
+  };
 
-  // Client-side search filtering across title and description excerpt
-  const filteredDocs = useMemo(() => {
+  // Filtered documents list
+  const filteredDocuments = useMemo(() => {
     return documents.filter((d) => {
-      if (!searchQuery.trim()) return true;
-      const q = searchQuery.toLowerCase();
-      return (
-        d.title?.toLowerCase().includes(q) ||
-        d.description?.toLowerCase().includes(q) ||
-        d.folderId?.name?.toLowerCase().includes(q)
-      );
+      // Folder filtering
+      if (selectedFolderId === "root" && d.folderId) return false;
+      if (selectedFolderId !== "all" && selectedFolderId !== "root") {
+        const docFid = d.folderId?._id || d.folderId;
+        if (docFid !== selectedFolderId) return false;
+      }
+      // Search filter
+      if (searchQuery.trim()) {
+        const query = searchQuery.toLowerCase();
+        const matchTitle = d.title.toLowerCase().includes(query);
+        const matchDesc = (d.description || "").toLowerCase().includes(query);
+        return matchTitle || matchDesc;
+      }
+      return true;
     });
-  }, [documents, searchQuery]);
+  }, [documents, selectedFolderId, searchQuery]);
+
+  // Document count per folder
+  const folderCounts = useMemo(() => {
+    const counts = { all: documents.length, root: 0 };
+    documents.forEach((d) => {
+      if (!d.folderId) {
+        counts.root = (counts.root || 0) + 1;
+      } else {
+        const fId = d.folderId?._id || d.folderId;
+        counts[fId] = (counts[fId] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [documents]);
 
   return (
-    <div className="min-h-screen app-bg flex flex-col">
-      {/* Top Navigation Bar */}
-      <header className="h-14 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 px-4 flex items-center justify-between shrink-0">
+    <div className="flex flex-col h-[calc(100vh-4rem)] bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+      {/* Top Header Bar */}
+      <div className="h-14 px-6 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md flex items-center justify-between z-10 shrink-0">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate(`/kanban/${projectId}`)}
-            className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white transition"
-            title="Back to Kanban"
+            onClick={() => navigate(`/projects/${projectId}/board`)}
+            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            title="Back to Board"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-
           <div className="flex items-center gap-2">
-            <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 rounded-lg">
-              <FileText className="w-4 h-4" />
-            </div>
-            <span className="font-bold text-sm text-slate-900 dark:text-white">
-              Project Documents & Folders
-            </span>
+            <BookOpen className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+            <h1 className="text-base font-bold tracking-tight text-slate-900 dark:text-white">
+              Project Documents
+            </h1>
           </div>
-
-          {/* Breadcrumb path for selected document */}
-          {selectedDoc && (
-            <div className="hidden md:flex items-center gap-1.5 text-xs text-slate-400 pl-3 border-l border-slate-200 dark:border-slate-800">
-              <span className="flex items-center gap-1">
-                <Home className="w-3.5 h-3.5" /> Docs
-              </span>
-              <ChevronRight className="w-3 h-3 text-slate-400" />
-              {selectedDoc.folderId ? (
-                <span className="font-medium text-slate-600 dark:text-slate-300">
-                  {selectedDoc.folderId.name}
-                </span>
-              ) : (
-                <span>Root</span>
-              )}
-              <ChevronRight className="w-3 h-3 text-slate-400" />
-              <span className="font-semibold text-slate-900 dark:text-white truncate max-w-[140px]">
-                {selectedDoc.title}
-              </span>
-            </div>
-          )}
-
-          {selectedDoc && (
-            <div className="flex items-center gap-2 pl-3 border-l border-slate-200 dark:border-slate-800 text-xs text-slate-500">
-              {saveStatus === "saving" && (
-                <span className="flex items-center gap-1 text-indigo-500 animate-pulse">
-                  <Clock className="w-3.5 h-3.5" /> Saving...
-                </span>
-              )}
-              {saveStatus === "saved" && (
-                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> All changes saved
-                </span>
-              )}
-              {saveStatus === "unsaved" && (
-                <span className="flex items-center gap-1 text-amber-500">
-                  <Clock className="w-3.5 h-3.5" /> Unsaved changes
-                </span>
-              )}
-              {saveStatus === "error" && (
-                <span className="flex items-center gap-1 text-red-500">
-                  <AlertCircle className="w-3.5 h-3.5" /> Error saving
-                </span>
-              )}
-            </div>
-          )}
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Action Controls & Collaborators */}
+        <div className="flex items-center gap-3">
+          {/* Active Collaborators Presence Bar */}
           {selectedDoc && (
-            <button
-              onClick={() => {
-                setTargetMoveFolderId(selectedDoc.folderId?._id || "root");
-                setMoveDocModalOpen(true);
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 transition shadow-xs"
-              title="Move document into a folder"
-            >
-              <MoveRight className="w-3.5 h-3.5" />
-              <span>Move</span>
-            </button>
+            <div className="flex items-center gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-800/80 rounded-full border border-slate-200 dark:border-slate-700/60 text-xs">
+              <Users className="w-3.5 h-3.5 text-indigo-500" />
+              <div className="flex items-center -space-x-1.5 overflow-hidden">
+                {collaborators.map((c, i) => (
+                  <div
+                    key={c.socketId || i}
+                    className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white border border-white dark:border-slate-900 shadow-xs"
+                    style={{ backgroundColor: c.color || "#6366f1" }}
+                    title={`${c.name} (${c.email || "Active"})`}
+                  >
+                    {c.name ? c.name.charAt(0).toUpperCase() : "U"}
+                  </div>
+                ))}
+              </div>
+              <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 ml-1">
+                {collaborators.length > 0 ? `${collaborators.length} active` : "1 editor"}
+              </span>
+            </div>
           )}
 
-          <button
-            onClick={() => setCreateFolderModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 transition shadow-xs"
-          >
-            <FolderPlus className="w-3.5 h-3.5 text-indigo-500" />
-            <span>New Folder</span>
-          </button>
+          {/* Autosave Status Pill */}
+          {selectedDoc && (
+            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
+              {saveStatus === "saving" && (
+                <>
+                  <Clock className="w-3.5 h-3.5 text-amber-500 animate-spin" />
+                  <span>Saving...</span>
+                </>
+              )}
+              {saveStatus === "saved" && (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">Saved</span>
+                </>
+              )}
+              {saveStatus === "unsaved" && (
+                <>
+                  <div className="w-2 h-2 rounded-full bg-amber-500" />
+                  <span>Unsaved changes</span>
+                </>
+              )}
+              {saveStatus === "error" && (
+                <>
+                  <AlertCircle className="w-3.5 h-3.5 text-red-500" />
+                  <span className="text-red-500 font-medium">Error saving</span>
+                </>
+              )}
+            </div>
+          )}
 
           <button
             onClick={handleCreateDocument}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-xs transition"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>New Doc</span>
           </button>
           <ThemeToggle />
         </div>
-      </header>
+      </div>
 
-      {/* Main Two-Column Workspace Layout */}
+      {/* Main Split Layout */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar: Folder Tree & Document List */}
-        <aside className="w-80 bg-white/70 dark:bg-slate-900/60 border-r border-slate-200 dark:border-slate-800 flex flex-col shrink-0">
-          {/* Search & Sort Filters */}
-          <div className="p-3 border-b border-slate-100 dark:border-slate-800 space-y-2">
+        {/* Left Sidebar: Folder & Document Navigation */}
+        <div className="w-80 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col shrink-0">
+          {/* Search & Sort Controls */}
+          <div className="p-3 border-b border-slate-200 dark:border-slate-800 space-y-2">
             <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
               <input
                 type="text"
-                placeholder="Search documents and folders..."
+                placeholder="Search documents..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               />
             </div>
 
             <div className="flex items-center justify-between text-[11px] text-slate-500">
               <div className="flex items-center gap-1">
-                <ArrowUpDown className="w-3 h-3" />
+                <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                <span>Sort:</span>
                 <select
                   value={sortBy}
                   onChange={(e) => setSortBy(e.target.value)}
-                  className="bg-transparent text-slate-700 dark:text-slate-300 text-[11px] focus:outline-hidden"
+                  className="bg-transparent font-medium text-slate-700 dark:text-slate-300 focus:outline-hidden cursor-pointer"
                 >
-                  <option value="updatedAt">Last Updated</option>
-                  <option value="createdAt">Date Created</option>
+                  <option value="updatedAt">Updated</option>
                   <option value="title">Title</option>
+                  <option value="createdAt">Created</option>
                 </select>
               </div>
 
               <button
-                onClick={() => setSortOrder(sortOrder === "asc" ? "desc" : "asc")}
-                className="font-semibold uppercase text-indigo-600 hover:underline"
+                onClick={() => setCreateFolderModalOpen(true)}
+                className="flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
               >
-                {sortOrder}
+                <FolderPlus className="w-3 h-3" />
+                <span>New Folder</span>
               </button>
             </div>
           </div>
 
-          {/* Folder Hierarchy Selector Pill Bar */}
-          <div className="p-2 border-b border-slate-100 dark:border-slate-800 space-y-1 overflow-x-auto">
-            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider px-1">
-              Folders
-            </div>
+          {/* Folder Pills Horizontal Bar */}
+          <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center gap-1 overflow-x-auto scrollbar-none text-xs">
+            <button
+              onClick={() => setSelectedFolderId("all")}
+              className={`px-2.5 py-1 rounded-lg shrink-0 transition flex items-center gap-1.5 ${
+                selectedFolderId === "all"
+                  ? "bg-indigo-600 text-white font-semibold shadow-xs"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+              }`}
+            >
+              <span>All</span>
+              <span className="text-[10px] opacity-75">({folderCounts.all})</span>
+            </button>
 
-            <div className="flex flex-wrap gap-1">
-              <button
-                onClick={() => setSelectedFolderId("all")}
-                className={`px-2 py-1 rounded-lg text-xs font-medium transition flex items-center gap-1 ${
-                  selectedFolderId === "all"
-                    ? "bg-indigo-600 text-white font-semibold shadow-xs"
-                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                }`}
-              >
-                <FolderOpen className="w-3 h-3" />
-                <span>All ({documents.length})</span>
-              </button>
+            <button
+              onClick={() => setSelectedFolderId("root")}
+              className={`px-2.5 py-1 rounded-lg shrink-0 transition flex items-center gap-1.5 ${
+                selectedFolderId === "root"
+                  ? "bg-indigo-600 text-white font-semibold shadow-xs"
+                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+              }`}
+            >
+              <Home className="w-3 h-3" />
+              <span>Root</span>
+              <span className="text-[10px] opacity-75">({folderCounts.root || 0})</span>
+            </button>
 
-              <button
-                onClick={() => setSelectedFolderId("root")}
-                className={`px-2 py-1 rounded-lg text-xs font-medium transition flex items-center gap-1 ${
-                  selectedFolderId === "root"
-                    ? "bg-indigo-600 text-white font-semibold shadow-xs"
-                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                }`}
-              >
-                <FileText className="w-3 h-3" />
-                <span>Root / Unfiled</span>
-              </button>
-
-              {folders.map((folder) => {
-                const isSelected = selectedFolderId === folder._id;
-                return (
-                  <div
-                    key={folder._id}
-                    className={`group inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition cursor-pointer ${
-                      isSelected
-                        ? "bg-indigo-600 text-white font-semibold shadow-xs"
-                        : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-                    }`}
-                  >
-                    <span
-                      onClick={() => setSelectedFolderId(folder._id)}
-                      className="flex items-center gap-1 truncate max-w-[130px]"
-                      title={folder.name}
-                    >
-                      <Folder
-                        className="w-3 h-3 shrink-0"
-                        style={{ color: isSelected ? "white" : folder.color || "#6366f1" }}
-                      />
-                      <span className="truncate">{folder.name}</span>
-                      <span className="text-[10px] opacity-70">({folder.documentCount || 0})</span>
-                    </span>
-
-                    <button
-                      onClick={(e) => handleDeleteFolder(e, folder._id)}
-                      className={`opacity-0 group-hover:opacity-100 p-0.5 rounded hover:text-red-400 transition ${
-                        isSelected ? "text-indigo-200" : "text-slate-400"
-                      }`}
-                      title="Delete folder"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Document Items List */}
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            {loading && documents.length === 0 && (
-              <div className="p-4 text-center text-xs text-slate-400">Loading documents...</div>
-            )}
-
-            {!loading && filteredDocs.length === 0 && (
-              <div className="p-6 text-center text-xs text-slate-400">
-                No documents found in this view.
-              </div>
-            )}
-
-            {filteredDocs.map((doc) => {
-              const isSelected = selectedDoc?._id === doc._id;
+            {folders.map((folder) => {
+              const count = folderCounts[folder._id] || 0;
+              const isSelected = selectedFolderId === folder._id;
               return (
                 <div
-                  key={doc._id}
-                  onClick={() => {
-                    setSelectedDoc(doc);
-                    setTitle(doc.title);
-                    contentRef.current = doc.content;
-                    setSaveStatus("saved");
-                  }}
-                  className={`group flex items-start justify-between p-2.5 rounded-xl cursor-pointer transition text-xs ${
+                  key={folder._id}
+                  className={`group px-2.5 py-1 rounded-lg shrink-0 transition flex items-center gap-1.5 ${
                     isSelected
-                      ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-semibold border border-indigo-200/60 dark:border-indigo-800/60"
-                      : "hover:bg-slate-100 dark:hover:bg-slate-800/60 text-slate-700 dark:text-slate-300 border border-transparent"
+                      ? "bg-indigo-600 text-white font-semibold shadow-xs"
+                      : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
                   }`}
                 >
-                  <div className="flex items-start gap-2 min-w-0">
-                    <FileText
-                      className={`w-4 h-4 shrink-0 mt-0.5 ${
-                        isSelected ? "text-indigo-600" : "text-slate-400"
-                      }`}
-                    />
-                    <div className="truncate">
-                      <div className="truncate font-semibold flex items-center gap-1.5">
-                        <span className="truncate">{doc.title}</span>
-                        {doc.folderId && (
-                          <span
-                            className="px-1.5 py-0.2 rounded text-[9px] font-medium text-white shrink-0"
-                            style={{ backgroundColor: doc.folderId.color || "#6366f1" }}
-                          >
-                            {doc.folderId.name}
-                          </span>
-                        )}
-                      </div>
-                      {doc.description && (
-                        <div className="text-[10px] text-slate-400 truncate mt-0.5">
-                          {doc.description}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
                   <button
-                    onClick={(e) => handleDeleteDocument(e, doc._id)}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-red-500 transition rounded"
-                    title="Delete document"
+                    onClick={() => setSelectedFolderId(folder._id)}
+                    className="flex items-center gap-1.5"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Folder
+                      className="w-3 h-3"
+                      style={{ color: isSelected ? "white" : folder.color || "#6366f1" }}
+                    />
+                    <span className="truncate max-w-[90px]">{folder.name}</span>
+                    <span className="text-[10px] opacity-75">({count})</span>
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteFolder(folder._id);
+                    }}
+                    className="opacity-0 group-hover:opacity-100 hover:text-red-400 transition"
+                    title="Delete Folder"
+                  >
+                    <X className="w-2.5 h-2.5" />
                   </button>
                 </div>
               );
             })}
           </div>
-        </aside>
 
-        {/* Right Canvas: Document Title & TipTap Editor */}
-        <main className="flex-1 overflow-y-auto p-6 md:p-8 flex justify-center">
+          {/* Document List */}
+          <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            {loading ? (
+              <div className="p-8 text-center text-xs text-slate-400">Loading documents...</div>
+            ) : filteredDocuments.length === 0 ? (
+              <div className="p-8 text-center text-xs text-slate-400 space-y-2">
+                <FileText className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-700" />
+                <p>No documents found in this view.</p>
+                <button
+                  onClick={handleCreateDocument}
+                  className="px-3 py-1 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold rounded-lg hover:underline"
+                >
+                  Create one now
+                </button>
+              </div>
+            ) : (
+              filteredDocuments.map((doc) => {
+                const isSelected = selectedDoc?._id === doc._id;
+                return (
+                  <div
+                    key={doc._id}
+                    onClick={() => {
+                      setSelectedDoc(doc);
+                      setTitle(doc.title);
+                      contentRef.current = doc.content;
+                      navigate(`/projects/${projectId}/documents/${doc._id}`);
+                    }}
+                    className={`group w-full text-left p-3 rounded-xl transition flex flex-col gap-1 cursor-pointer ${
+                      isSelected
+                        ? "bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/80 shadow-xs"
+                        : "hover:bg-slate-50 dark:hover:bg-slate-800/60 border border-transparent"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 truncate">
+                        <FileText
+                          className={`w-3.5 h-3.5 shrink-0 ${
+                            isSelected
+                              ? "text-indigo-600 dark:text-indigo-400 font-bold"
+                              : "text-slate-400"
+                          }`}
+                        />
+                        <span
+                          className={`text-xs truncate ${
+                            isSelected
+                              ? "font-bold text-indigo-900 dark:text-indigo-200"
+                              : "font-medium text-slate-800 dark:text-slate-200"
+                          }`}
+                        >
+                          {doc.title || "Untitled Document"}
+                        </span>
+                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteDocument(doc._id);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 text-slate-400 transition"
+                        title="Delete Document"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+
+                    {doc.description && (
+                      <p className="text-[11px] text-slate-400 dark:text-slate-500 line-clamp-1 pl-5.5">
+                        {doc.description}
+                      </p>
+                    )}
+
+                    <div className="flex items-center gap-2 text-[10px] text-slate-400 pl-5.5 pt-0.5">
+                      <span>{new Date(doc.updatedAt).toLocaleDateString()}</span>
+                      {doc.folderId && (
+                        <span className="flex items-center gap-1 text-slate-500">
+                          <span>•</span>
+                          <Folder className="w-2.5 h-2.5" />
+                          <span>{doc.folderId.name || "Folder"}</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Right Editor Area */}
+        <div className="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto w-full">
           {selectedDoc ? (
-            <div className="max-w-4xl w-full space-y-4">
-              {/* Document Title Input */}
+            <div className="space-y-6">
+              {/* Document Breadcrumb & Folder Actions */}
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <div className="flex items-center gap-1.5">
+                  <span
+                    onClick={() => setSelectedFolderId("all")}
+                    className="hover:text-indigo-600 cursor-pointer"
+                  >
+                    Documents
+                  </span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                  {selectedDoc.folderId ? (
+                    <span
+                      onClick={() => setSelectedFolderId(selectedDoc.folderId._id)}
+                      className="font-medium text-slate-600 dark:text-slate-300 hover:text-indigo-600 cursor-pointer flex items-center gap-1"
+                    >
+                      <Folder className="w-3 h-3 text-indigo-500" />
+                      {selectedDoc.folderId.name}
+                    </span>
+                  ) : (
+                    <span className="text-slate-500">Root / Unfiled</span>
+                  )}
+                  <ChevronRight className="w-3.5 h-3.5" />
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    {title || "Untitled Document"}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setTargetMoveFolderId(selectedDoc.folderId?._id || "root");
+                      setMoveDocModalOpen(true);
+                    }}
+                    className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition"
+                    title="Move to another folder"
+                  >
+                    <MoveRight className="w-3.5 h-3.5 text-slate-400" />
+                    <span>Move</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Document Title Header */}
               <input
                 type="text"
                 value={title}
-                onChange={(e) => handleTitleChange(e.target.value)}
-                placeholder="Document Title"
-                className="w-full text-2xl font-bold bg-transparent text-slate-900 dark:text-white border-b border-transparent hover:border-slate-200 dark:hover:border-slate-800 focus:border-indigo-500 focus:outline-hidden pb-1 transition"
+                onChange={handleTitleChange}
+                placeholder="Untitled Document"
+                className="w-full text-3xl font-extrabold tracking-tight bg-transparent text-slate-900 dark:text-white border-b border-transparent hover:border-slate-300 dark:hover:border-slate-700 focus:border-indigo-500 focus:outline-hidden pb-2 transition"
               />
 
-              <div className="text-[11px] text-slate-400 flex items-center gap-3">
-                <span>Created by: {selectedDoc.createdBy?.name || "Author"}</span>
-                <span>•</span>
-                <span>
-                  Folder:{" "}
-                  <strong>{selectedDoc.folderId ? selectedDoc.folderId.name : "Root / Unfiled"}</strong>
-                </span>
-                <span>•</span>
-                <span>Last updated: {new Date(selectedDoc.updatedAt).toLocaleTimeString()}</span>
-              </div>
-
-              {/* TipTap Rich Text Editor Container */}
+              {/* Collaborative Rich Text Editor */}
               <TipTapEditor
                 key={selectedDoc._id}
-                content={selectedDoc.contentHtml || selectedDoc.content}
+                content={selectedDoc.content}
                 onChange={handleEditorChange}
+                ydoc={collabYDoc}
+                provider={collabProvider}
+                user={{
+                  id: authUser?._id,
+                  name: authUser?.name || "Anonymous",
+                  email: authUser?.email,
+                  avatar: authUser?.avatar,
+                }}
               />
             </div>
           ) : (
-            <div className="flex flex-col items-center justify-center text-center p-12 text-slate-400 space-y-3">
-              <FileText className="w-12 h-12 text-slate-300 dark:text-slate-700" />
-              <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400">
-                No Document Selected
-              </h3>
-              <p className="text-xs max-w-sm">
-                Select an existing document from the sidebar or create a new rich-text document.
-              </p>
+            <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-4">
+              <BookOpen className="w-16 h-16 text-slate-300 dark:text-slate-700" />
+              <div className="space-y-1">
+                <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
+                  Select a document to edit
+                </h3>
+                <p className="text-xs text-slate-400 max-w-sm">
+                  Collaborate in real time with teammates, format rich content with TipTap, and organize your files.
+                </p>
+              </div>
               <button
                 onClick={handleCreateDocument}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold shadow-xs hover:bg-indigo-700 transition"
+                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition"
               >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Create Document</span>
+                <Plus className="w-4 h-4" />
+                <span>Create New Document</span>
               </button>
             </div>
           )}
-        </main>
+        </div>
       </div>
 
       {/* Modal: Create Folder */}
@@ -686,7 +772,7 @@ export default function Documents() {
             <div className="flex items-center justify-between">
               <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
                 <FolderPlus className="w-4 h-4 text-indigo-500" />
-                Create Document Folder
+                Create New Folder
               </h3>
               <button
                 onClick={() => setCreateFolderModalOpen(false)}
@@ -696,24 +782,25 @@ export default function Documents() {
               </button>
             </div>
 
-            <form onSubmit={handleCreateFolder} className="space-y-3">
+            <form onSubmit={handleCreateFolder} className="space-y-4 text-xs">
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Folder Name *
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Folder Name
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Sprint Specifications, Architecture"
+                  placeholder="e.g. Design Specs, Sprint 1 Docs..."
                   value={newFolderName}
                   onChange={(e) => setNewFolderName(e.target.value)}
-                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs focus:ring-2 focus:ring-indigo-500"
+                  autoFocus
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Folder Accent Color
+                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                  Folder Color Accent
                 </label>
                 <div className="flex items-center gap-2">
                   {["#6366f1", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"].map((hex) => (

@@ -11,6 +11,7 @@ import { checkTeamAccess, checkProjectAccess } from "./utils/authHelpers.js";
 import { initCommentSockets } from "./sockets/comments.js";
 import { initReactionSockets } from "./sockets/reactions.js";
 import { initNotificationSockets } from "./sockets/notifications.js";
+import { initDocumentSockets } from "./sockets/documents.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 import authRoutes from "./routes/authRoutes.js";
@@ -80,6 +81,7 @@ io.on("connection", (socket) => {
   initNotificationSockets(io, socket);
   initCommentSockets(io, socket);
   initReactionSockets(io, socket);
+  initDocumentSockets(io, socket);
 
   // Leave user room
   socket.on("leaveUser", ({ userId }) => {

@@ -708,3 +708,70 @@ test("FRONTEND DOC-02: Document Folder Navigation & Hierarchy Helpers", async (t
     assert.equal(filterDocs(documents, "f2").length, 1);
   });
 });
+
+test("FRONTEND DOC-03: Real-Time Collaborative Editing & Presence Helpers", async (t) => {
+  await t.test("Validates collaborator color hash assignment from user id", () => {
+    const COLLAB_COLORS = [
+      "#6366f1", "#ec4899", "#10b981", "#f59e0b", "#3b82f6",
+      "#8b5cf6", "#06b6d4", "#f97316", "#14b8a6", "#e11d48",
+    ];
+
+    const getCollaboratorColor = (userIdStr) => {
+      if (!userIdStr) return COLLAB_COLORS[0];
+      let hash = 0;
+      for (let i = 0; i < userIdStr.length; i++) {
+        hash = (hash << 5) - hash + userIdStr.charCodeAt(i);
+        hash |= 0;
+      }
+      return COLLAB_COLORS[Math.abs(hash) % COLLAB_COLORS.length];
+    };
+
+    const colorA = getCollaboratorColor("user_123");
+    const colorA2 = getCollaboratorColor("user_123");
+    const colorB = getCollaboratorColor("user_456");
+
+    assert.equal(colorA, colorA2);
+    assert.ok(COLLAB_COLORS.includes(colorA));
+    assert.ok(COLLAB_COLORS.includes(colorB));
+  });
+
+  await t.test("Validates deduplicated collaborator list aggregation", () => {
+    const initialCollaborators = [
+      { socketId: "s1", name: "Alice", color: "#6366f1" },
+      { socketId: "s2", name: "Bob", color: "#ec4899" },
+    ];
+
+    const addCollaborator = (list, newCollab) => {
+      if (list.some((c) => c.socketId === newCollab.socketId)) return list;
+      return [...list, newCollab];
+    };
+
+    const updatedWithDuplicate = addCollaborator(initialCollaborators, {
+      socketId: "s1",
+      name: "Alice Updated",
+      color: "#6366f1",
+    });
+    assert.equal(updatedWithDuplicate.length, 2);
+
+    const updatedWithNew = addCollaborator(initialCollaborators, {
+      socketId: "s3",
+      name: "Charlie",
+      color: "#10b981",
+    });
+    assert.equal(updatedWithNew.length, 3);
+  });
+
+  await t.test("Validates collaborator departure cleanup from active list", () => {
+    const list = [
+      { socketId: "s1", name: "Alice" },
+      { socketId: "s2", name: "Bob" },
+      { socketId: "s3", name: "Charlie" },
+    ];
+
+    const removeCollaborator = (list, socketId) => list.filter((c) => c.socketId !== socketId);
+
+    const remaining = removeCollaborator(list, "s2");
+    assert.equal(remaining.length, 2);
+    assert.equal(remaining.some((c) => c.socketId === "s2"), false);
+  });
+});
