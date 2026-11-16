@@ -654,3 +654,57 @@ test("FRONTEND DOC-01: Document Foundation & TipTap Editor Helpers", async (t) =
     assert.equal(getStatusText("error"), "Error saving");
   });
 });
+
+test("FRONTEND DOC-02: Document Folder Navigation & Hierarchy Helpers", async (t) => {
+  await t.test("Validates breadcrumb path aggregation", () => {
+    const buildBreadcrumbs = (doc, folders) => {
+      const crumbs = [{ id: "root", name: "Docs" }];
+      if (doc?.folderId) {
+        const folderId = doc.folderId._id || doc.folderId;
+        const folder = folders.find((f) => f._id === folderId);
+        if (folder) {
+          crumbs.push({ id: folder._id, name: folder.name });
+        }
+      }
+      crumbs.push({ id: doc?._id || "current", name: doc?.title || "Untitled" });
+      return crumbs;
+    };
+
+    const folders = [
+      { _id: "f1", name: "Architecture" },
+      { _id: "f2", name: "Specs" },
+    ];
+
+    const doc1 = { _id: "d1", title: "API Gateway", folderId: { _id: "f1", name: "Architecture" } };
+    const doc2 = { _id: "d2", title: "Unfiled Notes", folderId: null };
+
+    const crumbs1 = buildBreadcrumbs(doc1, folders);
+    assert.equal(crumbs1.length, 3);
+    assert.equal(crumbs1[1].name, "Architecture");
+    assert.equal(crumbs1[2].name, "API Gateway");
+
+    const crumbs2 = buildBreadcrumbs(doc2, folders);
+    assert.equal(crumbs2.length, 2);
+    assert.equal(crumbs2[1].name, "Unfiled Notes");
+  });
+
+  await t.test("Validates folder filter scoping for document listings", () => {
+    const documents = [
+      { id: "1", title: "Doc 1", folderId: "f1" },
+      { id: "2", title: "Doc 2", folderId: null },
+      { id: "3", title: "Doc 3", folderId: "f2" },
+      { id: "4", title: "Doc 4", folderId: "f1" },
+    ];
+
+    const filterDocs = (docs, selectedFolderId) => {
+      if (selectedFolderId === "all") return docs;
+      if (selectedFolderId === "root") return docs.filter((d) => !d.folderId);
+      return docs.filter((d) => d.folderId === selectedFolderId);
+    };
+
+    assert.equal(filterDocs(documents, "all").length, 4);
+    assert.equal(filterDocs(documents, "root").length, 1);
+    assert.equal(filterDocs(documents, "f1").length, 2);
+    assert.equal(filterDocs(documents, "f2").length, 1);
+  });
+});

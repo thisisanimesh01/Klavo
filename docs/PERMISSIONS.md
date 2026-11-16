@@ -511,3 +511,36 @@ Project workflows configure dynamic task stages, status ordering, and categoriza
 | **Document** | Get Document | `GET /api/documents/:documentId` | Member or Owner of project team |
 | **Document** | Update Document | `PUT /api/documents/:documentId` | Member or Owner of project team |
 | **Document** | Delete Document | `DELETE /api/documents/:documentId` | Document Creator or Team Owner |
+
+---
+
+## 20. Document Organization & Project Folders (DOC-02)
+
+### DocumentFolder Schema & Hierarchy:
+- `name`: String identifier for folder.
+- `description`: Optional contextual summary.
+- `color`: Hex color accent for visual differentiation.
+- `icon`: Folder icon identifier (default: `"folder"`).
+- `parentId`: Self-referencing folder ObjectId (`null` = root folder in project).
+- `projectId` / `teamId`: Strictly bounded project and team references.
+- `createdBy`: User ID of creator.
+- `order`: Integer sequence ordering.
+- `isArchived`: Boolean flag for non-destructive lifecycle management.
+
+### Hierarchy & Circular Reference Prevention (`folderHelpers.js`):
+- `checkCircularFolderNesting`: Traverses ancestry tree upward from target parent to root. Rejects moving a folder under itself or any of its descendants.
+- `getDescendantFolderIds`: Aggregates all child folders recursively.
+- `getFolderBreadcrumbs`: Resolves full ordered path array from root to current folder for navigation.
+
+### Safe Reparenting on Folder Deletion:
+- When a folder is deleted, child folders and contained documents are safely reparented to the deleted folder's `parentId` (or `null` / root) to prevent accidental orphaning.
+
+### Authorization Matrix for Document Folders:
+| Resource | Action | Endpoint | Required Role / Permission |
+| :--- | :--- | :--- | :--- |
+| **Document Folder** | Create Folder | `POST /api/documents/folders` | Member or Owner of project team |
+| **Document Folder** | List Folders | `GET /api/documents/folders/project/:projectId` | Member or Owner of project team |
+| **Document Folder** | Get Folder | `GET /api/documents/folders/:folderId` | Member or Owner of project team |
+| **Document Folder** | Update / Move | `PUT /api/documents/folders/:folderId` | Member or Owner of project team |
+| **Document Folder** | Delete Folder | `DELETE /api/documents/folders/:folderId` | Folder Creator or Team Owner |
+| **Document Move** | Move Document | `PUT /api/documents/:documentId` (`folderId`) | Member or Owner of project team |

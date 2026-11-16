@@ -32,6 +32,12 @@ const documentSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    // Folder association (null = Root / Unfiled)
+    folderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "DocumentFolder",
+      default: null,
+    },
     projectId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Project",
@@ -62,6 +68,7 @@ const documentSchema = new mongoose.Schema(
 
 // Performance & tenancy indexes
 documentSchema.index({ projectId: 1, isArchived: 1, updatedAt: -1 });
+documentSchema.index({ projectId: 1, folderId: 1, isArchived: 1 });
 documentSchema.index({ teamId: 1 });
 documentSchema.index({ createdBy: 1 });
 documentSchema.index({ projectId: 1, title: 1 });
