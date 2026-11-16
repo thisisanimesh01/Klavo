@@ -9,6 +9,7 @@ import { checkProjectAccess, checkTaskAccess } from "../utils/authHelpers.js";
 import { createTargetedNotification } from "../utils/notificationHelpers.js";
 import { detectCircularDependency, checkTaskBlockers } from "../utils/dependencyHelpers.js";
 import { buildTaskFilterQuery, buildTaskSortConfig } from "../utils/filterHelpers.js";
+import { runAutomationsForEvent } from "../utils/automationEngine.js";
 
 export const createTask = async (req, res) => {
   try {
@@ -159,6 +160,13 @@ export const createTask = async (req, res) => {
           });
         }
       }
+
+      // Trigger workflow automation rules for task creation
+      await runAutomationsForEvent(io, {
+        event: "task_created",
+        task,
+        userId: req.user._id,
+      });
     }
 
     res.status(201).json(task);
@@ -393,6 +401,40 @@ export const updateTask = async (req, res) => {
 
       io.to(`project_${task.projectId}`).emit("taskUpdated", updatedTask);
 
+      // Trigger workflow automations for mutations
+      if (req.body.status && req.body.status !== task.status) {
+        await runAutomationsForEvent(io, {
+          event: "status_changed",
+          task: updatedTask,
+          previousTask: task,
+          userId: req.user._id,
+        });
+      }
+      if (req.body.priority && req.body.priority !== task.priority) {
+        await runAutomationsForEvent(io, {
+          event: "priority_changed",
+          task: updatedTask,
+          previousTask: task,
+          userId: req.user._id,
+        });
+      }
+      if (req.body.assignedTo) {
+        await runAutomationsForEvent(io, {
+          event: "assignee_changed",
+          task: updatedTask,
+          previousTask: task,
+          userId: req.user._id,
+        });
+      }
+      if (req.body.dueDate) {
+        await runAutomationsForEvent(io, {
+          event: "due_date_changed",
+          task: updatedTask,
+          previousTask: task,
+          userId: req.user._id,
+        });
+      }
+
       // Targeted notification: detect newly assigned members
       if (Array.isArray(req.body.assignedTo)) {
         const oldAssigneeSet = new Set((task.assignedTo || []).map((id) => id.toString()));
@@ -596,6 +638,7 @@ export const moveTask = async (req, res) => {
       }
     }
 
+    const previousStatus = task.status;
     task.status = status;
     task.order = order;
     await task.save();
@@ -618,6 +661,15 @@ export const moveTask = async (req, res) => {
       });
 
       io.to(`project_${task.projectId}`).emit("taskMoved", task);
+
+      if (previousStatus !== status) {
+        await runAutomationsForEvent(io, {
+          event: "status_changed",
+          task,
+          previousTask: { ...task.toObject(), status: previousStatus },
+          userId: req.user._id,
+        });
+      }
     }
 
     res.json(task);

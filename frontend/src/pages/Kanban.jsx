@@ -8,6 +8,7 @@ import TaskTemplateModal from "../components/TaskTemplateModal";
 import SprintModal from "../components/SprintModal";
 import MilestoneModal from "../components/MilestoneModal";
 import WorkflowModal from "../components/WorkflowModal";
+import AutomationModal from "../components/AutomationModal";
 import GanttTimelineView from "../components/GanttTimelineView";
 import BacklogView from "../components/BacklogView";
 import SavedViewsBar from "../components/SavedViewsBar";
@@ -62,6 +63,7 @@ export default function Kanban() {
   const [activeViewId, setActiveViewId] = useState(null);
   const [members, setMembers] = useState([]);
   const [workflowModalOpen, setWorkflowModalOpen] = useState(false);
+  const [automationModalOpen, setAutomationModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Modals
@@ -683,6 +685,14 @@ export default function Kanban() {
               Workflow
             </button>
             <button
+              onClick={() => setAutomationModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-xl text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-xs text-indigo-600 dark:text-indigo-400"
+              title="Configure Automation Rules and Recurring Tasks"
+            >
+              <Zap className="w-4 h-4 text-indigo-500" />
+              Automations
+            </button>
+            <button
               onClick={() => setTemplateModalOpen(true)}
               className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-xl text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-xs"
             >
@@ -1166,6 +1176,16 @@ export default function Kanban() {
         workflow={workflow}
         onSaved={(updatedWf) => {
           setWorkflow(updatedWf);
+          fetchTasks();
+        }}
+      />
+      <AutomationModal
+        open={automationModalOpen}
+        onClose={() => setAutomationModalOpen(false)}
+        projectId={projectId}
+        workflowStatuses={boardColumns.map((c) => ({ key: c.id, name: c.title }))}
+        members={members}
+        onChanged={() => {
           fetchTasks();
         }}
       />
