@@ -32,6 +32,11 @@ const documentSchema = new mongoose.Schema(
       default: "",
       trim: true,
     },
+    // Base64 encoded binary snapshot of Yjs CRDT document state for conflict-free real-time sync
+    yjsUpdate: {
+      type: String,
+      default: null,
+    },
     // Folder association (null = Root / Unfiled)
     folderId: {
       type: mongoose.Schema.Types.ObjectId,

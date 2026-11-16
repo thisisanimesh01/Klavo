@@ -544,3 +544,31 @@ Project workflows configure dynamic task stages, status ordering, and categoriza
 | **Document Folder** | Update / Move | `PUT /api/documents/folders/:folderId` | Member or Owner of project team |
 | **Document Folder** | Delete Folder | `DELETE /api/documents/folders/:folderId` | Folder Creator or Team Owner |
 | **Document Move** | Move Document | `PUT /api/documents/:documentId` (`folderId`) | Member or Owner of project team |
+
+---
+
+## 21. Real-Time Collaborative Document Editing & Cursors (DOC-03)
+
+### Real-Time Synchronization Architecture:
+- **Yjs CRDT Foundation**: Concurrent edits across multiple active collaborators merge deterministically without conflict or overwrite.
+- **WebSocket Transport**: Leverages existing authenticated Socket.IO connection via `CollabSocketProvider` to synchronize binary state updates (`docSyncInit`, `docSyncUpdate`).
+- **Binary Persistence**: Binary CRDT document state (`yjsUpdate`) is persisted in MongoDB, allowing collaborative documents to survive page reloads and server restarts.
+- **Debounced Flush**: In-memory document rooms debounce persistence flushes to avoid database thrashing during rapid keystrokes, with immediate flush on room tear-down.
+
+### Collaborator Presence & Cursor Awareness:
+- **Presence Indicators**: Live collaborator avatars/initials and active count rendered in top navigation bar.
+- **Collaborator Cursors**: Live remote cursors, selection highlights, and user name tags mapped through TipTap's `CollaborationCursor` extension and Yjs `Awareness`.
+- **Deterministic Color Assignment**: Collaborator colors are assigned deterministically from user ID hashing across a curated high-contrast palette.
+
+### Lifecycle & Anti-Stale Safeguards:
+- **Room Membership Cleanup**: When a user leaves or a socket disconnects, the collaborator is removed from memory, remaining participants receive `collabUserLeft`, and empty rooms flush state and clean up resources.
+- **Anti-IDOR Protection**: Sockets must be authorized project team members to join collaborative document rooms (`joinDocumentCollab`); unauthorized connection attempts are rejected with `collabError`.
+- **Identity Integrity**: Collaborator identity payload is extracted securely from `socket.user` rather than trusting client-provided spoofable strings.
+
+### Authorization Matrix for Document Collaboration:
+| Resource | Action | Socket Event / Endpoint | Required Role / Permission |
+| :--- | :--- | :--- | :--- |
+| **Document Collaboration Room** | Join Collab Room | `joinDocumentCollab` (`documentId`) | Member or Owner of project team |
+| **Document Collaboration Sync** | Send/Receive Updates | `docSyncUpdate` (`documentId`) | Active Member in collaborative room |
+| **Document Cursor Presence** | Transmit Cursor/Selection | `collabCursorMove` (`documentId`) | Active Member in collaborative room |
+| **Document Collaboration Room** | Leave Collab Room | `leaveDocumentCollab` (`documentId`) | Any joined user |
