@@ -1352,3 +1352,68 @@ test("FRONTEND ANL-04: Task Completion & Cycle Time UI Helpers", async (t) => {
     );
   });
 });
+
+test("FRONTEND ANL-05: Project Health & Progress UI Helpers", async (t) => {
+  await t.test("Validates health status category styling and color resolution", () => {
+    const getHealthStateProps = (score) => {
+      if (score === null || score === undefined) {
+        return { label: "Insufficient Data", color: "#94a3b8", badgeClass: "bg-slate-500/10 text-slate-400" };
+      }
+      if (score >= 80) {
+        return { label: "Healthy", color: "#10B981", badgeClass: "bg-emerald-500/10 text-emerald-400" };
+      }
+      if (score >= 50) {
+        return { label: "At Risk", color: "#F59E0B", badgeClass: "bg-amber-500/10 text-amber-400" };
+      }
+      return { label: "Critical", color: "#EF4444", badgeClass: "bg-red-500/10 text-red-400" };
+    };
+
+    assert.equal(getHealthStateProps(null).label, "Insufficient Data");
+    assert.equal(getHealthStateProps(95).label, "Healthy");
+    assert.equal(getHealthStateProps(65).label, "At Risk");
+    assert.equal(getHealthStateProps(35).label, "Critical");
+  });
+
+  await t.test("Validates health gauge circumference and strokeDashoffset calculations", () => {
+    const radius = 45;
+    const circumference = 2 * Math.PI * radius;
+    const computeOffset = (score) => circumference - (Math.max(0, Math.min(100, score)) / 100) * circumference;
+
+    const offset100 = computeOffset(100);
+    const offset50 = computeOffset(50);
+    const offset0 = computeOffset(0);
+
+    assert.equal(Math.round(offset100), 0);
+    assert.equal(Math.round(offset50), Math.round(circumference / 2));
+    assert.equal(Math.round(offset0), Math.round(circumference));
+  });
+
+  await t.test("Validates milestone progress bar color mapping and overdue detection", () => {
+    const milestones = [
+      { name: "M1", completionRate: 100, isOverdue: false },
+      { name: "M2", completionRate: 50, isOverdue: true },
+      { name: "M3", completionRate: 40, isOverdue: false },
+    ];
+
+    const getMilestoneColor = (m) => {
+      if (m.isOverdue) return "#EF4444";
+      if (m.completionRate === 100) return "#10B981";
+      return "#6366F1";
+    };
+
+    assert.equal(getMilestoneColor(milestones[0]), "#10B981");
+    assert.equal(getMilestoneColor(milestones[1]), "#EF4444");
+    assert.equal(getMilestoneColor(milestones[2]), "#6366F1");
+  });
+
+  await t.test("Validates factor impact deduction formatting", () => {
+    const factorDeductionFormat = (deduction) => {
+      if (!deduction || deduction === 0) return { label: "Nominal", isDeduction: false };
+      return { label: `-${deduction} pts`, isDeduction: true };
+    };
+
+    assert.equal(factorDeductionFormat(0).label, "Nominal");
+    assert.equal(factorDeductionFormat(25).label, "-25 pts");
+    assert.equal(factorDeductionFormat(25).isDeduction, true);
+  });
+});

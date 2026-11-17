@@ -650,3 +650,124 @@ export function StageBottleneckChart({ stageBottlenecks = [] }) {
     </div>
   );
 }
+
+/**
+ * Health Score Radial Gauge Widget (ANL-05)
+ */
+export function HealthScoreGauge({ score = null, state = "Insufficient Data", color = "#94a3b8" }) {
+  if (score === null) {
+    return (
+      <div className="flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-28 h-28 rounded-full border-4 border-dashed border-slate-700 flex flex-col items-center justify-center">
+          <span className="text-xs font-semibold text-slate-400">N/A</span>
+        </div>
+        <span className="mt-3 text-sm font-semibold text-slate-400">{state}</span>
+        <span className="text-xs text-slate-500 mt-1 max-w-[200px]">Add tasks to initialize telemetry</span>
+      </div>
+    );
+  }
+
+  // Radius 45, Circumference = 2 * PI * 45 = ~282.7
+  const radius = 45;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference - (score / 100) * circumference;
+
+  return (
+    <div className="flex flex-col items-center justify-center p-4">
+      <div className="relative w-32 h-32 flex items-center justify-center">
+        <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
+          {/* Background circle */}
+          <circle
+            cx="50"
+            cy="50"
+            r={radius}
+            stroke="#1e293b"
+            strokeWidth="9"
+            fill="transparent"
+          />
+          {/* Progress circle */}
+          <circle
+            cx="50"
+            cy="50"
+            r={radius}
+            stroke={color}
+            strokeWidth="9"
+            strokeDasharray={circumference}
+            strokeDashoffset={strokeDashoffset}
+            strokeLinecap="round"
+            fill="transparent"
+            style={{ transition: "stroke-dashoffset 0.8s ease-in-out" }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-3xl font-extrabold text-slate-100">{score}</span>
+          <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">Score</span>
+        </div>
+      </div>
+      <span
+        className="mt-3 text-sm font-bold px-3 py-0.5 rounded-full border"
+        style={{ color, borderColor: `${color}40`, backgroundColor: `${color}15` }}
+      >
+        {state}
+      </span>
+    </div>
+  );
+}
+
+/**
+ * Milestone Progress Horizontal Bar Chart (ANL-05)
+ */
+export function MilestoneProgressChart({ milestones = [] }) {
+  if (!milestones || milestones.length === 0) {
+    return (
+      <div className="h-64 flex flex-col items-center justify-center text-slate-400 text-sm">
+        <p>No project milestones configured yet</p>
+      </div>
+    );
+  }
+
+  const chartData = milestones.map((m) => ({
+    name: m.name,
+    completionRate: m.completionRate,
+    isOverdue: m.isOverdue,
+    color: m.isOverdue ? "#EF4444" : m.completionRate === 100 ? "#10B981" : "#6366F1",
+  }));
+
+  return (
+    <div className="h-64">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={chartData}
+          layout="vertical"
+          margin={{ top: 10, right: 30, left: 30, bottom: 10 }}
+        >
+          <CartesianGrid stroke="var(--card-border, #334155)" strokeDasharray="3 3" opacity={0.3} />
+          <XAxis type="number" domain={[0, 100]} unit="%" tick={{ fill: "var(--text-muted, #94a3b8)", fontSize: 11 }} />
+          <YAxis
+            type="category"
+            dataKey="name"
+            tick={{ fill: "var(--text-muted, #94a3b8)", fontSize: 11 }}
+            width={100}
+          />
+          <Tooltip
+            contentStyle={{
+              background: "var(--bg-card, #1e293b)",
+              border: "1px solid var(--card-border, #334155)",
+              borderRadius: "8px",
+              color: "var(--text-main, #f8fafc)",
+            }}
+            formatter={(val, name, item) => [
+              `${val}% completed ${item.payload.isOverdue ? "(Overdue)" : ""}`,
+              "Milestone Progress",
+            ]}
+          />
+          <Bar dataKey="completionRate" radius={[0, 4, 4, 0]}>
+            {chartData.map((entry, index) => (
+              <Cell key={`cell-m-${index}`} fill={entry.color} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}

@@ -8,6 +8,7 @@ import {
   calculateTaskCompletionCycleTimeMetrics,
   calculatePercentile,
   calculateDurationStats,
+  calculateProjectHealthMetrics,
 } from "../src/controllers/analyticsController.js";
 
 test("ANL-01: Date Range Filtering Bounds", async (t) => {
@@ -736,5 +737,160 @@ test("ANL-04: Task Completion & Cycle-Time Metrics Calculations", async (t) => {
     assert.ok(qaStage);
     assert.equal(qaStage.name, "QA & Testing");
     assert.equal(qaStage.averageHours, 36);
+  });
+});
+
+test("ANL-05: Project Health & Progress Indicators Calculations", async (t) => {
+  const fixedNow = new Date("2026-11-18T12:00:00.000Z");
+
+  await t.test("returns Insufficient Data state when project has 0 tasks without fabricating scores", () => {
+    const result = calculateProjectHealthMetrics({
+      project: { name: "Empty Project" },
+      tasks: [],
+      milestones: [],
+      sprints: [],
+      members: [],
+      now: fixedNow,
+    });
+
+    assert.equal(result.healthScore, null);
+    assert.equal(result.healthState, "Insufficient Data");
+    assert.equal(result.factors.length, 0);
+    assert.equal(result.alerts[0].type, "info");
+    assert.equal(result.healthHistory.length, 0);
+  });
+
+  await t.test("calculates Healthy status for on-track project with no overdue or blocked tasks", () => {
+    const tasks = [
+      {
+        _id: "t1",
+        title: "Task 1",
+        status: "done",
+        dueDate: "2026-11-20T00:00:00.000Z",
+      },
+      {
+        _id: "t2",
+        title: "Task 2",
+        status: "in-progress",
+        dueDate: "2026-11-25T00:00:00.000Z",
+        dependencies: [],
+      },
+    ];
+
+    const milestones = [
+      {
+        _id: "m1",
+        name: "Milestone Alpha",
+        status: "planned",
+        dueDate: "2026-11-30T00:00:00.000Z",
+      },
+    ];
+
+    const result = calculateProjectHealthMetrics({
+      project: { name: "Healthy Project" },
+      tasks,
+      milestones,
+      sprints: [],
+      members: [],
+      now: fixedNow,
+    });
+
+    assert.equal(result.healthScore, 100);
+    assert.equal(result.healthState, "Healthy");
+    assert.equal(result.metrics.overdueTasksCount, 0);
+    assert.equal(result.metrics.blockedTasksCount, 0);
+    assert.equal(result.factors.length, 5);
+    assert.equal(result.factors.every((f) => f.deduction === 0), true);
+  });
+
+  await t.test("applies documented deductions for overdue tasks, blocked dependencies, and slipped milestones", () => {
+    // Task 1: overdue (due 2026-11-10 < fixedNow)
+    // Task 2: blocked by Task 1 ('blocked-by' t1, which is incomplete)
+    // Milestone 1: overdue (due 2026-11-15 < fixedNow)
+    const tasks = [
+      {
+        _id: "t1",
+        title: "Overdue Task",
+        status: "in-progress",
+        dueDate: "2026-11-10T00:00:00.000Z",
+        dependencies: [],
+      },
+      {
+        _id: "t2",
+        title: "Blocked Task",
+        status: "todo",
+        dueDate: "2026-11-25T00:00:00.000Z",
+        dependencies: [{ type: "blocked-by", taskId: "t1" }],
+      },
+    ];
+
+    const milestones = [
+      {
+        _id: "m1",
+        name: "Slipped Milestone",
+        status: "planned",
+        dueDate: "2026-11-15T00:00:00.000Z",
+      },
+    ];
+
+    const result = calculateProjectHealthMetrics({
+      project: { name: "At Risk Project" },
+      tasks,
+      milestones,
+      sprints: [],
+      members: [],
+      now: fixedNow,
+    });
+
+    // 1 overdue out of 2 tasks -> 50% overdue -> min(30, 0.5 * 60) = 30 pts
+    // 1 blocked out of 2 tasks -> 50% blocked -> min(25, 0.5 * 50) = 25 pts
+    // 1 slipped milestone -> min(20, 1 * 10) = 10 pts
+    // Total deductions = 30 + 25 + 10 = 65 pts. Score = 100 - 65 = 35 (Critical)
+    assert.equal(result.metrics.overdueTasksCount, 1);
+    assert.equal(result.metrics.blockedTasksCount, 1);
+    assert.equal(result.metrics.overdueMilestonesCount, 1);
+    assert.equal(result.healthScore, 35);
+    assert.equal(result.healthState, "Critical");
+
+    const overdueFactor = result.factors.find((f) => f.name === "Task Schedule Compliance");
+    assert.equal(overdueFactor.deduction, 30);
+    const blockedFactor = result.factors.find((f) => f.name === "Dependency & Blocker Gates");
+    assert.equal(blockedFactor.deduction, 25);
+    const milestoneFactor = result.factors.find((f) => f.name === "Milestone Target Tracking");
+    assert.equal(milestoneFactor.deduction, 10);
+  });
+
+  await t.test("respects custom workflow categories for completion and does not penalize completed items", () => {
+    const customWorkflow = {
+      projectId: "p_custom",
+      statuses: [
+        { key: "todo", name: "Todo", category: "todo", order: 0 },
+        { key: "shipped", name: "Shipped", category: "done", order: 1 },
+      ],
+    };
+
+    const tasks = [
+      {
+        _id: "t_shipped",
+        title: "Shipped Task",
+        status: "shipped",
+        dueDate: "2026-11-01T00:00:00.000Z", // past due date, but completed in custom 'shipped' status!
+      },
+    ];
+
+    const result = calculateProjectHealthMetrics({
+      project: { name: "Custom Workflow Project" },
+      tasks,
+      milestones: [],
+      sprints: [],
+      members: [],
+      workflow: customWorkflow,
+      now: fixedNow,
+    });
+
+    assert.equal(result.healthScore, 100);
+    assert.equal(result.healthState, "Healthy");
+    assert.equal(result.metrics.completedTasks, 1);
+    assert.equal(result.metrics.overdueTasksCount, 0); // Not counted as overdue!
   });
 });
