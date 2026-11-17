@@ -41,6 +41,7 @@ export default function TaskModal({
   defaultStatus,   // status for new task from column
   defaultSprintId, // default sprint if creating from sprint view
   defaultParentId, // if creating subtask
+  workflow,
   onSaved,
 }) {
   const isEdit = Boolean(initialTask);

@@ -144,7 +144,8 @@ export const getSprintById = async (req, res) => {
       .sort({ status: 1, order: 1 });
 
     const totalTasks = tasks.length;
-    const completedTasks = tasks.filter((t) => isStatusCompleted(t.status, await Workflow.findOne({ projectId: sprint.projectId }))).length;
+    const projectWorkflow = await Workflow.findOne({ projectId: sprint.projectId });
+    const completedTasks = tasks.filter((t) => isStatusCompleted(t.status, projectWorkflow)).length;
     const committedHours = tasks.reduce((sum, t) => sum + (t.estimatedHours || 0), 0);
     const capacity = sprint.capacity || null;
     const isOverloaded = capacity !== null && committedHours > capacity;

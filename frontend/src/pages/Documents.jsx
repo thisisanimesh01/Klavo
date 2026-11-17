@@ -88,12 +88,8 @@ export default function Documents() {
   const fetchProjectTeamMembers = useCallback(async () => {
     if (!projectId) return;
     try {
-      const res = await axiosClient.get(`/projects/${projectId}`);
-      const teamId = res.data?.teamId?._id || res.data?.teamId;
-      if (teamId) {
-        const teamRes = await axiosClient.get(`/teams/${teamId}`);
-        setProjectTeamMembers(teamRes.data?.members || []);
-      }
+      const res = await axiosClient.get(`/projects/${projectId}/members`);
+      setProjectTeamMembers(res.data || []);
     } catch (err) {
       console.error("Failed to load project team members:", err);
     }

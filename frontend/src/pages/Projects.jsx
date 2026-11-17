@@ -123,6 +123,13 @@ export default function Projects() {
                   </button>
 
                   <button
+                    className="flex-1 border py-2 rounded text-sm text-indigo-600 dark:text-indigo-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+                    onClick={() => navigate(`/analytics/${p._id}`)}
+                  >
+                    Analytics
+                  </button>
+
+                  <button
                     className="border px-3 py-2 rounded text-sm text-red-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition"
                     onClick={() => deleteProject(p._id)}
                   >

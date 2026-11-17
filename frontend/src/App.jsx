@@ -130,6 +130,14 @@ export default function App() {
               </Layout>
             }
           />
+          <Route
+            path="/analytics/:projectId"
+            element={
+              <Layout>
+                <Analytics />
+              </Layout>
+            }
+          />
         </Route>
 
         {/* 404 Not Found */}

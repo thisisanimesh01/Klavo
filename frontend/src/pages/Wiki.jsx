@@ -173,26 +173,37 @@ export default function Wiki() {
     const ydoc = new Y.Doc();
     setCollabYDoc(ydoc);
 
-    const provider = new CollabSocketProvider({
-      doc: ydoc,
-      documentId: selectedPage._id,
-      user: authUser,
-      socket,
-      onCollaboratorsChange: (activeCollabs) => {
-        setCollaborators(activeCollabs);
-      },
-      onResetState: ({ yjsUpdate }) => {
-        if (yjsUpdate) {
-          try {
-            const bytes = Uint8Array.from(atob(yjsUpdate), (c) => c.charCodeAt(0));
-            Y.applyUpdate(ydoc, bytes);
-          } catch (e) {
-            console.error("Failed applying reset update to active ydoc:", e);
-          }
-        }
-        setCollabSessionEpoch((prev) => prev + 1);
-      },
+    const provider = new CollabSocketProvider(selectedPage._id, ydoc, {
+      id: authUser?._id,
+      name: authUser?.name || "Anonymous",
+      email: authUser?.email,
+      avatar: authUser?.avatar,
     });
+
+    provider.onCollaboratorsChange = (updater) => {
+      if (typeof updater === "function") {
+        setCollaborators(updater);
+      } else {
+        setCollaborators(updater || []);
+      }
+    };
+
+    provider.onDocumentReset = ({ doc: restoredDoc, epoch }) => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      setSaveStatus("saved");
+      setCollabSessionEpoch((prev) => (epoch ? epoch : prev + 1));
+      if (restoredDoc) {
+        setSelectedPage((prev) => ({
+          ...restoredDoc,
+          userPermission: prev?.userPermission || restoredDoc.userPermission,
+        }));
+        setTitle(restoredDoc.title);
+        contentRef.current = restoredDoc.content;
+      }
+    };
 
     setCollabProvider(provider);
 
@@ -201,6 +212,7 @@ export default function Wiki() {
       ydoc.destroy();
       setCollabYDoc(null);
       setCollabProvider(null);
+      setCollaborators([]);
     };
   }, [selectedPage?._id, authUser, collabSessionEpoch]);
 
@@ -775,10 +787,16 @@ export default function Wiki() {
                 <TipTapEditor
                   key={`${selectedPage._id}_${collabSessionEpoch}`}
                   content={selectedPage.content}
-                  editable={Boolean(selectedPage.userPermission?.canEdit)}
-                  onUpdate={handleEditorUpdate}
+                  readOnly={!selectedPage.userPermission?.canEdit}
+                  onChange={handleEditorUpdate}
                   ydoc={collabYDoc}
                   provider={collabProvider}
+                  user={{
+                    id: authUser?._id,
+                    name: authUser?.name || "Anonymous",
+                    email: authUser?.email,
+                    avatar: authUser?.avatar,
+                  }}
                 />
               </div>
 

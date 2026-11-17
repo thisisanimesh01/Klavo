@@ -1069,3 +1069,59 @@ test("FRONTEND DOC-08: Document & Task Linking UI Helpers", async (t) => {
     assert.equal(linkedList.some((d) => d._id === "d_2"), false);
   });
 });
+
+test("FRONTEND ANL-01: Project Analytics Dashboard State & Formatting", async (t) => {
+  await t.test("Validates date-range query parameter composition", () => {
+    const buildQueryParams = ({ range, customStart, customEnd }) => {
+      const params = new URLSearchParams();
+      if (range) params.set("range", range);
+      if (range === "custom") {
+        if (customStart) params.set("startDate", customStart);
+        if (customEnd) params.set("endDate", customEnd);
+      }
+      return params.toString();
+    };
+
+    assert.equal(buildQueryParams({ range: "all" }), "range=all");
+    assert.equal(buildQueryParams({ range: "this_week" }), "range=this_week");
+    assert.equal(
+      buildQueryParams({
+        range: "custom",
+        customStart: "2026-11-01",
+        customEnd: "2026-11-15",
+      }),
+      "range=custom&startDate=2026-11-01&endDate=2026-11-15"
+    );
+  });
+
+  await t.test("Validates completion percentage and zero-guard calculation", () => {
+    const calcRate = (completed, total) => (total > 0 ? Math.round((completed / total) * 100) : 0);
+
+    assert.equal(calcRate(0, 0), 0);
+    assert.equal(calcRate(5, 10), 50);
+    assert.equal(calcRate(1, 3), 33);
+    assert.equal(calcRate(10, 10), 100);
+  });
+
+  await t.test("Validates workload member sorting and data sanitization", () => {
+    const workload = [
+      { userId: "u1", name: "Bob", total: 3, completed: 1 },
+      { userId: "u2", name: "Alice", total: 8, completed: 5 },
+      { userId: "u3", name: "Charlie", total: 1, completed: 0 },
+    ];
+
+    const sorted = workload.slice().sort((a, b) => b.total - a.total);
+    assert.equal(sorted[0].name, "Alice");
+    assert.equal(sorted[1].name, "Bob");
+    assert.equal(sorted[2].name, "Charlie");
+  });
+
+  await t.test("Validates status distribution chart color fallback mapping", () => {
+    const getStatusColor = (item, defaultFallback) => {
+      return item.color || defaultFallback;
+    };
+
+    assert.equal(getStatusColor({ color: "#10B981" }, "#6366F1"), "#10B981");
+    assert.equal(getStatusColor({}, "#6366F1"), "#6366F1");
+  });
+});
