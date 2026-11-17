@@ -774,3 +774,29 @@ Establishes bi-directional association between Documents (including Wiki knowled
 - `GET /api/tasks/:taskId/documents` — Lists all documents linked to a task with permission resolution (requires task access).
 - `GET /api/documents/:documentId/tasks` — Lists all tasks linked to a document for reverse navigation (requires document `canRead`).
 - `GET /api/documents/project/:projectId/linked-documents` — Overview of project documents that possess linked tasks (requires project access).
+
+---
+
+## 27. Advanced Project Analytics Dashboard (ANL-01)
+
+### Overview & Data Architecture:
+Provides real-time, comprehensive project-level analytics, key performance indicators (KPIs), workload distribution, workflow status distribution, and velocity tracking without duplicate data storage, fabricated metrics, or N+1 queries.
+
+### Metrics & Aggregation Engine:
+- **Project Overview**: Total tasks, completed tasks, in-progress tasks, overdue tasks, unassigned tasks, and completion percentage.
+- **Workflow-Aware Completion Semantics**: Dynamically resolves task completion against custom project workflows via `isStatusCompleted` and `getCompletedStatusKeys` (category `"done"`).
+- **Status & Priority Distributions**: Aggregates tasks across workflow status keys with custom colors and names, as well as the 5 priority levels (`low`, `medium`, `high`, `critical`, `urgent`).
+- **Team Workload Overview**: Aggregates tasks, completed items, active pending work, and overdue tasks per team member. Pre-seeded with project team members to surface 0-task members cleanly.
+- **Velocity & Activity**: Task creation distribution across days of the week, alongside the 10 most recent chronological project activities.
+- **Date-Range Filtering**: Supports filtering task metrics by date bounds (`all`, `today`, `this_week`, `this_month`, `last_30_days`, or custom `startDate` and `endDate`).
+- **Empty State Invariants**: Safely handles empty projects without division by zero or UI crashes.
+
+### Permissions & Anti-IDOR Enforcement:
+- Access to project analytics (`GET /api/analytics/project/:projectId`) strictly requires verified project team membership via `checkProjectAccess`.
+- Unauthenticated requests are rejected with `401 Unauthorized`.
+- Unauthorized users or cross-tenant outsiders are rejected with `403 Forbidden`.
+
+### API Endpoints:
+| Endpoint | Method | Required Permission / Role | Description |
+| :--- | :--- | :--- | :--- |
+| `/api/analytics/project/:projectId` | `GET` | Project Team Member / Owner | Retrieves comprehensive project metrics, workload, status & priority distributions, and KPIs |

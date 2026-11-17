@@ -309,11 +309,13 @@ export const getTaskById = async (req, res) => {
 
     const { isBlocked, blockingTasks } = await checkTaskBlockers(task._id);
 
+    const taskWorkflow = await Workflow.findOne({ projectId: task.projectId });
+
     res.json({
       ...task.toObject(),
       subtasks,
       totalSubtasks: subtasks.length,
-      completedSubtasks: subtasks.filter((s) => isStatusCompleted(s.status, await Workflow.findOne({ projectId: task.projectId }))).length,
+      completedSubtasks: subtasks.filter((s) => isStatusCompleted(s.status, taskWorkflow)).length,
       isBlocked,
       blockingTasks,
     });

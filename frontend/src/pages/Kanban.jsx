@@ -44,6 +44,7 @@ import {
   Sliders,
   FileText,
   BookOpen,
+  BarChart2,
 } from "lucide-react";
 
 const COLUMNS = [
@@ -730,26 +731,37 @@ export default function Kanban() {
         </header>
 
         {/* Tab switcher */}
-        <div className="flex gap-2 border-b border-slate-200 dark:border-slate-800">
-          {[
-            { id: "board", label: "Kanban Board" },
-            { id: "backlog", label: "Product Backlog" },
-            { id: "gantt", label: "Milestones & Gantt" },
-            { id: "activity", label: "Activity" },
-            { id: "chat", label: "Chat" },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              className={`px-4 py-2 text-sm font-medium transition ${
-                activeTab === tab.id
-                  ? "border-b-2 border-indigo-600 text-indigo-600 font-semibold"
-                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-              }`}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
+          <div className="flex gap-2">
+            {[
+              { id: "board", label: "Kanban Board" },
+              { id: "backlog", label: "Product Backlog" },
+              { id: "gantt", label: "Milestones & Gantt" },
+              { id: "activity", label: "Activity" },
+              { id: "chat", label: "Chat" },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                className={`px-4 py-2 text-sm font-medium transition ${
+                  activeTab === tab.id
+                    ? "border-b-2 border-indigo-600 text-indigo-600 font-semibold"
+                    : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                }`}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => navigate(`/analytics/${projectId}`)}
+            className="flex items-center gap-1.5 px-3 py-1.5 mb-1 text-xs font-medium rounded-lg text-indigo-500 hover:text-indigo-400 hover:bg-indigo-500/10 border border-indigo-500/20 transition"
+            title="Open Project Analytics Dashboard"
+          >
+            <BarChart2 size={14} />
+            <span>Analytics</span>
+          </button>
         </div>
 
         {/* Saved Views Navigation Bar (Available across Board and Backlog) */}

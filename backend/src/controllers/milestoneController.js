@@ -147,7 +147,8 @@ export const getMilestoneById = async (req, res) => {
       .sort({ order: 1 });
 
     const totalTasks = tasks.length;
-    const completedTasks = tasks.filter((t) => isStatusCompleted(t.status, await Workflow.findOne({ projectId: milestone.projectId }))).length;
+    const projectWorkflow = await Workflow.findOne({ projectId: milestone.projectId });
+    const completedTasks = tasks.filter((t) => isStatusCompleted(t.status, projectWorkflow)).length;
     const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
     const isOverdue = Boolean(
       milestone.dueDate &&
