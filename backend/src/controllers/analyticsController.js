@@ -65,7 +65,7 @@ export const buildDateFilterRange = ({ range, startDate, endDate }, now = new Da
 };
 
 /**
- * Computes comprehensive project analytics metrics.
+ * Computes comprehensive project analytics metrics (ANL-01).
  */
 export const calculateProjectAnalyticsMetrics = ({
   project,
@@ -271,20 +271,18 @@ export const calculateProjectAnalyticsMetrics = ({
 };
 
 /**
- * Calculates sprint burndown series and committed/completed metrics from persisted data.
- * Pure, robust calculation function.
+ * Calculates sprint burndown series and committed/completed metrics (ANL-02).
  */
 export const calculateSprintBurndownMetrics = ({
   sprint,
   tasks = [],
   workflow = null,
-  unit = "estimatedHours", // 'estimatedHours' | 'storyPoints'
+  unit = "estimatedHours",
   now = new Date(),
 }) => {
   const effectiveWorkflow = workflow || { statuses: [] };
   const doneKeys = new Set(getCompletedStatusKeys(effectiveWorkflow));
 
-  // Determine sprint date boundaries
   const nowTime = now.getTime();
   const sprintCreated = sprint?.createdAt ? new Date(sprint.createdAt) : new Date(nowTime - 7 * 86400000);
   const sprintStart = sprint?.startDate ? new Date(sprint.startDate) : sprintCreated;
@@ -294,20 +292,16 @@ export const calculateSprintBurndownMetrics = ({
     ? new Date(sprint.completedAt)
     : new Date(sprintStart.getTime() + 14 * 86400000);
 
-  // Normalize dates to start of day UTC
   const startDay = new Date(Date.UTC(sprintStart.getUTCFullYear(), sprintStart.getUTCMonth(), sprintStart.getUTCDate()));
   const endDay = new Date(Date.UTC(sprintEnd.getUTCFullYear(), sprintEnd.getUTCMonth(), sprintEnd.getUTCDate(), 23, 59, 59, 999));
 
-  // Task work evaluation helper
   const getTaskValue = (task) => {
     if (unit === "storyPoints") {
       return Number(task.storyPoints) > 0 ? Number(task.storyPoints) : 1;
     }
-    // Default: estimatedHours (fallback to 1 if not estimated)
     return Number(task.estimatedHours) > 0 ? Number(task.estimatedHours) : 1;
   };
 
-  // Scope & Task metrics
   let totalCommittedWork = 0;
   let totalCompletedWork = 0;
   let totalTasks = tasks.length;
@@ -330,15 +324,12 @@ export const calculateSprintBurndownMetrics = ({
       carryoverWork += val;
     }
 
-    // Check if task was added after sprint start (scope change)
     if (t.createdAt && new Date(t.createdAt).getTime() > sprintStart.getTime() + 86400000) {
       scopeAddedTasks += 1;
       scopeAddedWork += val;
     }
   });
 
-  // Burndown timeline generation
-  // Generate each day from sprint start to sprint end
   const burndownTimeline = [];
   const oneDayMs = 24 * 60 * 60 * 1000;
   const totalDays = Math.max(1, Math.round((endDay.getTime() - startDay.getTime()) / oneDayMs) + 1);
@@ -354,18 +345,12 @@ export const calculateSprintBurndownMetrics = ({
     currentDayTime += oneDayMs;
   }
 
-  // Calculate remaining work day by day
-  // Ideal line: linearly decreases from totalCommittedWork to 0
   const idealBurnRate = totalDays > 1 ? totalCommittedWork / (totalDays - 1) : totalCommittedWork;
 
   dayLabels.forEach((dl, index) => {
     const dayEndTimestamp = dl.dayDate.getTime() + oneDayMs - 1;
-
-    // Ideal remaining
     const idealRemaining = Math.max(0, Math.round((totalCommittedWork - index * idealBurnRate) * 10) / 10);
 
-    // Actual remaining up to this day:
-    // A task was completed on or before dayEndTimestamp if it is done and updatedAt <= dayEndTimestamp
     if (dayEndTimestamp <= nowTime + oneDayMs) {
       let burnedSoFar = 0;
       tasks.forEach((t) => {
@@ -388,7 +373,6 @@ export const calculateSprintBurndownMetrics = ({
         isFuture: false,
       });
     } else {
-      // Future date relative to current time: actual is null so chart stops plotting
       burndownTimeline.push({
         date: dl.dayIso,
         label: dl.dayLabel,
@@ -409,7 +393,7 @@ export const calculateSprintBurndownMetrics = ({
     startDate: sprint?.startDate || null,
     endDate: sprint?.endDate || null,
     capacity: sprint?.capacity || null,
-    measurementUnit: unit, // 'estimatedHours' or 'storyPoints'
+    measurementUnit: unit,
     totalCommittedWork: Math.round(totalCommittedWork * 10) / 10,
     totalCompletedWork: Math.round(totalCompletedWork * 10) / 10,
     totalRemainingWork: Math.max(0, Math.round((totalCommittedWork - totalCompletedWork) * 10) / 10),
@@ -427,6 +411,224 @@ export const calculateSprintBurndownMetrics = ({
     },
     burndownTimeline,
     isOverloaded: Boolean(sprint?.capacity && totalCommittedWork > sprint.capacity),
+  };
+};
+
+/**
+ * Computes deep team workload and capacity analysis metrics (ANL-03).
+ * Pure, robust calculation function.
+ */
+export const calculateTeamWorkloadCapacityMetrics = ({
+  teamMembers = [],
+  tasks = [],
+  sprint = null,
+  workflow = null,
+  unit = "estimatedHours", // 'estimatedHours' | 'storyPoints'
+  defaultCapacityPerMember = 40,
+  now = new Date(),
+}) => {
+  const effectiveWorkflow = workflow || { statuses: [] };
+  const doneKeys = new Set(getCompletedStatusKeys(effectiveWorkflow));
+  const nowTime = now.getTime();
+
+  // Helper to extract numeric task work estimation based on unit
+  const getTaskValue = (task) => {
+    if (unit === "storyPoints") {
+      return Number(task.storyPoints) > 0 ? Number(task.storyPoints) : null;
+    }
+    return Number(task.estimatedHours) > 0 ? Number(task.estimatedHours) : null;
+  };
+
+  // Build member capacity lookup from sprint.memberCapacities if present
+  const configuredCapacityMap = new Map();
+  if (sprint && Array.isArray(sprint.memberCapacities)) {
+    sprint.memberCapacities.forEach((mc) => {
+      const uId = mc.userId?._id ? mc.userId._id.toString() : String(mc.userId);
+      configuredCapacityMap.set(uId, Number(mc.capacity));
+    });
+  }
+
+  // Pre-seed member records with ALL team members (including members with 0 tasks)
+  const memberMap = new Map();
+  teamMembers.forEach((m) => {
+    const mId = m._id ? m._id.toString() : m.id ? m.id.toString() : String(m);
+    const configuredCap = configuredCapacityMap.has(mId)
+      ? configuredCapacityMap.get(mId)
+      : sprint?.capacity && teamMembers.length > 0
+      ? Math.round(sprint.capacity / teamMembers.length)
+      : defaultCapacityPerMember;
+
+    memberMap.set(mId, {
+      userId: mId,
+      name: m.name || "Member",
+      email: m.email || "",
+      avatar: m.avatar || null,
+      assignedCount: 0,
+      completedCount: 0,
+      pendingCount: 0,
+      overdueCount: 0,
+      unestimatedCount: 0,
+      committedWork: 0,
+      completedWork: 0,
+      pendingWork: 0,
+      capacity: configuredCap,
+      utilizationRate: 0,
+      isOverAllocated: false,
+    });
+  });
+
+  // Track unassigned tasks and overall team aggregates
+  let unassignedCount = 0;
+  let unassignedEstimatedWork = 0;
+  let unassignedUnestimatedCount = 0;
+
+  let totalTasks = tasks.length;
+  let totalCommittedWork = 0;
+  let totalCompletedWork = 0;
+  let totalPendingWork = 0;
+
+  tasks.forEach((t) => {
+    const workVal = getTaskValue(t);
+    const isEstimated = workVal !== null;
+    const effectiveVal = isEstimated ? workVal : 0;
+
+    const isDone = isStatusCompleted(t.status, effectiveWorkflow) || doneKeys.has(t.status);
+    const isOverdue = Boolean(t.dueDate && new Date(t.dueDate).getTime() < nowTime && !isDone);
+
+    totalCommittedWork += effectiveVal;
+    if (isDone) {
+      totalCompletedWork += effectiveVal;
+    } else {
+      totalPendingWork += effectiveVal;
+    }
+
+    const assignees = Array.isArray(t.assignedTo) ? t.assignedTo : [];
+
+    if (assignees.length === 0) {
+      unassignedCount += 1;
+      if (isEstimated) {
+        unassignedEstimatedWork += effectiveVal;
+      } else {
+        unassignedUnestimatedCount += 1;
+      }
+    } else {
+      // Split work evenly among multiple assignees to avoid double-counting
+      const splitValue = effectiveVal / assignees.length;
+
+      assignees.forEach((assignee) => {
+        const uId = assignee?._id
+          ? assignee._id.toString()
+          : typeof assignee === "object"
+          ? String(assignee.id || assignee)
+          : String(assignee);
+
+        let rec = memberMap.get(uId);
+        if (!rec) {
+          rec = {
+            userId: uId,
+            name: assignee?.name || "Member",
+            email: assignee?.email || "",
+            avatar: assignee?.avatar || null,
+            assignedCount: 0,
+            completedCount: 0,
+            pendingCount: 0,
+            overdueCount: 0,
+            unestimatedCount: 0,
+            committedWork: 0,
+            completedWork: 0,
+            pendingWork: 0,
+            capacity: defaultCapacityPerMember,
+            utilizationRate: 0,
+            isOverAllocated: false,
+          };
+          memberMap.set(uId, rec);
+        }
+
+        rec.assignedCount += 1;
+        if (isDone) {
+          rec.completedCount += 1;
+          rec.completedWork += splitValue;
+        } else {
+          rec.pendingCount += 1;
+          rec.pendingWork += splitValue;
+        }
+
+        if (isOverdue) {
+          rec.overdueCount += 1;
+        }
+
+        if (!isEstimated) {
+          rec.unestimatedCount += 1;
+        }
+
+        rec.committedWork += splitValue;
+      });
+    }
+  });
+
+  // Calculate member utilization rates and overallocation
+  const members = Array.from(memberMap.values()).map((m) => {
+    const committedRounded = Math.round(m.committedWork * 10) / 10;
+    const completedRounded = Math.round(m.completedWork * 10) / 10;
+    const pendingRounded = Math.round(m.pendingWork * 10) / 10;
+    const cap = m.capacity;
+
+    const utilizationRate = cap > 0 ? Math.round((committedRounded / cap) * 100) : 0;
+    const isOverAllocated = cap > 0 && committedRounded > cap;
+
+    return {
+      ...m,
+      committedWork: committedRounded,
+      completedWork: completedRounded,
+      pendingWork: pendingRounded,
+      utilizationRate,
+      isOverAllocated,
+    };
+  });
+
+  // Sort members: highest committed work first
+  members.sort((a, b) => b.committedWork - a.committedWork);
+
+  // Calculate team total capacity and utilization
+  const totalCapacity = members.reduce((sum, m) => sum + m.capacity, 0);
+  const teamUtilizationRate = totalCapacity > 0 ? Math.round((totalCommittedWork / totalCapacity) * 100) : 0;
+
+  // Workload Imbalance Analysis: standard deviation of committed work across members
+  let standardDeviation = 0;
+  if (members.length > 1) {
+    const mean = totalCommittedWork / members.length;
+    const variance = members.reduce((sum, m) => sum + Math.pow(m.committedWork - mean, 2), 0) / members.length;
+    standardDeviation = Math.round(Math.sqrt(variance) * 10) / 10;
+  }
+
+  // Workload balance classification
+  const overAllocatedMembersCount = members.filter((m) => m.isOverAllocated).length;
+  const zeroWorkMembersCount = members.filter((m) => m.assignedCount === 0).length;
+  const isImbalanced = Boolean(overAllocatedMembersCount > 0 && zeroWorkMembersCount > 0);
+
+  return {
+    measurementUnit: unit, // 'estimatedHours' or 'storyPoints'
+    sprintId: sprint?._id || null,
+    sprintName: sprint?.name || null,
+    totalTasks,
+    totalCommittedWork: Math.round(totalCommittedWork * 10) / 10,
+    totalCompletedWork: Math.round(totalCompletedWork * 10) / 10,
+    totalPendingWork: Math.round(totalPendingWork * 10) / 10,
+    totalCapacity,
+    teamUtilizationRate,
+    isTeamOverloaded: totalCapacity > 0 && totalCommittedWork > totalCapacity,
+    unassignedWork: {
+      taskCount: unassignedCount,
+      estimatedWork: Math.round(unassignedEstimatedWork * 10) / 10,
+      unestimatedTaskCount: unassignedUnestimatedCount,
+    },
+    workloadBalance: {
+      isImbalanced,
+      standardDeviation,
+      overAllocatedCount: overAllocatedMembersCount,
+      zeroWorkCount: zeroWorkMembersCount,
+    },
+    members,
   };
 };
 
@@ -502,12 +704,11 @@ export const getProjectAnalytics = async (req, res) => {
 
 /**
  * Controller: GET /api/analytics/project/:projectId/velocity
- * Historical sprint velocity across project sprints with average velocity.
  */
 export const getProjectSprintVelocity = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { unit = "estimatedHours" } = req.query; // 'estimatedHours' | 'storyPoints'
+    const { unit = "estimatedHours" } = req.query;
 
     const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
     if (!project) return res.status(404).json({ message: "Project not found" });
@@ -518,7 +719,6 @@ export const getProjectSprintVelocity = async (req, res) => {
     const workflow = await Workflow.findOne({ projectId });
     const doneKeys = new Set(getCompletedStatusKeys(workflow));
 
-    // Fetch all sprints for project sorted chronologically
     const sprints = await Sprint.find({ projectId })
       .sort({ startDate: 1, createdAt: 1 });
 
@@ -558,7 +758,6 @@ export const getProjectSprintVelocity = async (req, res) => {
       };
     });
 
-    // Calculate average velocity across completed and active sprints
     const completedOrActive = velocityData.filter((s) => s.status === "completed" || s.status === "active");
     const totalVelocity = completedOrActive.reduce((sum, s) => sum + s.velocity, 0);
     const averageVelocity = completedOrActive.length > 0
@@ -580,12 +779,11 @@ export const getProjectSprintVelocity = async (req, res) => {
 
 /**
  * Controller: GET /api/analytics/sprint/:sprintId/burndown
- * Detailed sprint burndown metrics with ideal vs actual remaining work timeline.
  */
 export const getSprintBurndown = async (req, res) => {
   try {
     const { sprintId } = req.params;
-    const { unit = "estimatedHours" } = req.query; // 'estimatedHours' | 'storyPoints'
+    const { unit = "estimatedHours" } = req.query;
 
     const { hasAccess, sprint, project } = await checkSprintAccess(sprintId, req.user._id);
     if (!sprint) return res.status(404).json({ message: "Sprint not found" });
@@ -608,6 +806,105 @@ export const getSprintBurndown = async (req, res) => {
     res.json(burndown);
   } catch (err) {
     console.error("Sprint Burndown Error:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Controller: GET /api/analytics/project/:projectId/workload-capacity
+ * Comprehensive Team Workload and Capacity Analysis (ANL-03).
+ * Query parameters: sprintId (optional), memberId (optional), range, startDate, endDate, unit
+ */
+export const getTeamWorkloadCapacity = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const {
+      sprintId,
+      memberId,
+      range = "all",
+      startDate,
+      endDate,
+      unit = "estimatedHours",
+      defaultCapacity = 40,
+    } = req.query;
+
+    const { hasAccess, project, team } = await checkProjectAccess(projectId, req.user._id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+    if (!hasAccess) {
+      return res.status(403).json({
+        message: "Forbidden: You are not authorized to view workload analytics for this project",
+      });
+    }
+
+    // Resolve date filter range if provided
+    const dateRange = buildDateFilterRange({ range, startDate, endDate });
+
+    // Fetch team members
+    let teamMembers = [];
+    if (team) {
+      const fullTeam = await Team.findById(team._id)
+        .populate("members", "name email avatar")
+        .populate("owner", "name email avatar");
+      if (fullTeam) {
+        const uniqueMembers = new Map();
+        if (fullTeam.owner) {
+          uniqueMembers.set(fullTeam.owner._id.toString(), fullTeam.owner);
+        }
+        (fullTeam.members || []).forEach((m) => {
+          if (m && m._id) {
+            uniqueMembers.set(m._id.toString(), m);
+          }
+        });
+        teamMembers = Array.from(uniqueMembers.values());
+      }
+    }
+
+    // Filter members if memberId specified
+    if (memberId && memberId !== "all") {
+      teamMembers = teamMembers.filter((m) => m._id.toString() === memberId.toString());
+    }
+
+    // Fetch sprint if sprintId specified
+    let sprint = null;
+    if (sprintId && sprintId !== "all") {
+      sprint = await Sprint.findById(sprintId).populate("memberCapacities.userId", "name email");
+    }
+
+    // Build task query
+    const taskQuery = { projectId };
+    if (sprintId && sprintId !== "all") {
+      taskQuery.sprintId = sprintId;
+    }
+    if (memberId && memberId !== "all") {
+      taskQuery.assignedTo = memberId;
+    }
+    if (dateRange && dateRange.start && dateRange.end) {
+      taskQuery.createdAt = { $gte: dateRange.start, $lte: dateRange.end };
+    }
+
+    const tasks = await Task.find(taskQuery)
+      .populate("assignedTo", "name email avatar")
+      .select("title status priority dueDate assignedTo estimatedHours storyPoints sprintId createdAt updatedAt");
+
+    const workflow = await Workflow.findOne({ projectId });
+
+    const workloadAnalysis = calculateTeamWorkloadCapacityMetrics({
+      teamMembers,
+      tasks,
+      sprint,
+      workflow,
+      unit,
+      defaultCapacityPerMember: Number(defaultCapacity) || 40,
+      now: new Date(),
+    });
+
+    res.json({
+      projectId,
+      projectName: project.name,
+      ...workloadAnalysis,
+    });
+  } catch (err) {
+    console.error("Team Workload Capacity Error:", err);
     res.status(500).json({ message: err.message });
   }
 };

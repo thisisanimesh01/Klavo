@@ -30,6 +30,21 @@ const sprintSchema = new mongoose.Schema(
       type: Number,
       default: null,
     },
+    // Optional per-member configurable capacities
+    memberCapacities: [
+      {
+        userId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "User",
+          required: true,
+        },
+        capacity: {
+          type: Number,
+          required: true,
+          default: 0,
+        },
+      },
+    ],
     projectId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Project",

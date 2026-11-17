@@ -4,19 +4,23 @@ import {
   getProjectAnalytics,
   getProjectSprintVelocity,
   getSprintBurndown,
+  getTeamWorkloadCapacity,
 } from "../controllers/analyticsController.js";
 
 const router = express.Router();
 
 router.use(authRequired);
 
-// Project overall analytics
+// Project overall analytics (ANL-01)
 router.get("/project/:projectId", getProjectAnalytics);
 
-// Sprint velocity comparison across project sprints
+// Sprint velocity comparison across project sprints (ANL-02)
 router.get("/project/:projectId/velocity", getProjectSprintVelocity);
 
-// Sprint burndown chart for a specific sprint
+// Sprint burndown chart for a specific sprint (ANL-02)
 router.get("/sprint/:sprintId/burndown", getSprintBurndown);
+
+// Team Workload & Capacity Analysis (ANL-03)
+router.get("/project/:projectId/workload-capacity", getTeamWorkloadCapacity);
 
 export default router;

@@ -335,3 +335,128 @@ export function SprintBurndownChart({ timeline = [], unitLabel = "Hours" }) {
     </div>
   );
 }
+
+/**
+ * Team Member Capacity vs Committed Work Allocation Chart (ANL-03)
+ */
+export function TeamCapacityComparisonChart({ members = [], unitLabel = "Hours" }) {
+  if (!members || members.length === 0) {
+    return (
+      <div className="h-72 flex flex-col items-center justify-center text-slate-400 text-sm">
+        <p>No member capacity data available</p>
+      </div>
+    );
+  }
+
+  const chartData = members.map((m) => ({
+    name: m.name?.split(" ")[0] || "Member",
+    committed: m.committedWork,
+    capacity: m.capacity,
+    isOverAllocated: m.isOverAllocated,
+  }));
+
+  return (
+    <div className="h-72">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chartData} margin={{ top: 10, right: 15, left: -15, bottom: 25 }}>
+          <CartesianGrid stroke="var(--card-border, #334155)" strokeDasharray="3 3" opacity={0.3} />
+          <XAxis
+            dataKey="name"
+            tick={{ fill: "var(--text-muted, #94a3b8)", fontSize: 11 }}
+            angle={-20}
+            textAnchor="end"
+            interval={0}
+          />
+          <YAxis
+            tick={{ fill: "var(--text-muted, #94a3b8)", fontSize: 12 }}
+            allowDecimals={false}
+            unit={` ${unitLabel.slice(0, 1)}`}
+          />
+          <Tooltip
+            contentStyle={{
+              background: "var(--bg-card, #1e293b)",
+              border: "1px solid var(--card-border, #334155)",
+              borderRadius: "8px",
+              color: "var(--text-main, #f8fafc)",
+            }}
+            formatter={(value, name) => [`${value} ${unitLabel}`, name === "capacity" ? "Available Capacity" : "Committed Work"]}
+          />
+          <Legend
+            verticalAlign="top"
+            height={36}
+            formatter={(value) => (
+              <span style={{ color: "var(--text-muted, #94a3b8)", fontSize: "12px" }}>
+                {value === "capacity" ? "Configured Capacity" : "Committed Work"}
+              </span>
+            )}
+          />
+          <Bar dataKey="capacity" fill="#64748B" radius={[4, 4, 0, 0]} opacity={0.6} />
+          <Bar dataKey="committed" radius={[4, 4, 0, 0]}>
+            {chartData.map((entry, index) => (
+              <Cell
+                key={`committed-cell-${index}`}
+                fill={entry.isOverAllocated ? "#EF4444" : "#3B82F6"}
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/**
+ * Team Workload Status Split Chart (Completed vs Pending per member) (ANL-03)
+ */
+export function MemberTaskStatusBreakdownChart({ members = [] }) {
+  if (!members || members.length === 0) {
+    return (
+      <div className="h-72 flex flex-col items-center justify-center text-slate-400 text-sm">
+        <p>No task distribution data available</p>
+      </div>
+    );
+  }
+
+  const chartData = members.map((m) => ({
+    name: m.name?.split(" ")[0] || "Member",
+    completed: m.completedCount,
+    pending: m.pendingCount,
+    overdue: m.overdueCount,
+  }));
+
+  return (
+    <div className="h-72">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chartData} margin={{ top: 10, right: 15, left: -20, bottom: 25 }}>
+          <CartesianGrid stroke="var(--card-border, #334155)" strokeDasharray="3 3" opacity={0.3} />
+          <XAxis
+            dataKey="name"
+            tick={{ fill: "var(--text-muted, #94a3b8)", fontSize: 11 }}
+            angle={-20}
+            textAnchor="end"
+            interval={0}
+          />
+          <YAxis tick={{ fill: "var(--text-muted, #94a3b8)", fontSize: 12 }} allowDecimals={false} />
+          <Tooltip
+            contentStyle={{
+              background: "var(--bg-card, #1e293b)",
+              border: "1px solid var(--card-border, #334155)",
+              borderRadius: "8px",
+              color: "var(--text-main, #f8fafc)",
+            }}
+          />
+          <Legend
+            verticalAlign="top"
+            height={36}
+            formatter={(value) => (
+              <span style={{ color: "var(--text-muted, #94a3b8)", fontSize: "12px" }}>{value}</span>
+            )}
+          />
+          <Bar dataKey="completed" name="Completed" stackId="a" fill="#10B981" />
+          <Bar dataKey="pending" name="Pending" stackId="a" fill="#3B82F6" />
+          <Bar dataKey="overdue" name="Overdue" stackId="a" fill="#EF4444" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}

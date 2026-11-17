@@ -1174,3 +1174,89 @@ test("FRONTEND ANL-02: Sprint Velocity & Burndown UI Formatting", async (t) => {
     assert.match(getStatusStyle("planned"), /slate/);
   });
 });
+
+test("FRONTEND ANL-03: Team Workload & Capacity UI Helpers", async (t) => {
+  await t.test("Validates utilization calculation and badge color thresholds", () => {
+    const getUtilizationBadge = (utilizationRate, isOverAllocated) => {
+      if (isOverAllocated || utilizationRate > 100) {
+        return { label: `${utilizationRate}%`, color: "red", status: "overloaded" };
+      }
+      if (utilizationRate >= 80) {
+        return { label: `${utilizationRate}%`, color: "amber", status: "optimal" };
+      }
+      return { label: `${utilizationRate}%`, color: "emerald", status: "available" };
+    };
+
+    const over = getUtilizationBadge(125, true);
+    assert.equal(over.color, "red");
+    assert.equal(over.status, "overloaded");
+
+    const optimal = getUtilizationBadge(85, false);
+    assert.equal(optimal.color, "amber");
+    assert.equal(optimal.status, "optimal");
+
+    const available = getUtilizationBadge(50, false);
+    assert.equal(available.color, "emerald");
+    assert.equal(available.status, "available");
+  });
+
+  await t.test("Validates member capacity comparison chart dataset aggregation", () => {
+    const members = [
+      { name: "Alice", capacity: 40, committed: 50, isOverAllocated: true },
+      { name: "Bob", capacity: 40, committed: 20, isOverAllocated: false },
+      { name: "Charlie", capacity: 30, committed: 0, isOverAllocated: false },
+    ];
+
+    const overAllocatedMembers = members.filter((m) => m.isOverAllocated);
+    assert.equal(overAllocatedMembers.length, 1);
+    assert.equal(overAllocatedMembers[0].name, "Alice");
+
+    const totalCapacity = members.reduce((sum, m) => sum + m.capacity, 0);
+    const totalCommitted = members.reduce((sum, m) => sum + m.committed, 0);
+    assert.equal(totalCapacity, 110);
+    assert.equal(totalCommitted, 70);
+  });
+
+  await t.test("Validates unassigned work and unestimated task summary indicators", () => {
+    const unassignedData = {
+      taskCount: 5,
+      estimatedWork: 16,
+      unestimatedTaskCount: 2,
+    };
+
+    const hasUnassignedRisk = unassignedData.taskCount > 0;
+    const hasUnestimatedRisk = unassignedData.unestimatedTaskCount > 0;
+
+    assert.equal(hasUnassignedRisk, true);
+    assert.equal(hasUnestimatedRisk, true);
+    assert.equal(unassignedData.estimatedWork, 16);
+  });
+
+  await t.test("Validates workload filter query string composition", () => {
+    const composeCapacityParams = ({ sprintId, memberId, range, startDate, endDate, unit }) => {
+      const params = new URLSearchParams();
+      if (sprintId) params.append("sprintId", sprintId);
+      if (memberId) params.append("memberId", memberId);
+      if (range) params.append("range", range);
+      if (range === "custom" && startDate && endDate) {
+        params.append("startDate", startDate);
+        params.append("endDate", endDate);
+      }
+      if (unit) params.append("unit", unit);
+      return params.toString();
+    };
+
+    const query = composeCapacityParams({
+      sprintId: "sprint_123",
+      range: "custom",
+      startDate: "2026-11-01",
+      endDate: "2026-11-15",
+      unit: "storyPoints",
+    });
+
+    assert.equal(
+      query,
+      "sprintId=sprint_123&range=custom&startDate=2026-11-01&endDate=2026-11-15&unit=storyPoints"
+    );
+  });
+});

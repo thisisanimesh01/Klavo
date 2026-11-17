@@ -835,3 +835,47 @@ Provides real-time sprint iteration analytics including historical velocity tren
 | :--- | :--- | :--- | :--- |
 | `/api/analytics/project/:projectId/velocity` | `GET` | Project Team Member / Owner | Historical sprint velocity comparison and average velocity |
 | `/api/analytics/sprint/:sprintId/burndown` | `GET` | Project Team Member / Owner | Sprint burndown chart timeline, scope changes, and carryover |
+
+---
+
+## 29. Team Workload & Capacity Analysis (ANL-03)
+
+### Overview & Data Architecture:
+Provides real-time team workload distribution and capacity analysis across project members. Enables teams to monitor committed workload vs available member capacity, identify overallocated members, detect workload imbalances, and surface unassigned or unestimated tasks without fabricated availability data or double-counting multi-assigned tasks.
+
+### Metrics & Aggregation Engine:
+- **Workload Per Member**:
+  - Aggregates assigned task count, completed tasks, pending tasks, overdue tasks, and unestimated tasks per project team member.
+  - Pre-seeds ALL project team members from the project's parent team so members with 0 tasks are prominently surfaced.
+- **Sprint Capacity Per Member**:
+  - Sprints can configure overall `capacity` and granular `memberCapacities: [{ userId, capacity }]`.
+  - When specific member capacity is configured, it is utilized directly; otherwise, capacity falls back predictably to `sprint.capacity / teamMembers.length` or a standard default capacity (40h).
+  - Clearly distinguishes configured capacity from committed workload.
+- **Multi-Assignee Workload Distribution**:
+  - Tasks with multiple assignees in `assignedTo` divide task work evenly across all assignees (`work / assignees.length`), preventing artificial work inflation or double-counting.
+- **Utilization & Over-Allocation Warnings**:
+  - Computes utilization percentage: `(committedWork / capacity) * 100`.
+  - Flags `isOverAllocated: true` when committed work strictly exceeds configured member capacity.
+  - Visual color indicators: Green (optimal / available, <80%), Amber (near capacity, 80–100%), Red (overloaded, >100%).
+- **Workload Imbalance & Standard Deviation**:
+  - Calculates mean work per member and population standard deviation across active members.
+  - Flags `isImbalanced: true` when standard deviation exceeds 50% of the mean workload.
+- **Unassigned Work & Estimation Risk**:
+  - Directly aggregates unassigned task count and unassigned work value.
+  - Counts unestimated tasks (`estimatedHours == null || estimatedHours === 0`), surfacing estimation gaps before sprint commitment.
+- **Measurement Units**:
+  - Supports both `estimatedHours` (default) and `storyPoints` independently without mixing units.
+- **Multi-Attribute Filtering**:
+  - Supports filtering by `sprintId`, `memberId`, date `range` (`all`, `today`, `this_week`, `this_month`, `last_30_days`, `custom`), and `unit`.
+
+### Permissions & Anti-IDOR Enforcement:
+- Access to team workload and capacity analysis (`GET /api/analytics/project/:projectId/workload-capacity`) strictly requires verified project team membership via `checkProjectAccess`.
+- Updating sprint member capacity configurations requires project team member or owner privileges.
+- Cross-tenant requests or unauthenticated requests are rejected with `401 Unauthorized` or `403 Forbidden`.
+
+### API Endpoints:
+| Endpoint | Method | Required Permission / Role | Description |
+| :--- | :--- | :--- | :--- |
+| `/api/analytics/project/:projectId/workload-capacity` | `GET` | Project Team Member / Owner | Team workload distribution, member capacity, utilization rates, unassigned tasks, and imbalance analysis |
+| `/api/sprints` | `POST` | Project Team Member / Owner | Create sprint with optional `capacity` and `memberCapacities` |
+| `/api/sprints/:sprintId` | `PUT` | Project Team Member / Owner | Update sprint capacity and `memberCapacities` |
