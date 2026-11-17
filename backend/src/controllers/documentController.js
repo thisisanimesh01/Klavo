@@ -4,6 +4,7 @@ import { User } from "../models/User.js";
 import { Team } from "../models/Team.js";
 import { checkProjectAccess } from "../utils/authHelpers.js";
 import { resolveDocumentAccess, DOCUMENT_ROLES } from "../utils/documentPermissions.js";
+import { createDocumentVersionSnapshot } from "../utils/versionHelpers.js";
 import { logActivity } from "./activityController.js";
 import {
   sanitizeDocumentHtml,
@@ -63,6 +64,19 @@ export const createDocument = async (req, res) => {
       lastUpdatedBy: req.user._id,
       defaultAccess: safeDefaultAccess,
       shares: [],
+    });
+
+    // Create initial revision #1 snapshot
+    await createDocumentVersionSnapshot({
+      documentId: doc._id,
+      projectId: doc.projectId,
+      title: doc.title,
+      content: doc.content,
+      contentHtml: doc.contentHtml,
+      description: doc.description,
+      authorId: req.user._id,
+      changeSummary: "Initial version",
+      force: true,
     });
 
     await doc.populate("createdBy", "name email avatar");
@@ -126,9 +140,6 @@ export const getDocumentsByProject = async (req, res) => {
     const query = { projectId, isArchived: false };
 
     // Folder filtering:
-    // "all": return all project documents across all folders
-    // "root" / "null": return unfiled/root documents only
-    // ":folderId": return documents within that folder
     if (folderId !== undefined && folderId !== "all") {
       if (folderId === "root" || folderId === "null" || folderId === "") {
         query.folderId = null;
@@ -211,7 +222,7 @@ export const getDocumentById = async (req, res) => {
 
 /**
  * Updates an existing document (content, title, folder move, cross-project transfer).
- * Requires Editor or Owner role.
+ * Requires Editor or Owner role. Automatically snapshots meaningful revisions.
  */
 export const updateDocument = async (req, res) => {
   try {
@@ -285,6 +296,20 @@ export const updateDocument = async (req, res) => {
 
     doc.lastUpdatedBy = req.user._id;
     await doc.save();
+
+    // Automatically snapshot version if content meaningfully changed
+    await createDocumentVersionSnapshot({
+      documentId: doc._id,
+      projectId: doc.projectId,
+      title: doc.title,
+      content: doc.content,
+      contentHtml: doc.contentHtml,
+      description: doc.description,
+      yjsUpdate: doc.yjsUpdate,
+      authorId: req.user._id,
+      changeSummary: "Auto-saved edit",
+      force: false, // Deduplicates identical content hashes
+    });
 
     await doc.populate("createdBy", "name email avatar");
     await doc.populate("lastUpdatedBy", "name email avatar");

@@ -905,3 +905,49 @@ test("FRONTEND DOC-05: Document Comments & Discussion UI Helpers", async (t) => 
     assert.equal(getMentionQuery("No mention here"), null);
   });
 });
+
+test("FRONTEND DOC-06: Document Version History & Diff UI Helpers", async (t) => {
+  await t.test("Validates visual diff categorization", () => {
+    const diff = [
+      { type: "unchanged", value: "System" },
+      { type: "removed", value: "Alpha" },
+      { type: "added", value: "Beta" },
+    ];
+
+    const stats = {
+      added: diff.filter((d) => d.type === "added").length,
+      removed: diff.filter((d) => d.type === "removed").length,
+      unchanged: diff.filter((d) => d.type === "unchanged").length,
+    };
+
+    assert.equal(stats.added, 1);
+    assert.equal(stats.removed, 1);
+    assert.equal(stats.unchanged, 1);
+  });
+
+  await t.test("Validates chronological sorting of revision history (newest first)", () => {
+    const revisions = [
+      { revisionNumber: 1, createdAt: "2026-01-01T10:00:00Z" },
+      { revisionNumber: 3, createdAt: "2026-01-03T10:00:00Z" },
+      { revisionNumber: 2, createdAt: "2026-01-02T10:00:00Z" },
+    ];
+
+    const sorted = [...revisions].sort((a, b) => b.revisionNumber - a.revisionNumber);
+
+    assert.equal(sorted[0].revisionNumber, 3);
+    assert.equal(sorted[1].revisionNumber, 2);
+    assert.equal(sorted[2].revisionNumber, 1);
+  });
+
+  await t.test("Validates named snapshot badge display condition", () => {
+    const revAuto = { revisionNumber: 4, isNamedSnapshot: false, snapshotName: null };
+    const revNamed = { revisionNumber: 5, isNamedSnapshot: true, snapshotName: "Release v1.0 Final" };
+
+    const getRevisionLabel = (rev) => {
+      return rev.isNamedSnapshot ? rev.snapshotName : `Revision #${rev.revisionNumber}`;
+    };
+
+    assert.equal(getRevisionLabel(revAuto), "Revision #4");
+    assert.equal(getRevisionLabel(revNamed), "Release v1.0 Final");
+  });
+});

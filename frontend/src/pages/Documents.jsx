@@ -1,46 +1,42 @@
-import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { useSelector } from "react-redux";
-import * as Y from "yjs";
 import axiosClient from "../api/axiosClient";
+import socket from "../socket";
+import { useSelector } from "react-redux";
 import TipTapEditor from "../components/TipTapEditor";
 import ThemeToggle from "../components/ThemeToggle";
 import DocumentShareModal from "../components/DocumentShareModal";
 import DocumentCommentsPanel from "../components/DocumentCommentsPanel";
+import DocumentVersionHistoryModal from "../components/DocumentVersionHistoryModal";
 import { CollabSocketProvider } from "../utils/collabSocketProvider";
-import socket from "../socket";
+import * as Y from "yjs";
 import {
   FileText,
   Plus,
   Trash2,
-  Save,
-  CheckCircle2,
-  Clock,
-  Search,
-  ArrowLeft,
-  Share2,
-  BookOpen,
-  Calendar,
-  AlertCircle,
-  FolderOpen,
-  FolderPlus,
-  ChevronRight,
   Folder,
-  MoveRight,
-  ArrowUpDown,
-  Home,
-  SlidersHorizontal,
-  X,
-  Edit2,
+  FolderPlus,
+  FolderOpen,
+  ChevronRight,
+  MoreVertical,
+  Share2,
   Users,
-  Eye,
-  Shield,
-  Crown,
+  Search,
+  ArrowUpDown,
+  Lock,
+  Globe,
+  Sparkles,
+  CheckCircle2,
+  AlertCircle,
+  Clock,
+  ChevronDown,
+  Edit2,
+  History,
   MessageSquare,
 } from "lucide-react";
 
 export default function Documents() {
-  const { projectId, documentId } = useParams();
+  const { projectId } = useParams();
   const navigate = useNavigate();
   const authUser = useSelector((state) => state.auth.user);
 
@@ -60,61 +56,50 @@ export default function Documents() {
   const [collaborators, setCollaborators] = useState([]);
   const [collabYDoc, setCollabYDoc] = useState(null);
   const [collabProvider, setCollabProvider] = useState(null);
+  // Session key to force clean provider & TipTap unmount/remount on authoritative restoration
+  const [collabSessionEpoch, setCollabSessionEpoch] = useState(1);
 
   // Comments & Discussions State (DOC-05)
   const [comments, setComments] = useState([]);
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
   const [activeAnchor, setActiveAnchor] = useState(null);
 
+  // Version History State (DOC-06)
+  const [versionModalOpen, setVersionModalOpen] = useState(false);
+
   // Modals State
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderColor, setNewFolderColor] = useState("#6366f1");
-  const [moveDocModalOpen, setMoveDocModalOpen] = useState(false);
-  const [targetMoveFolderId, setTargetMoveFolderId] = useState("root");
 
-  // Editor Draft State
+  // Local draft states
   const [title, setTitle] = useState("");
   const contentRef = useRef(null);
   const saveTimeoutRef = useRef(null);
 
-  // Fetch all documents for project
-  const fetchDocuments = useCallback(async () => {
+  // Fetch project team members for sharing
+  const fetchProjectTeamMembers = useCallback(async () => {
+    if (!projectId) return;
     try {
-      setLoading(true);
-      const res = await axiosClient.get(`/documents/project/${projectId}`, {
-        params: {
-          sortBy,
-          sortOrder,
-          folderId: selectedFolderId,
-        },
-      });
-      const list = res.data || [];
-      setDocuments(list);
-
-      // If documentId specified in route, select it
-      if (documentId) {
-        const found = list.find((d) => d._id === documentId);
-        if (found) {
-          setSelectedDoc(found);
-          setTitle(found.title);
-          contentRef.current = found.content;
-        }
-      } else if (list.length > 0 && !selectedDoc) {
-        setSelectedDoc(list[0]);
-        setTitle(list[0].title);
-        contentRef.current = list[0].content;
+      const res = await axiosClient.get(`/projects/${projectId}`);
+      const teamId = res.data?.teamId?._id || res.data?.teamId;
+      if (teamId) {
+        const teamRes = await axiosClient.get(`/teams/${teamId}`);
+        setProjectTeamMembers(teamRes.data?.members || []);
       }
     } catch (err) {
-      console.error("Failed to fetch documents:", err);
-    } finally {
-      setLoading(false);
+      console.error("Failed to load project team members:", err);
     }
-  }, [projectId, documentId, selectedFolderId, sortBy, sortOrder]);
+  }, [projectId]);
 
-  // Fetch folders for project
+  useEffect(() => {
+    fetchProjectTeamMembers();
+  }, [fetchProjectTeamMembers]);
+
+  // Fetch Folders
   const fetchFolders = useCallback(async () => {
+    if (!projectId) return;
     try {
       const res = await axiosClient.get(`/documents/folders/project/${projectId}`);
       setFolders(res.data || []);
@@ -123,44 +108,59 @@ export default function Documents() {
     }
   }, [projectId]);
 
-  // Fetch project team members for sharing and mentions
-  const fetchProjectTeam = useCallback(async () => {
+  useEffect(() => {
+    fetchFolders();
+  }, [fetchFolders]);
+
+  // Fetch Documents
+  const fetchDocuments = useCallback(async () => {
+    if (!projectId) return;
     try {
-      const projectRes = await axiosClient.get(`/projects/${projectId}`);
-      const teamId = projectRes.data?.teamId?._id || projectRes.data?.teamId;
-      if (teamId) {
-        const teamRes = await axiosClient.get(`/teams/${teamId}`);
-        const members = teamRes.data?.members || [];
-        const owner = teamRes.data?.owner;
-        const allMembers = owner && !members.some((m) => m._id === owner._id) ? [owner, ...members] : members;
-        setProjectTeamMembers(allMembers);
+      setLoading(true);
+      const res = await axiosClient.get(`/documents/project/${projectId}`, {
+        params: {
+          folderId: selectedFolderId,
+          search: searchQuery,
+          sortBy,
+          sortOrder,
+        },
+      });
+      const docs = res.data || [];
+      setDocuments(docs);
+
+      // Auto-select first doc if none selected or if selectedDoc was deleted
+      if (docs.length > 0) {
+        if (!selectedDoc || !docs.some((d) => d._id === selectedDoc._id)) {
+          setSelectedDoc(docs[0]);
+          setTitle(docs[0].title);
+          contentRef.current = docs[0].content;
+        }
+      } else {
+        setSelectedDoc(null);
+        setTitle("");
+        contentRef.current = null;
       }
     } catch (err) {
-      console.error("Failed to fetch project team members:", err);
+      console.error("Failed to fetch documents:", err);
+    } finally {
+      setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, selectedFolderId, searchQuery, sortBy, sortOrder]);
 
-  // Fetch comments for selected document
+  useEffect(() => {
+    fetchDocuments();
+  }, [fetchDocuments]);
+
+  // Fetch Comments for active document
   const fetchComments = useCallback(async () => {
-    if (!selectedDoc?._id) {
-      setComments([]);
-      return;
-    }
+    if (!selectedDoc?._id) return;
     try {
       const res = await axiosClient.get(`/documents/${selectedDoc._id}/comments`);
       setComments(res.data || []);
     } catch (err) {
-      console.error("Failed to fetch document comments:", err);
+      console.error("Failed to load document comments:", err);
     }
   }, [selectedDoc?._id]);
-
-  useEffect(() => {
-    if (projectId) {
-      fetchDocuments();
-      fetchFolders();
-      fetchProjectTeam();
-    }
-  }, [projectId, fetchDocuments, fetchFolders, fetchProjectTeam]);
 
   useEffect(() => {
     if (selectedDoc?._id) {
@@ -168,7 +168,7 @@ export default function Documents() {
     }
   }, [selectedDoc?._id, fetchComments]);
 
-  // Setup real-time collaborative editing session when selectedDoc changes
+  // Setup real-time collaborative editing session when selectedDoc or session epoch changes
   useEffect(() => {
     if (!selectedDoc?._id) {
       setCollabYDoc(null);
@@ -193,6 +193,27 @@ export default function Documents() {
       }
     };
 
+    // Handle authoritative server reset (e.g. Version restoration)
+    provider.onDocumentReset = ({ doc: restoredDoc, epoch }) => {
+      // Cancel any pending autosave timer immediately
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      setSaveStatus("saved");
+
+      // Bump session epoch to trigger clean provider and TipTap remount
+      setCollabSessionEpoch((prev) => (epoch ? epoch : prev + 1));
+      if (restoredDoc) {
+        setSelectedDoc((prev) => ({
+          ...restoredDoc,
+          userPermission: prev?.userPermission || restoredDoc.userPermission,
+        }));
+        setTitle(restoredDoc.title);
+        contentRef.current = restoredDoc.content;
+      }
+    };
+
     setCollabYDoc(ydoc);
     setCollabProvider(provider);
 
@@ -203,9 +224,9 @@ export default function Documents() {
       setCollabProvider(null);
       setCollaborators([]);
     };
-  }, [selectedDoc?._id, authUser]);
+  }, [selectedDoc?._id, authUser, collabSessionEpoch]);
 
-  // Socket.IO real-time project-level & document comment events
+  // Socket.IO real-time project-level, comment, and version restore events
   useEffect(() => {
     if (!projectId) return;
     if (!socket.connected) socket.connect();
@@ -218,7 +239,7 @@ export default function Documents() {
 
     const handleDocUpdated = (updatedDoc) => {
       setDocuments((prev) =>
-        prev.map((d) => (d._id === updatedDoc._id ? updatedDoc : d))
+        prev.map((d) => (d._id === updatedDoc._id ? { ...d, ...updatedDoc } : d))
       );
       if (selectedDoc && selectedDoc._id === updatedDoc._id) {
         setSelectedDoc((prev) => ({
@@ -228,10 +249,12 @@ export default function Documents() {
       }
     };
 
-    const handleDocDeleted = ({ documentId: delId }) => {
-      setDocuments((prev) => prev.filter((d) => d._id !== delId));
-      if (selectedDoc && selectedDoc._id === delId) {
+    const handleDocDeleted = ({ documentId }) => {
+      setDocuments((prev) => prev.filter((d) => d._id !== documentId));
+      if (selectedDoc && selectedDoc._id === documentId) {
         setSelectedDoc(null);
+        setTitle("");
+        contentRef.current = null;
       }
     };
 
@@ -245,34 +268,29 @@ export default function Documents() {
       );
     };
 
-    const handleFolderDeleted = ({ folderId: delFolderId }) => {
-      setFolders((prev) => prev.filter((f) => f._id !== delFolderId));
-      if (selectedFolderId === delFolderId) {
+    const handleFolderDeleted = ({ folderId }) => {
+      setFolders((prev) => prev.filter((f) => f._id !== folderId));
+      if (selectedFolderId === folderId) {
         setSelectedFolderId("all");
       }
-      fetchDocuments();
     };
 
-    // Real-time comment event handlers (DOC-05)
     const handleCommentAdded = (newComment) => {
-      if (newComment.documentId?.toString() !== selectedDoc?._id?.toString()) return;
-
-      setComments((prev) => {
-        if (newComment.parentCommentId) {
-          // Reply added
-          return prev.map((thread) => {
-            if (thread._id === newComment.parentCommentId) {
-              const replies = thread.replies || [];
-              if (replies.some((r) => r._id === newComment._id)) return thread;
-              return { ...thread, replies: [...replies, newComment] };
-            }
-            return thread;
-          });
-        }
-        // Top-level thread added
-        if (prev.some((t) => t._id === newComment._id)) return prev;
-        return [...prev, { ...newComment, replies: [] }];
-      });
+      if (!selectedDoc || newComment.documentId !== selectedDoc._id) return;
+      if (newComment.parentCommentId) {
+        setComments((prev) =>
+          prev.map((thread) =>
+            thread._id === newComment.parentCommentId
+              ? {
+                  ...thread,
+                  replies: [...(thread.replies || []), newComment],
+                }
+              : thread
+          )
+        );
+      } else {
+        setComments((prev) => [newComment, ...prev]);
+      }
     };
 
     const handleCommentResolved = ({ commentId, isResolved, resolvedBy, resolvedAt }) => {
@@ -288,16 +306,33 @@ export default function Documents() {
     const handleCommentDeleted = ({ commentId, parentCommentId }) => {
       setComments((prev) => {
         if (parentCommentId) {
-          // Remove reply from thread
           return prev.map((thread) =>
             thread._id === parentCommentId
               ? { ...thread, replies: (thread.replies || []).filter((r) => r._id !== commentId) }
               : thread
           );
         }
-        // Remove root thread
         return prev.filter((t) => t._id !== commentId);
       });
+    };
+
+    // Real-time version restoration event (DOC-06): cancel in-flight saves & trigger epoch remount
+    const handleVersionRestored = ({ documentId: restDocId, epoch, doc: restoredDoc }) => {
+      if (selectedDoc && selectedDoc._id === restDocId) {
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+          saveTimeoutRef.current = null;
+        }
+        setSaveStatus("saved");
+
+        setCollabSessionEpoch((prev) => (epoch ? epoch : prev + 1));
+        setSelectedDoc((prev) => ({
+          ...restoredDoc,
+          userPermission: prev?.userPermission || restoredDoc.userPermission,
+        }));
+        setTitle(restoredDoc.title);
+        contentRef.current = restoredDoc.content;
+      }
     };
 
     socket.on("documentCreated", handleDocCreated);
@@ -309,6 +344,7 @@ export default function Documents() {
     socket.on("docCommentAdded", handleCommentAdded);
     socket.on("docCommentResolved", handleCommentResolved);
     socket.on("docCommentDeleted", handleCommentDeleted);
+    socket.on("docVersionRestored", handleVersionRestored);
 
     return () => {
       socket.off("documentCreated", handleDocCreated);
@@ -320,6 +356,7 @@ export default function Documents() {
       socket.off("docCommentAdded", handleCommentAdded);
       socket.off("docCommentResolved", handleCommentResolved);
       socket.off("docCommentDeleted", handleCommentDeleted);
+      socket.off("docVersionRestored", handleVersionRestored);
       socket.emit("leaveProject", { projectId });
     };
   }, [projectId, selectedDoc, selectedFolderId, fetchDocuments]);
@@ -362,18 +399,16 @@ export default function Documents() {
         }
       }, 1200);
     },
-    [selectedDoc, title, canEditCurrentDoc]
+    [selectedDoc, canEditCurrentDoc, title]
   );
 
   const handleTitleChange = (e) => {
-    if (!canEditCurrentDoc) return;
     const val = e.target.value;
     setTitle(val);
     triggerAutosave(val, contentRef.current);
   };
 
   const handleEditorChange = ({ json, html }) => {
-    if (!canEditCurrentDoc) return;
     contentRef.current = json;
     triggerAutosave(title, json, html);
   };
@@ -381,56 +416,58 @@ export default function Documents() {
   // Create new document
   const handleCreateDocument = async () => {
     try {
-      const payload = {
-        title: "Untitled Document",
+      setLoading(true);
+      const res = await axiosClient.post("/documents", {
         projectId,
-        folderId: selectedFolderId !== "all" && selectedFolderId !== "root" ? selectedFolderId : null,
-      };
-      const res = await axiosClient.post("/documents", payload);
-      setDocuments((prev) => [res.data, ...prev]);
-      setSelectedDoc(res.data);
-      setTitle(res.data.title);
-      contentRef.current = res.data.content;
-      navigate(`/projects/${projectId}/documents/${res.data._id}`);
+        title: "Untitled Document",
+        folderId: selectedFolderId === "all" || selectedFolderId === "root" ? null : selectedFolderId,
+        content: { type: "doc", content: [{ type: "paragraph", content: [] }] },
+        contentHtml: "<p></p>",
+      });
+
+      const newDoc = res.data;
+      setDocuments((prev) => [newDoc, ...prev]);
+      setSelectedDoc(newDoc);
+      setTitle(newDoc.title);
+      contentRef.current = newDoc.content;
     } catch (err) {
       console.error("Failed to create document:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // Delete current document
-  const handleDeleteDocument = async (docId) => {
-    if (!window.confirm("Are you sure you want to delete this document?")) return;
+  // Create new folder
+  const handleCreateFolder = async (e) => {
+    e.preventDefault();
+    if (!newFolderName.trim()) return;
+
     try {
-      await axiosClient.delete(`/documents/${docId}`);
-      setDocuments((prev) => prev.filter((d) => d._id !== docId));
-      if (selectedDoc && selectedDoc._id === docId) {
-        const remaining = documents.filter((d) => d._id !== docId);
-        if (remaining.length > 0) {
-          setSelectedDoc(remaining[0]);
-          setTitle(remaining[0].title);
-          contentRef.current = remaining[0].content;
-        } else {
-          setSelectedDoc(null);
-          setTitle("");
-        }
-      }
+      const res = await axiosClient.post("/documents/folders", {
+        projectId,
+        name: newFolderName.trim(),
+        color: newFolderColor,
+      });
+
+      setFolders((prev) => [...prev, res.data]);
+      setNewFolderName("");
+      setCreateFolderModalOpen(false);
     } catch (err) {
-      console.error("Failed to delete document:", err);
-      alert(err.response?.data?.message || "Failed to delete document");
+      console.error("Failed to create folder:", err);
     }
   };
 
-  // Comments Actions (DOC-05)
-  const handleCreateComment = async ({ text, parentCommentId, anchor }) => {
-    if (!selectedDoc?._id) return;
+  // Handle inline comment submission
+  const handleAddComment = async ({ text, anchor, parentCommentId }) => {
+    if (!selectedDoc || !canCommentCurrentDoc) return;
     try {
       const res = await axiosClient.post(`/documents/${selectedDoc._id}/comments`, {
+        projectId,
+        parentCommentId: parentCommentId || null,
         text,
-        parentCommentId,
         anchor,
       });
 
-      // Update state locally
       const newComment = res.data;
       if (parentCommentId) {
         setComments((prev) =>
@@ -441,556 +478,369 @@ export default function Documents() {
           )
         );
       } else {
-        setComments((prev) => [...prev, { ...newComment, replies: [] }]);
+        setComments((prev) => [newComment, ...prev]);
       }
+      setActiveAnchor(null);
     } catch (err) {
-      console.error("Failed to create comment:", err);
-      alert(err.response?.data?.message || "Failed to post comment");
+      console.error("Failed to submit comment:", err);
     }
   };
 
-  const handleResolveComment = async (commentId, isResolved) => {
+  // Handle comment resolution toggle
+  const handleToggleResolve = async (commentId) => {
     try {
-      const res = await axiosClient.patch(`/documents/comments/${commentId}/resolve`, {
-        isResolved,
-      });
+      const res = await axiosClient.patch(`/documents/comments/${commentId}/resolve`);
       setComments((prev) =>
-        prev.map((thread) =>
-          thread._id === commentId ? { ...thread, ...res.data } : thread
-        )
+        prev.map((t) => (t._id === commentId ? { ...t, ...res.data } : t))
       );
     } catch (err) {
-      console.error("Failed to toggle resolve comment:", err);
-      alert(err.response?.data?.message || "Failed to resolve comment");
+      console.error("Failed to toggle resolve:", err);
     }
   };
 
-  const handleDeleteComment = async (commentId) => {
-    if (!window.confirm("Delete this comment?")) return;
+  // Handle comment deletion
+  const handleDeleteComment = async (commentId, parentCommentId) => {
     try {
       await axiosClient.delete(`/documents/comments/${commentId}`);
-      setComments((prev) =>
-        prev
-          .filter((t) => t._id !== commentId)
-          .map((t) => ({
-            ...t,
-            replies: (t.replies || []).filter((r) => r._id !== commentId),
-          }))
-      );
+      setComments((prev) => {
+        if (parentCommentId) {
+          return prev.map((t) =>
+            t._id === parentCommentId
+              ? { ...t, replies: (t.replies || []).filter((r) => r._id !== commentId) }
+              : t
+          );
+        }
+        return prev.filter((t) => t._id !== commentId);
+      });
     } catch (err) {
       console.error("Failed to delete comment:", err);
-      alert(err.response?.data?.message || "Failed to delete comment");
     }
   };
 
-  // Create new folder
-  const handleCreateFolder = async (e) => {
-    e.preventDefault();
-    if (!newFolderName.trim()) return;
+  // Delete document
+  const handleDeleteDocument = async (docId) => {
+    if (!window.confirm("Are you sure you want to delete this document?")) return;
     try {
-      const res = await axiosClient.post("/documents/folders", {
-        name: newFolderName.trim(),
-        projectId,
-        color: newFolderColor,
-      });
-      setFolders((prev) => [...prev, res.data]);
-      setNewFolderName("");
-      setCreateFolderModalOpen(false);
-      setSelectedFolderId(res.data._id);
+      await axiosClient.delete(`/documents/${docId}`);
+      setDocuments((prev) => prev.filter((d) => d._id !== docId));
+      if (selectedDoc?._id === docId) {
+        const remaining = documents.filter((d) => d._id !== docId);
+        if (remaining.length > 0) {
+          setSelectedDoc(remaining[0]);
+          setTitle(remaining[0].title);
+          contentRef.current = remaining[0].content;
+        } else {
+          setSelectedDoc(null);
+          setTitle("");
+          contentRef.current = null;
+        }
+      }
     } catch (err) {
-      console.error("Failed to create folder:", err);
-      alert(err.response?.data?.message || "Failed to create folder");
+      console.error("Failed to delete document:", err);
     }
   };
-
-  // Move document into a folder
-  const handleMoveDocument = async () => {
-    if (!selectedDoc) return;
-    try {
-      const folderVal = targetMoveFolderId === "root" ? null : targetMoveFolderId;
-      const res = await axiosClient.put(`/documents/${selectedDoc._id}`, {
-        folderId: folderVal,
-      });
-      setSelectedDoc(res.data);
-      setDocuments((prev) => prev.map((d) => (d._id === res.data._id ? res.data : d)));
-      setMoveDocModalOpen(false);
-      fetchFolders();
-    } catch (err) {
-      console.error("Failed to move document:", err);
-      alert(err.response?.data?.message || "Failed to move document");
-    }
-  };
-
-  // Delete folder
-  const handleDeleteFolder = async (folderId) => {
-    if (!window.confirm("Delete this folder? Contained documents will safely move to Root.")) return;
-    try {
-      await axiosClient.delete(`/documents/folders/${folderId}`);
-      setFolders((prev) => prev.filter((f) => f._id !== folderId));
-      if (selectedFolderId === folderId) {
-        setSelectedFolderId("all");
-      }
-      fetchDocuments();
-    } catch (err) {
-      console.error("Failed to delete folder:", err);
-      alert(err.response?.data?.message || "Failed to delete folder");
-    }
-  };
-
-  // Capture mouse selection to enable inline comment anchor
-  const handleEditorSelection = () => {
-    const sel = window.getSelection();
-    if (sel && sel.toString().trim().length > 0) {
-      setActiveAnchor({
-        selectedText: sel.toString().trim(),
-      });
-      setCommentsPanelOpen(true);
-    }
-  };
-
-  // Filtered documents list
-  const filteredDocuments = useMemo(() => {
-    return documents.filter((d) => {
-      // Folder filtering
-      if (selectedFolderId === "root" && d.folderId) return false;
-      if (selectedFolderId !== "all" && selectedFolderId !== "root") {
-        const docFid = d.folderId?._id || d.folderId;
-        if (docFid !== selectedFolderId) return false;
-      }
-      // Search filter
-      if (searchQuery.trim()) {
-        const query = searchQuery.toLowerCase();
-        const matchTitle = d.title.toLowerCase().includes(query);
-        const matchDesc = (d.description || "").toLowerCase().includes(query);
-        return matchTitle || matchDesc;
-      }
-      return true;
-    });
-  }, [documents, selectedFolderId, searchQuery]);
-
-  // Document count per folder
-  const folderCounts = useMemo(() => {
-    const counts = { all: documents.length, root: 0 };
-    documents.forEach((d) => {
-      if (!d.folderId) {
-        counts.root = (counts.root || 0) + 1;
-      } else {
-        const fId = d.folderId?._id || d.folderId;
-        counts[fId] = (counts[fId] || 0) + 1;
-      }
-    });
-    return counts;
-  }, [documents]);
-
-  const userRole = selectedDoc?.userPermission?.role || "viewer";
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
-      {/* Top Header Bar */}
-      <div className="h-14 px-6 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md flex items-center justify-between z-10 shrink-0">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate(`/projects/${projectId}/board`)}
-            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition"
-            title="Back to Board"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <div className="flex items-center gap-2">
-            <BookOpen className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-            <h1 className="text-base font-bold tracking-tight text-slate-900 dark:text-white">
-              Project Documents
-            </h1>
+    <div className="flex h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 overflow-hidden font-sans">
+      {/* Sidebar: Navigation, Folders & Documents Tree */}
+      <div className="w-80 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col h-full shadow-xs">
+        {/* Sidebar Header */}
+        <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
+            <div className="p-1.5 rounded-lg bg-indigo-600 text-white">
+              <FileText className="w-5 h-5" />
+            </div>
+            <span className="text-base tracking-tight">Documents</span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setCreateFolderModalOpen(true)}
+              className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              title="New Folder"
+            >
+              <FolderPlus className="w-4 h-4" />
+            </button>
+            <button
+              onClick={handleCreateDocument}
+              className="p-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition flex items-center gap-1 shadow-xs"
+              title="New Document"
+            >
+              <Plus className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
-        {/* Action Controls & Collaborators */}
-        <div className="flex items-center gap-3">
-          {/* Active Collaborators Presence Bar */}
-          {selectedDoc && (
-            <div className="flex items-center gap-1.5 px-3 py-1 bg-slate-100 dark:bg-slate-800/80 rounded-full border border-slate-200 dark:border-slate-700/60 text-xs">
-              <Users className="w-3.5 h-3.5 text-indigo-500" />
-              <div className="flex items-center -space-x-1.5 overflow-hidden">
-                {collaborators.map((c, i) => (
-                  <div
-                    key={c.socketId || i}
-                    className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white border border-white dark:border-slate-900 shadow-xs"
-                    style={{ backgroundColor: c.color || "#6366f1" }}
-                    title={`${c.name} (${c.role || "collaborator"})`}
-                  >
-                    {c.name ? c.name.charAt(0).toUpperCase() : "U"}
-                  </div>
-                ))}
-              </div>
-              <span className="text-[11px] font-medium text-slate-600 dark:text-slate-300 ml-1">
-                {collaborators.length > 0 ? `${collaborators.length} active` : "1 editor"}
-              </span>
-            </div>
-          )}
+        {/* Search & Filter Bar */}
+        <div className="p-3 border-b border-slate-200 dark:border-slate-800 space-y-2">
+          <div className="relative">
+            <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search documents..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 transition"
+            />
+          </div>
 
-          {/* User Document Role Badge */}
-          {selectedDoc && (
-            <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 capitalize">
-              <Shield className="w-3.5 h-3.5 text-indigo-500" />
-              <span>{userRole}</span>
-            </div>
-          )}
-
-          {/* Discussions Button */}
-          {selectedDoc && (
-            <button
-              onClick={() => setCommentsPanelOpen(!commentsPanelOpen)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition border ${
-                commentsPanelOpen
-                  ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
-                  : "bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
-              }`}
-              title="Toggle Discussion Panel"
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span>Comments</span>
-              {comments.length > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
-                  commentsPanelOpen ? "bg-white/20 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
-                }`}>
-                  {comments.length}
-                </span>
-              )}
-            </button>
-          )}
-
-          {/* Autosave Status Pill (shown only when user has edit permissions) */}
-          {selectedDoc && canEditCurrentDoc && (
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
-              {saveStatus === "saving" && (
-                <>
-                  <Clock className="w-3.5 h-3.5 text-amber-500 animate-spin" />
-                  <span>Saving...</span>
-                </>
-              )}
-              {saveStatus === "saved" && (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-                  <span className="text-emerald-600 dark:text-emerald-400 font-medium">Saved</span>
-                </>
-              )}
-              {saveStatus === "unsaved" && (
-                <>
-                  <div className="w-2 h-2 rounded-full bg-amber-500" />
-                  <span>Unsaved changes</span>
-                </>
-              )}
-              {saveStatus === "error" && (
-                <>
-                  <AlertCircle className="w-3.5 h-3.5 text-red-500" />
-                  <span className="text-red-500 font-medium">Error saving</span>
-                </>
-              )}
-            </div>
-          )}
-
-          {/* Share Button (opens permission management modal) */}
-          {selectedDoc && (
-            <button
-              onClick={() => setShareModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl transition border border-slate-200 dark:border-slate-700"
-            >
-              <Share2 className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Share</span>
-            </button>
-          )}
-
-          <button
-            onClick={handleCreateDocument}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl transition shadow-xs"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>New Doc</span>
-          </button>
-          <ThemeToggle />
-        </div>
-      </div>
-
-      {/* Main Split Layout */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar: Folder & Document Navigation */}
-        <div className="w-80 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col shrink-0">
-          {/* Search & Sort Controls */}
-          <div className="p-3 border-b border-slate-200 dark:border-slate-800 space-y-2">
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search documents..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div className="flex items-center justify-between text-[11px] text-slate-500">
-              <div className="flex items-center gap-1">
-                <ArrowUpDown className="w-3 h-3 text-slate-400" />
-                <span>Sort:</span>
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="bg-transparent font-medium text-slate-700 dark:text-slate-300 focus:outline-hidden cursor-pointer"
-                >
-                  <option value="updatedAt">Updated</option>
-                  <option value="title">Title</option>
-                  <option value="createdAt">Created</option>
-                </select>
-              </div>
-
-              <button
-                onClick={() => setCreateFolderModalOpen(true)}
-                className="flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <div className="flex items-center gap-1">
+              <ArrowUpDown className="w-3.5 h-3.5" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="bg-transparent text-xs text-slate-700 dark:text-slate-300 focus:outline-hidden cursor-pointer"
               >
-                <FolderPlus className="w-3 h-3" />
-                <span>New Folder</span>
-              </button>
+                <option value="updatedAt">Updated</option>
+                <option value="createdAt">Created</option>
+                <option value="title">Title</option>
+              </select>
             </div>
-          </div>
 
-          {/* Folder Pills Horizontal Bar */}
-          <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-800 flex items-center gap-1 overflow-x-auto scrollbar-none text-xs">
+            <button
+              onClick={() => setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"))}
+              className="hover:text-indigo-600 transition uppercase font-semibold text-[10px]"
+            >
+              {sortOrder}
+            </button>
+          </div>
+        </div>
+
+        {/* Folders List */}
+        <div className="px-3 py-2 border-b border-slate-200 dark:border-slate-800">
+          <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 px-2">
+            Folders
+          </div>
+          <div className="space-y-0.5">
             <button
               onClick={() => setSelectedFolderId("all")}
-              className={`px-2.5 py-1 rounded-lg shrink-0 transition flex items-center gap-1.5 ${
+              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs font-medium transition ${
                 selectedFolderId === "all"
-                  ? "bg-indigo-600 text-white font-semibold shadow-xs"
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                  ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50"
               }`}
             >
-              <span>All</span>
-              <span className="text-[10px] opacity-75">({folderCounts.all})</span>
+              <Folder className="w-3.5 h-3.5" />
+              <span>All Documents</span>
             </button>
 
             <button
               onClick={() => setSelectedFolderId("root")}
-              className={`px-2.5 py-1 rounded-lg shrink-0 transition flex items-center gap-1.5 ${
+              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-xl text-xs font-medium transition ${
                 selectedFolderId === "root"
-                  ? "bg-indigo-600 text-white font-semibold shadow-xs"
-                  : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
+                  ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold"
+                  : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50"
               }`}
             >
-              <Home className="w-3 h-3" />
-              <span>Root</span>
-              <span className="text-[10px] opacity-75">({folderCounts.root || 0})</span>
+              <FolderOpen className="w-3.5 h-3.5" />
+              <span>Unfiled (Root)</span>
             </button>
 
-            {folders.map((folder) => {
-              const count = folderCounts[folder._id] || 0;
-              const isSelected = selectedFolderId === folder._id;
-              return (
-                <div
-                  key={folder._id}
-                  className={`group px-2.5 py-1 rounded-lg shrink-0 transition flex items-center gap-1.5 ${
-                    isSelected
-                      ? "bg-indigo-600 text-white font-semibold shadow-xs"
-                      : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700"
-                  }`}
-                >
-                  <button
-                    onClick={() => setSelectedFolderId(folder._id)}
-                    className="flex items-center gap-1.5"
-                  >
-                    <Folder
-                      className="w-3 h-3"
-                      style={{ color: isSelected ? "white" : folder.color || "#6366f1" }}
-                    />
-                    <span className="truncate max-w-[90px]">{folder.name}</span>
-                    <span className="text-[10px] opacity-75">({count})</span>
-                  </button>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeleteFolder(folder._id);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 hover:text-red-400 transition"
-                    title="Delete Folder"
-                  >
-                    <X className="w-2.5 h-2.5" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Document List */}
-          <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            {loading ? (
-              <div className="p-8 text-center text-xs text-slate-400">Loading documents...</div>
-            ) : filteredDocuments.length === 0 ? (
-              <div className="p-8 text-center text-xs text-slate-400 space-y-2">
-                <FileText className="w-8 h-8 mx-auto text-slate-300 dark:text-slate-700" />
-                <p>No documents found in this view.</p>
-                <button
-                  onClick={handleCreateDocument}
-                  className="px-3 py-1 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold rounded-lg hover:underline"
-                >
-                  Create one now
-                </button>
-              </div>
-            ) : (
-              filteredDocuments.map((doc) => {
-                const isSelected = selectedDoc?._id === doc._id;
-                const canDelete = doc.userPermission?.canDelete;
-                return (
+            {folders.map((folder) => (
+              <button
+                key={folder._id}
+                onClick={() => setSelectedFolderId(folder._id)}
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-xl text-xs font-medium transition ${
+                  selectedFolderId === folder._id
+                    ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-semibold"
+                    : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/50"
+                }`}
+              >
+                <div className="flex items-center gap-2 truncate">
                   <div
-                    key={doc._id}
-                    onClick={() => {
-                      setSelectedDoc(doc);
-                      setTitle(doc.title);
-                      contentRef.current = doc.content;
-                      navigate(`/projects/${projectId}/documents/${doc._id}`);
-                    }}
-                    className={`group w-full text-left p-3 rounded-xl transition flex flex-col gap-1 cursor-pointer ${
-                      isSelected
-                        ? "bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/80 shadow-xs"
-                        : "hover:bg-slate-50 dark:hover:bg-slate-800/60 border border-transparent"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 truncate">
-                        <FileText
-                          className={`w-3.5 h-3.5 shrink-0 ${
-                            isSelected
-                              ? "text-indigo-600 dark:text-indigo-400 font-bold"
-                              : "text-slate-400"
-                          }`}
-                        />
-                        <span
-                          className={`text-xs truncate ${
-                            isSelected
-                              ? "font-bold text-indigo-900 dark:text-indigo-200"
-                              : "font-medium text-slate-800 dark:text-slate-200"
-                          }`}
-                        >
-                          {doc.title || "Untitled Document"}
-                        </span>
-                      </div>
-                      {canDelete && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteDocument(doc._id);
-                          }}
-                          className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 text-slate-400 transition"
-                          title="Delete Document"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-
-                    {doc.description && (
-                      <p className="text-[11px] text-slate-400 dark:text-slate-500 line-clamp-1 pl-5.5">
-                        {doc.description}
-                      </p>
-                    )}
-
-                    <div className="flex items-center gap-2 text-[10px] text-slate-400 pl-5.5 pt-0.5">
-                      <span>{new Date(doc.updatedAt).toLocaleDateString()}</span>
-                      {doc.folderId && (
-                        <span className="flex items-center gap-1 text-slate-500">
-                          <span>•</span>
-                          <Folder className="w-2.5 h-2.5" />
-                          <span>{doc.folderId.name || "Folder"}</span>
-                        </span>
-                      )}
-                      {doc.userPermission?.role && (
-                        <span className="text-[10px] uppercase font-semibold text-indigo-500 dark:text-indigo-400">
-                          • {doc.userPermission.role}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })
-            )}
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: folder.color || "#6366f1" }}
+                  />
+                  <span className="truncate">{folder.name}</span>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Center Editor Area */}
-        <div
-          className="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto w-full"
-          onMouseUp={handleEditorSelection}
-        >
-          {selectedDoc ? (
-            <div className="space-y-6">
-              {/* Document Breadcrumb & Folder Actions */}
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <div className="flex items-center gap-1.5">
-                  <span
-                    onClick={() => setSelectedFolderId("all")}
-                    className="hover:text-indigo-600 cursor-pointer"
-                  >
-                    Documents
-                  </span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                  {selectedDoc.folderId ? (
-                    <span
-                      onClick={() => setSelectedFolderId(selectedDoc.folderId._id)}
-                      className="font-medium text-slate-600 dark:text-slate-300 hover:text-indigo-600 cursor-pointer flex items-center gap-1"
-                    >
-                      <Folder className="w-3 h-3 text-indigo-500" />
-                      {selectedDoc.folderId.name}
+        {/* Document Items List */}
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {documents.map((doc) => {
+            const isSelected = selectedDoc?._id === doc._id;
+            return (
+              <div
+                key={doc._id}
+                onClick={() => {
+                  setSelectedDoc(doc);
+                  setTitle(doc.title);
+                  contentRef.current = doc.content;
+                }}
+                className={`group flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition border ${
+                  isSelected
+                    ? "bg-indigo-50/70 dark:bg-indigo-950/40 border-indigo-200 dark:border-indigo-800/60 text-indigo-900 dark:text-indigo-200"
+                    : "border-transparent hover:bg-slate-100 dark:hover:bg-slate-800/50 text-slate-700 dark:text-slate-300"
+                }`}
+              >
+                <div className="flex items-start gap-2.5 truncate">
+                  <FileText className={`w-4 h-4 mt-0.5 shrink-0 ${isSelected ? "text-indigo-600" : "text-slate-400"}`} />
+                  <div className="truncate">
+                    <h4 className="text-xs font-semibold truncate leading-tight">
+                      {doc.title || "Untitled Document"}
+                    </h4>
+                    <span className="text-[10px] text-slate-400 flex items-center gap-1 mt-0.5">
+                      <Clock className="w-2.5 h-2.5" />
+                      {new Date(doc.updatedAt).toLocaleDateString()}
                     </span>
-                  ) : (
-                    <span className="text-slate-500">Root / Unfiled</span>
-                  )}
-                  <ChevronRight className="w-3.5 h-3.5" />
-                  <span className="font-semibold text-slate-800 dark:text-slate-200">
-                    {title || "Untitled Document"}
-                  </span>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {selectedDoc.userPermission?.canEdit && (
-                    <button
-                      onClick={() => {
-                        setTargetMoveFolderId(selectedDoc.folderId?._id || "root");
-                        setMoveDocModalOpen(true);
-                      }}
-                      className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition"
-                      title="Move to another folder"
-                    >
-                      <MoveRight className="w-3.5 h-3.5 text-slate-400" />
-                      <span>Move</span>
-                    </button>
-                  )}
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteDocument(doc._id);
+                    }}
+                    className="p-1 rounded-md hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 text-slate-400"
+                    title="Delete"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
               </div>
+            );
+          })}
+        </div>
+      </div>
 
-              {/* Read-Only Notice Banner if viewer / commenter */}
-              {!canEditCurrentDoc && (
-                <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
-                  <Eye className="w-4 h-4 shrink-0" />
-                  <span>
-                    You have <strong>{userRole}</strong> access to this document. Editing is restricted.
-                  </span>
-                </div>
+      {/* Main Document Content Area */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden bg-white dark:bg-slate-900">
+        {/* Top Navbar */}
+        <div className="h-14 border-b border-slate-200 dark:border-slate-800 px-6 flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-3">
+            {/* Status indicator */}
+            <div className="flex items-center gap-1.5 text-xs text-slate-500">
+              {saveStatus === "saving" && (
+                <span className="flex items-center gap-1 text-amber-500 animate-pulse">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Saving...</span>
+                </span>
               )}
+              {saveStatus === "saved" && (
+                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>Saved</span>
+                </span>
+              )}
+              {saveStatus === "unsaved" && (
+                <span className="flex items-center gap-1 text-slate-400">
+                  <Clock className="w-3.5 h-3.5" />
+                  <span>Unsaved changes</span>
+                </span>
+              )}
+            </div>
 
-              {/* Document Title Header */}
+            {/* Read-Only Badge */}
+            {!canEditCurrentDoc && (
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60">
+                View Only
+              </span>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {/* Active Collaborators Presence Avatars */}
+            {collaborators.length > 0 && (
+              <div className="flex items-center -space-x-1.5 mr-2">
+                {collaborators.map((c) => (
+                  <div
+                    key={c.socketId}
+                    className="relative group cursor-pointer"
+                    title={`${c.name} (${c.role})`}
+                  >
+                    {c.avatar ? (
+                      <img
+                        src={c.avatar}
+                        alt={c.name}
+                        className="w-6 h-6 rounded-full border-2 border-white dark:border-slate-900 object-cover"
+                      />
+                    ) : (
+                      <div
+                        className="w-6 h-6 rounded-full border-2 border-white dark:border-slate-900 flex items-center justify-center text-[10px] font-bold text-white shadow-xs"
+                        style={{ backgroundColor: c.color || "#6366f1" }}
+                      >
+                        {c.name ? c.name.charAt(0).toUpperCase() : "U"}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Version History Button (DOC-06) */}
+            {selectedDoc && (
+              <button
+                onClick={() => setVersionModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition border bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
+                title="View Version History & Recovery"
+              >
+                <History className="w-3.5 h-3.5 text-indigo-500" />
+                <span>History</span>
+              </button>
+            )}
+
+            {/* Discussions Button */}
+            {selectedDoc && (
+              <button
+                onClick={() => setCommentsPanelOpen(!commentsPanelOpen)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition border ${
+                  commentsPanelOpen
+                    ? "bg-indigo-600 text-white border-indigo-600"
+                    : "bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
+                }`}
+                title="Comments & Discussions"
+              >
+                <MessageSquare className="w-3.5 h-3.5" />
+                <span>Discussions</span>
+                {comments.length > 0 && (
+                  <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-500 text-white">
+                    {comments.length}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {/* Share & Permissions Button */}
+            {selectedDoc && (
+              <button
+                onClick={() => setShareModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs"
+              >
+                <Share2 className="w-3.5 h-3.5" />
+                <span>Share</span>
+              </button>
+            )}
+
+            <ThemeToggle />
+          </div>
+        </div>
+
+        {/* Editor & Content Canvas Container */}
+        {selectedDoc ? (
+          <div className="flex-1 flex overflow-hidden">
+            <div className="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto w-full space-y-4">
+              {/* Document Title Input */}
               <input
                 type="text"
                 value={title}
-                readOnly={!canEditCurrentDoc}
                 onChange={handleTitleChange}
+                disabled={!canEditCurrentDoc}
                 placeholder="Untitled Document"
-                className={`w-full text-3xl font-extrabold tracking-tight bg-transparent text-slate-900 dark:text-white border-b border-transparent pb-2 transition ${
+                className={`w-full text-3xl font-extrabold bg-transparent border-b border-transparent focus:border-slate-300 dark:focus:border-slate-700 focus:outline-hidden pb-2 tracking-tight transition ${
                   canEditCurrentDoc
-                    ? "hover:border-slate-300 dark:hover:border-slate-700 focus:border-indigo-500 focus:outline-hidden"
+                    ? "text-slate-900 dark:text-white"
                     : "cursor-default"
                 }`}
               />
 
-              {/* Collaborative Rich Text Editor */}
+              {/* Collaborative Rich Text Editor with Session Epoch Key */}
               <TipTapEditor
-                key={selectedDoc._id}
+                key={`${selectedDoc._id}_${collabSessionEpoch}`}
                 content={selectedDoc.content}
                 readOnly={!canEditCurrentDoc}
                 onChange={handleEditorChange}
@@ -1004,46 +854,70 @@ export default function Documents() {
                 }}
               />
             </div>
-          ) : (
-            <div className="h-full flex flex-col items-center justify-center text-center p-8 space-y-4">
-              <BookOpen className="w-16 h-16 text-slate-300 dark:text-slate-700" />
-              <div className="space-y-1">
-                <h3 className="text-base font-bold text-slate-800 dark:text-slate-200">
-                  Select a document to edit
-                </h3>
-                <p className="text-xs text-slate-400 max-w-sm">
-                  Collaborate in real time with teammates, format rich content with TipTap, and organize your files.
-                </p>
-              </div>
-              <button
-                onClick={handleCreateDocument}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl shadow-xs transition"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Create New Document</span>
-              </button>
-            </div>
-          )}
-        </div>
 
-        {/* Right Collapsible Comments & Discussions Panel (DOC-05) */}
-        {commentsPanelOpen && selectedDoc && (
-          <DocumentCommentsPanel
-            isOpen={commentsPanelOpen}
-            onClose={() => setCommentsPanelOpen(false)}
-            comments={comments}
-            onCreateComment={handleCreateComment}
-            onResolveComment={handleResolveComment}
-            onDeleteComment={handleDeleteComment}
-            projectTeamMembers={projectTeamMembers}
-            currentUser={authUser}
-            canComment={canCommentCurrentDoc}
-            isOwner={isOwnerCurrentDoc}
-            activeAnchor={activeAnchor}
-            onClearActiveAnchor={() => setActiveAnchor(null)}
-          />
+            {/* Comments Panel Sidebar */}
+            {commentsPanelOpen && (
+              <DocumentCommentsPanel
+                isOpen={commentsPanelOpen}
+                onClose={() => setCommentsPanelOpen(false)}
+                documentId={selectedDoc._id}
+                comments={comments}
+                activeAnchor={activeAnchor}
+                canComment={canCommentCurrentDoc}
+                currentUser={authUser}
+                onAddComment={handleAddComment}
+                onToggleResolve={handleToggleResolve}
+                onDeleteComment={handleDeleteComment}
+              />
+            )}
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400">
+            <FileText className="w-12 h-12 stroke-1 mb-3 text-slate-300 dark:text-slate-700" />
+            <h3 className="text-base font-bold text-slate-700 dark:text-slate-300 mb-1">
+              No Document Selected
+            </h3>
+            <p className="text-xs max-w-sm mb-4">
+              Choose an existing document from the sidebar or create a new one to start writing.
+            </p>
+            <button
+              onClick={handleCreateDocument}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-xl shadow-xs transition flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Create Document</span>
+            </button>
+          </div>
         )}
       </div>
+
+      {/* Modal: Version History & Recovery (DOC-06) */}
+      {versionModalOpen && selectedDoc && (
+        <DocumentVersionHistoryModal
+          isOpen={versionModalOpen}
+          onClose={() => setVersionModalOpen(false)}
+          document={selectedDoc}
+          canEdit={canEditCurrentDoc}
+          onVersionRestored={(restoredDoc) => {
+            if (saveTimeoutRef.current) {
+              clearTimeout(saveTimeoutRef.current);
+              saveTimeoutRef.current = null;
+            }
+            setSaveStatus("saved");
+            setCollabSessionEpoch((prev) => prev + 1);
+
+            setSelectedDoc((prev) => ({
+              ...restoredDoc,
+              userPermission: prev?.userPermission || restoredDoc.userPermission,
+            }));
+            setTitle(restoredDoc.title);
+            contentRef.current = restoredDoc.content;
+            setDocuments((prev) =>
+              prev.map((d) => (d._id === restoredDoc._id ? restoredDoc : d))
+            );
+          }}
+        />
+      )}
 
       {/* Modal: Share & Permissions */}
       {shareModalOpen && selectedDoc && (
@@ -1051,12 +925,14 @@ export default function Documents() {
           isOpen={shareModalOpen}
           onClose={() => setShareModalOpen(false)}
           document={selectedDoc}
-          projectTeamMembers={projectTeamMembers}
-          currentUser={authUser}
-          onUpdateDocument={(updated) => {
-            setSelectedDoc(updated);
+          teamMembers={projectTeamMembers}
+          onDocumentUpdated={(updatedDoc) => {
+            setSelectedDoc((prev) => ({
+              ...updatedDoc,
+              userPermission: prev?.userPermission || updatedDoc.userPermission,
+            }));
             setDocuments((prev) =>
-              prev.map((d) => (d._id === updated._id ? updated : d))
+              prev.map((d) => (d._id === updatedDoc._id ? updatedDoc : d))
             );
           }}
         />
@@ -1065,143 +941,61 @@ export default function Documents() {
       {/* Modal: Create Folder */}
       {createFolderModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <FolderPlus className="w-4 h-4 text-indigo-500" />
-                Create New Folder
-              </h3>
-              <button
-                onClick={() => setCreateFolderModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateFolder} className="space-y-4 text-xs">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-sm w-full p-6 shadow-xl">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white mb-4">
+              Create Document Folder
+            </h3>
+            <form onSubmit={handleCreateFolder} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
                   Folder Name
                 </label>
                 <input
                   type="text"
-                  required
-                  placeholder="e.g. Design Specs, Sprint 1 Docs..."
+                  placeholder="e.g. Design Specs, Engineering Docs"
                   value={newFolderName}
                   onChange={(e) => setNewFolderName(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
                   autoFocus
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
-                  Folder Color Accent
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                  Folder Color
                 </label>
                 <div className="flex items-center gap-2">
-                  {["#6366f1", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6"].map((hex) => (
+                  {["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#3b82f6", "#8b5cf6"].map((color) => (
                     <button
-                      key={hex}
+                      key={color}
                       type="button"
-                      onClick={() => setNewFolderColor(hex)}
-                      className={`w-6 h-6 rounded-full border-2 transition ${
-                        newFolderColor === hex ? "border-slate-900 dark:border-white scale-110" : "border-transparent"
+                      onClick={() => setNewFolderColor(color)}
+                      className={`w-6 h-6 rounded-full transition ${
+                        newFolderColor === color ? "ring-2 ring-offset-2 ring-indigo-500 scale-110" : ""
                       }`}
-                      style={{ backgroundColor: hex }}
+                      style={{ backgroundColor: color }}
                     />
                   ))}
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3">
+              <div className="flex items-center justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setCreateFolderModalOpen(false)}
-                  className="px-3 py-1.5 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                  className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-xs"
+                  disabled={!newFolderName.trim()}
+                  className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white transition shadow-xs"
                 >
                   Create Folder
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal: Move Document into Folder */}
-      {moveDocModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full p-5 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <MoveRight className="w-4 h-4 text-indigo-500" />
-                Move Document
-              </h3>
-              <button
-                onClick={() => setMoveDocModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-slate-500">
-              Select destination folder for <strong>"{selectedDoc?.title}"</strong>:
-            </p>
-
-            <div className="space-y-1.5 max-h-60 overflow-y-auto">
-              <button
-                type="button"
-                onClick={() => setTargetMoveFolderId("root")}
-                className={`w-full flex items-center gap-2 p-2.5 rounded-xl text-xs transition text-left ${
-                  targetMoveFolderId === "root"
-                    ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-semibold border border-indigo-200"
-                    : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
-                }`}
-              >
-                <Home className="w-4 h-4 text-slate-400" />
-                <span>Root / Unfiled</span>
-              </button>
-
-              {folders.map((folder) => (
-                <button
-                  key={folder._id}
-                  type="button"
-                  onClick={() => setTargetMoveFolderId(folder._id)}
-                  className={`w-full flex items-center gap-2 p-2.5 rounded-xl text-xs transition text-left ${
-                    targetMoveFolderId === folder._id
-                      ? "bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-semibold border border-indigo-200"
-                      : "hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300"
-                  }`}
-                >
-                  <Folder className="w-4 h-4" style={{ color: folder.color || "#6366f1" }} />
-                  <span className="truncate">{folder.name}</span>
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-3">
-              <button
-                type="button"
-                onClick={() => setMoveDocModalOpen(false)}
-                className="px-3 py-1.5 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleMoveDocument}
-                className="px-4 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-xs"
-              >
-                Confirm Move
-              </button>
-            </div>
           </div>
         </div>
       )}

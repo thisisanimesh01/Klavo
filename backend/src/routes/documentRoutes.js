@@ -24,6 +24,13 @@ import {
   toggleResolveComment,
   deleteDocumentComment,
 } from "../controllers/documentCommentController.js";
+import {
+  createNamedSnapshot,
+  getDocumentVersions,
+  getDocumentVersionById,
+  compareDocumentVersions,
+  restoreDocumentVersion,
+} from "../controllers/documentVersionController.js";
 
 const router = express.Router();
 
@@ -47,6 +54,13 @@ router.get("/:documentId/comments", getDocumentComments);
 router.put("/comments/:commentId", updateDocumentComment);
 router.patch("/comments/:commentId/resolve", toggleResolveComment);
 router.delete("/comments/:commentId", deleteDocumentComment);
+
+// Document Version History & Recovery (DOC-06)
+router.post("/:documentId/versions", createNamedSnapshot);
+router.get("/:documentId/versions", getDocumentVersions);
+router.get("/:documentId/versions/compare", compareDocumentVersions);
+router.get("/:documentId/versions/:versionId", getDocumentVersionById);
+router.post("/:documentId/versions/:versionId/restore", restoreDocumentVersion);
 
 // Document Folder CRUD & Hierarchy
 router.post("/folders", createFolder);

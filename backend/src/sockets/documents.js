@@ -11,7 +11,8 @@ import { resolveDocumentAccess } from "../utils/documentPermissions.js";
 //   connectedSockets: Set<string>, // socket.id
 //   collaborators: Map<string, { socketId, userId, name, email, avatar, color, role, canEdit, cursor, selection, lastActive }>,
 //   debounceTimer: NodeJS.Timeout | null,
-//   dirty: boolean
+//   dirty: boolean,
+//   restoreEpoch: number, // Epoch/generation counter to reject pre-restore in-flight updates
 // }>
 export const activeDocRooms = new Map();
 
@@ -127,6 +128,7 @@ export const initDocumentSockets = (io, socket) => {
           collaborators: new Map(),
           debounceTimer: null,
           dirty: false,
+          restoreEpoch: 1,
         };
         activeDocRooms.set(documentId, room);
       }
@@ -156,11 +158,12 @@ export const initDocumentSockets = (io, socket) => {
 
       room.collaborators.set(socket.id, collaborator);
 
-      // Send initial synchronized document state and user's resolved role
+      // Send initial synchronized document state, authoritative restoreEpoch, and user's resolved role
       const initialUpdate = Y.encodeStateAsUpdate(room.doc);
       socket.emit("docSyncInit", {
         documentId,
         update: Buffer.from(initialUpdate).toString("base64"),
+        epoch: room.restoreEpoch || 1,
         collaborators: Array.from(room.collaborators.values()),
         currentUserColor: userColor,
         userPermission: perm,
@@ -174,12 +177,25 @@ export const initDocumentSockets = (io, socket) => {
     }
   });
 
-  // Client sent incremental Yjs CRDT update (strictly enforced: canEdit must be true)
-  socket.on("docSyncUpdate", async ({ documentId, update }) => {
+  // Client sent incremental Yjs CRDT update (strictly enforced: canEdit must be true, epoch must match)
+  socket.on("docSyncUpdate", async ({ documentId, update, epoch }) => {
     if (!documentId || !update) return;
 
     const room = activeDocRooms.get(documentId);
     if (!room || !room.connectedSockets.has(socket.id)) return;
+
+    // EPOCH PROTECTION GATE: Reject stale in-flight updates generated before an authoritative restoration
+    const currentRoomEpoch = room.restoreEpoch || 1;
+    if (epoch !== undefined && epoch !== null && epoch < currentRoomEpoch) {
+      // Discard stale pre-restore update and instruct client to align with current epoch
+      socket.emit("docSyncInit", {
+        documentId,
+        update: Buffer.from(Y.encodeStateAsUpdate(room.doc)).toString("base64"),
+        epoch: currentRoomEpoch,
+        collaborators: Array.from(room.collaborators.values()),
+      });
+      return;
+    }
 
     const collaborator = room.collaborators.get(socket.id);
     if (!collaborator || !collaborator.canEdit) {
@@ -197,10 +213,11 @@ export const initDocumentSockets = (io, socket) => {
       Y.applyUpdate(room.doc, updateArray);
       room.dirty = true;
 
-      // Broadcast update to all other collaborators in the room
+      // Broadcast update to all other collaborators in the room with epoch
       socket.to(`doc_collab_${documentId}`).emit("docSyncUpdate", {
         documentId,
         update: typeof update === "string" ? update : updateBuffer.toString("base64"),
+        epoch: currentRoomEpoch,
         senderSocketId: socket.id,
       });
 
