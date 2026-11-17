@@ -17,6 +17,13 @@ import {
   updateFolder,
   deleteFolder,
 } from "../controllers/documentFolderController.js";
+import {
+  createDocumentComment,
+  getDocumentComments,
+  updateDocumentComment,
+  toggleResolveComment,
+  deleteDocumentComment,
+} from "../controllers/documentCommentController.js";
 
 const router = express.Router();
 
@@ -33,6 +40,13 @@ router.delete("/:documentId", deleteDocument);
 router.post("/:documentId/share", shareDocument);
 router.delete("/:documentId/share/:targetUserId", revokeDocumentShare);
 router.post("/:documentId/transfer-ownership", transferDocumentOwnership);
+
+// Document Comments & Discussions (DOC-05)
+router.post("/:documentId/comments", createDocumentComment);
+router.get("/:documentId/comments", getDocumentComments);
+router.put("/comments/:commentId", updateDocumentComment);
+router.patch("/comments/:commentId/resolve", toggleResolveComment);
+router.delete("/comments/:commentId", deleteDocumentComment);
 
 // Document Folder CRUD & Hierarchy
 router.post("/folders", createFolder);

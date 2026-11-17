@@ -830,3 +830,78 @@ test("FRONTEND DOC-04: Document Permissions & Sharing UI Helpers", async (t) => 
     assert.equal(added[1].role, "commenter");
   });
 });
+
+test("FRONTEND DOC-05: Document Comments & Discussion UI Helpers", async (t) => {
+  await t.test("Validates comment thread reply nesting and aggregation", () => {
+    const rawComments = [
+      { _id: "c1", text: "Root thread 1", parentCommentId: null },
+      { _id: "c2", text: "Reply 1.1", parentCommentId: "c1" },
+      { _id: "c3", text: "Root thread 2", parentCommentId: null },
+      { _id: "c4", text: "Reply 1.2", parentCommentId: "c1" },
+    ];
+
+    const groupThreads = (list) => {
+      const map = new Map();
+      const roots = [];
+
+      list.forEach((c) => {
+        map.set(c._id, { ...c, replies: [] });
+      });
+
+      list.forEach((c) => {
+        const item = map.get(c._id);
+        if (c.parentCommentId) {
+          const parent = map.get(c.parentCommentId);
+          if (parent) parent.replies.push(item);
+          else roots.push(item);
+        } else {
+          roots.push(item);
+        }
+      });
+
+      return roots;
+    };
+
+    const grouped = groupThreads(rawComments);
+    assert.equal(grouped.length, 2);
+    assert.equal(grouped[0]._id, "c1");
+    assert.equal(grouped[0].replies.length, 2);
+    assert.equal(grouped[0].replies[0]._id, "c2");
+    assert.equal(grouped[0].replies[1]._id, "c4");
+    assert.equal(grouped[1]._id, "c3");
+    assert.equal(grouped[1].replies.length, 0);
+  });
+
+  await t.test("Validates comment filter modes (all, open, resolved)", () => {
+    const threads = [
+      { _id: "t1", text: "Open thread", isResolved: false },
+      { _id: "t2", text: "Resolved thread", isResolved: true },
+      { _id: "t3", text: "Another open thread", isResolved: false },
+    ];
+
+    const filterThreads = (list, mode) => {
+      if (mode === "open") return list.filter((t) => !t.isResolved);
+      if (mode === "resolved") return list.filter((t) => t.isResolved);
+      return list;
+    };
+
+    assert.equal(filterThreads(threads, "all").length, 3);
+    assert.equal(filterThreads(threads, "open").length, 2);
+    assert.equal(filterThreads(threads, "resolved").length, 1);
+  });
+
+  await t.test("Validates inline mention query extraction from cursor input", () => {
+    const getMentionQuery = (text) => {
+      const lastWord = text.split(/\s+/).pop();
+      if (lastWord && lastWord.startsWith("@")) {
+        return lastWord.slice(1).toLowerCase();
+      }
+      return null;
+    };
+
+    assert.equal(getMentionQuery("Hello @ali"), "ali");
+    assert.equal(getMentionQuery("Please check @Bob"), "bob");
+    assert.equal(getMentionQuery("Just an email test@example.com"), null);
+    assert.equal(getMentionQuery("No mention here"), null);
+  });
+});
