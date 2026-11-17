@@ -112,3 +112,24 @@ export const getProjectMembers = async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 };
+
+export const getProjectById = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+
+    const { hasAccess, project, team } = await checkProjectAccess(projectId, req.user._id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not a member of the project team" });
+    }
+
+    const populatedProject = await Project.findById(projectId)
+      .populate("teamId", "name owner members")
+      .populate("createdBy", "name email");
+
+    res.json(populatedProject);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};

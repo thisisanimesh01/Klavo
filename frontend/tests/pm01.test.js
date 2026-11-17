@@ -951,3 +951,67 @@ test("FRONTEND DOC-06: Document Version History & Diff UI Helpers", async (t) =>
     assert.equal(getRevisionLabel(revNamed), "Release v1.0 Final");
   });
 });
+
+test("FRONTEND DOC-07: Project Wiki & Knowledge Base UI Helpers", async (t) => {
+  await t.test("Validates breadcrumb path traversal and URL mapping", () => {
+    const breadcrumbs = [
+      { _id: "home_1", title: "Project Home", isWikiHome: true },
+      { _id: "cat_1", title: "Backend Architecture", isWikiHome: false },
+      { _id: "page_1", title: "Database Sharding", isWikiHome: false },
+    ];
+
+    const generateHref = (projectId, crumbId) => `/wiki/${projectId}/${crumbId}`;
+
+    assert.equal(breadcrumbs.length, 3);
+    assert.equal(generateHref("proj_abc", breadcrumbs[0]._id), "/wiki/proj_abc/home_1");
+    assert.equal(generateHref("proj_abc", breadcrumbs[2]._id), "/wiki/proj_abc/page_1");
+  });
+
+  await t.test("Validates client-side tree expand/collapse state toggling", () => {
+    let expandedSet = new Set(["node_1"]);
+
+    const toggle = (set, id) => {
+      const next = new Set(set);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    };
+
+    expandedSet = toggle(expandedSet, "node_2");
+    assert.equal(expandedSet.has("node_1"), true);
+    assert.equal(expandedSet.has("node_2"), true);
+
+    expandedSet = toggle(expandedSet, "node_1");
+    assert.equal(expandedSet.has("node_1"), false);
+    assert.equal(expandedSet.has("node_2"), true);
+  });
+
+  await t.test("Validates wiki search filter matching title and description", () => {
+    const pages = [
+      { _id: "1", title: "API Authentication Guidelines", description: "OAuth2 and JWT flows" },
+      { _id: "2", title: "Deployment Playbook", description: "Docker compose and CI/CD steps" },
+      { _id: "3", title: "Design Systems & Typography", description: "Color palette and Tailwind classes" },
+    ];
+
+    const filterWiki = (list, query) => {
+      if (!query || !query.trim()) return list;
+      const q = query.trim().toLowerCase();
+      return list.filter(
+        (p) =>
+          p.title.toLowerCase().includes(q) ||
+          (p.description && p.description.toLowerCase().includes(q))
+      );
+    };
+
+    const qJwt = filterWiki(pages, "JWT");
+    assert.equal(qJwt.length, 1);
+    assert.equal(qJwt[0]._id, "1");
+
+    const qDeploy = filterWiki(pages, "playbook");
+    assert.equal(qDeploy.length, 1);
+    assert.equal(qDeploy[0]._id, "2");
+
+    const qEmpty = filterWiki(pages, "");
+    assert.equal(qEmpty.length, 3);
+  });
+});
