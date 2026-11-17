@@ -1021,3 +1021,143 @@ test("ANL-06: Custom Reports & Date-Range Filtering Logic", async (t) => {
     assert.equal(paginated.tasks[0]._id, "t_10");
   });
 });
+
+test("ANL-07: CSV/PDF Report Export & Formula Injection Prevention Logic", async (t) => {
+  const { escapeCsvValue, buildCsvString, generateReportCsv, generateReportPdf, sanitizePdfText } = await import(
+    "../src/utils/exportHelpers.js"
+  );
+
+  await t.test("neutralizes formula injection characters (=, +, -, @, \\t, \\r) in CSV cells", () => {
+    // Formula characters must be preceded by a single quote
+    assert.equal(escapeCsvValue("=SUM(A1:B1)"), "\"'=SUM(A1:B1)\"");
+    assert.equal(escapeCsvValue("+cmd|' /C calc'!A0"), "\"'+cmd|' /C calc'!A0\"");
+    assert.equal(escapeCsvValue("-1+1"), "\"'-1+1\"");
+    assert.equal(escapeCsvValue("@IMPORTXML()"), "\"'@IMPORTXML()\"");
+    assert.equal(escapeCsvValue("\tsecret"), "\"'\tsecret\"");
+    assert.equal(escapeCsvValue("\rsecret"), "\"'\rsecret\"");
+
+    // Normal strings should not be prefixed with quote
+    assert.equal(escapeCsvValue("Normal text"), "\"Normal text\"");
+    assert.equal(escapeCsvValue("Simple"), "\"Simple\"");
+    assert.equal(escapeCsvValue(123), "\"123\"");
+    assert.equal(escapeCsvValue(null), "\"\"");
+    assert.equal(escapeCsvValue(undefined), "\"\"");
+  });
+
+  await t.test("properly escapes quotes, commas, and newlines in RFC 4180 CSV strings", () => {
+    const textWithQuotes = 'Feature "Super" Edition';
+    assert.equal(escapeCsvValue(textWithQuotes), '"Feature ""Super"" Edition"');
+
+    const textWithComma = "Frontend, Backend, Design";
+    assert.equal(escapeCsvValue(textWithComma), '"Frontend, Backend, Design"');
+
+    const textWithNewline = "Line 1\nLine 2";
+    assert.equal(escapeCsvValue(textWithNewline), '"Line 1\nLine 2"');
+
+    const rows = [
+      ["Title", "Notes"],
+      ['"Quoted"', "First, Second"],
+    ];
+    const csv = buildCsvString(rows);
+    assert.equal(csv, '"Title","Notes"\r\n"""Quoted""","First, Second"');
+  });
+
+  await t.test("generates complete report CSV with metadata, groups, and distinct hours and points", () => {
+    const csv = generateReportCsv({
+      reportTitle: "Q4 Sprint Velocity",
+      projectName: "Project Omega",
+      generatedAt: "2026-11-18T10:00:00.000Z",
+      dateRange: "2026-11-01 to 2026-11-30",
+      metricDefinitions: [
+        "Estimated Hours and Story Points are kept strictly separate.",
+        "Zero fabrication: missing estimates display empty.",
+      ],
+      groups: [
+        { groupLabel: "In Progress", count: 4, completionRate: 50, totalEstimatedHours: 24, totalStoryPoints: 12 },
+        { groupLabel: "Done", count: 8, completionRate: 100, totalEstimatedHours: 40, totalStoryPoints: 20 },
+      ],
+      tasks: [
+        {
+          _id: "t_abc",
+          title: "Implement auth =1+1",
+          status: "in-progress",
+          priority: "urgent",
+          assigneeName: "Alice Developer",
+          estimatedHours: 8,
+          storyPoints: 3,
+          createdAt: "2026-11-02",
+        },
+        {
+          _id: "t_xyz",
+          title: "Setup DB",
+          status: "done",
+          priority: "high",
+          assigneeName: "Bob Ops",
+          estimatedHours: 16,
+          storyPoints: null, // missing story point should be empty, not 0!
+          createdAt: "2026-11-01",
+        },
+      ],
+    });
+
+    assert.ok(csv.includes("KLAVO ANALYTICS REPORT EXPORT"));
+    assert.ok(csv.includes("Project Omega"));
+    assert.ok(csv.includes("Q4 Sprint Velocity"));
+    assert.ok(csv.includes("GROUP SUMMARY BREAKDOWN"));
+    assert.ok(csv.includes("TASK RECORDS"));
+    // Verify formula injection inside title was neutralized
+    assert.ok(csv.includes("Implement auth"));
+    // Verify hours and points are separate columns
+    assert.ok(csv.includes('"Total Estimated Hours","Total Story Points"'));
+  });
+
+  await t.test("generates valid PDF buffer with page headers, table formatting, and page counts", () => {
+    const tasks = Array.from({ length: 45 }, (_, i) => ({
+      _id: `t_${i}`,
+      title: `Task #${i + 1} - System Module Verification`,
+      status: i % 2 === 0 ? "done" : "todo",
+      priority: i % 3 === 0 ? "urgent" : "medium",
+      assigneeName: `Engineer ${i % 5}`,
+      dueDate: "2026-11-30",
+      estimatedHours: 6,
+      storyPoints: 3,
+    }));
+
+    const pdfBuffer = generateReportPdf({
+      reportTitle: "Multi-Page Performance & Delivery Report",
+      projectName: "Project Enterprise",
+      generatedAt: "2026-11-18T10:00:00.000Z",
+      dateRange: "This Month (November 2026)",
+      metricDefinitions: ["Transparent metrics only.", "Separate hours and story points."],
+      groups: [
+        { groupLabel: "Done", count: 23, completionRate: 100, totalEstimatedHours: 138, totalStoryPoints: 69 },
+        { groupLabel: "Todo", count: 22, completionRate: 0, totalEstimatedHours: 132, totalStoryPoints: 66 },
+      ],
+      tasks,
+    });
+
+    assert.ok(Buffer.isBuffer(pdfBuffer));
+    assert.ok(pdfBuffer.length > 2000);
+
+    const pdfString = pdfBuffer.toString("utf8");
+    // Verify PDF header
+    assert.ok(pdfString.startsWith("%PDF-1.4"));
+    // Verify PDF trailer and catalog
+    assert.ok(pdfString.includes("/Type /Catalog"));
+    assert.ok(pdfString.includes("/Type /Pages"));
+    assert.ok(pdfString.includes("startxref"));
+    assert.ok(pdfString.includes("%%EOF"));
+    // Multi-page test: 45 tasks + 2 groups should span at least 2 pages
+    assert.ok(pdfString.includes("Page 2 of"));
+  });
+
+  await t.test("sanitizes PDF special characters and parentheses safely", () => {
+    const raw = "Special (Nested) [Text] \\ Backslash\r\nNewline";
+    const sanitized = sanitizePdfText(raw);
+    assert.ok(!sanitized.includes("\r"));
+    assert.ok(!sanitized.includes("\n"));
+    assert.ok(sanitized.includes("\\("));
+    assert.ok(sanitized.includes("\\)"));
+    assert.ok(sanitized.includes("\\\\"));
+  });
+});

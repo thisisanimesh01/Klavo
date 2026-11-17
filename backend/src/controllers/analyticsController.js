@@ -9,6 +9,7 @@ import Milestone from "../models/Milestone.js";
 import SavedReport from "../models/SavedReport.js";
 import { checkProjectAccess, checkSprintAccess } from "../utils/authHelpers.js";
 import { isStatusCompleted, getCompletedStatusKeys, getStatusCategory } from "../utils/workflowHelpers.js";
+import { generateReportCsv, generateReportPdf } from "../utils/exportHelpers.js";
 
 /**
  * Builds standard ISO start and end Date bounds from date range filter presets.
@@ -2047,5 +2048,200 @@ export const deleteSavedReport = async (req, res) => {
   } catch (err) {
     console.error("Delete Saved Report Error:", err);
     res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Controller: Export custom report or analytics dataset in CSV or PDF format (POST /api/analytics/project/:projectId/export)
+ * Supports export from:
+ * 1. An on-the-fly custom report payload with active filters, grouping, sorting, format
+ * 2. An existing saved report identified by savedReportId
+ */
+export const exportAnalyticsReport = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const {
+      format = "csv", // 'csv' | 'pdf'
+      reportTitle = "Klavo Analytics Report",
+      savedReportId,
+      range,
+      startDate,
+      endDate,
+      dateField = "createdAt",
+      statuses,
+      priorities,
+      assignees,
+      sprintId,
+      milestoneId,
+      groupBy = "status",
+      sortBy = "createdAt",
+      sortOrder = "desc",
+      metricSelection = "all", // 'all' | 'count' | 'estimatedHours' | 'storyPoints'
+    } = req.body;
+
+    const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to export reports for this project" });
+    }
+
+    let effectiveTitle = reportTitle;
+    let effectiveRange = range;
+    let effectiveStartDate = startDate;
+    let effectiveEndDate = endDate;
+    let effectiveDateField = dateField;
+    let effectiveStatuses = statuses;
+    let effectivePriorities = priorities;
+    let effectiveAssignees = assignees;
+    let effectiveSprintId = sprintId;
+    let effectiveMilestoneId = milestoneId;
+    let effectiveGroupBy = groupBy;
+    let effectiveSortBy = sortBy;
+    let effectiveSortOrder = sortOrder;
+
+    // If exporting a saved report, verify authorization and inherit its configuration
+    if (savedReportId) {
+      const savedReport = await SavedReport.findById(savedReportId);
+      if (!savedReport) {
+        return res.status(404).json({ message: "Saved report configuration not found." });
+      }
+      if (savedReport.projectId.toString() !== projectId.toString()) {
+        return res.status(403).json({ message: "Forbidden: Saved report does not belong to this project." });
+      }
+      // Visibility check: must be shared or created by current user
+      const isCreator = savedReport.createdBy.toString() === req.user._id.toString();
+      if (!savedReport.isShared && !isCreator) {
+        return res.status(403).json({ message: "Forbidden: This is a private saved report." });
+      }
+
+      effectiveTitle = savedReport.name;
+      effectiveGroupBy = savedReport.groupBy || effectiveGroupBy;
+      effectiveSortBy = savedReport.sortBy || effectiveSortBy;
+      effectiveSortOrder = savedReport.sortOrder || effectiveSortOrder;
+
+      const sf = savedReport.filters || {};
+      effectiveRange = sf.range || effectiveRange;
+      effectiveStartDate = sf.startDate || effectiveStartDate;
+      effectiveEndDate = sf.endDate || effectiveEndDate;
+      effectiveDateField = sf.dateField || effectiveDateField;
+      effectiveStatuses = sf.statuses || effectiveStatuses;
+      effectivePriorities = sf.priorities || effectivePriorities;
+      effectiveAssignees = sf.assignees || effectiveAssignees;
+      effectiveSprintId = sf.sprintId || effectiveSprintId;
+      effectiveMilestoneId = sf.milestoneId || effectiveMilestoneId;
+    }
+
+    // Build task query with date filters
+    const query = { projectId };
+    const dateBounds = validateAndNormalizeDateRange({
+      range: effectiveRange,
+      startDate: effectiveStartDate,
+      endDate: effectiveEndDate,
+    });
+
+    if (dateBounds) {
+      const targetField = ["createdAt", "dueDate", "completedAt"].includes(effectiveDateField)
+        ? effectiveDateField
+        : "createdAt";
+      query[targetField] = { $gte: dateBounds.start, $lte: dateBounds.end };
+    }
+
+    if (effectiveStatuses && Array.isArray(effectiveStatuses) && effectiveStatuses.length > 0) {
+      query.status = { $in: effectiveStatuses };
+    }
+    if (effectivePriorities && Array.isArray(effectivePriorities) && effectivePriorities.length > 0) {
+      query.priority = { $in: effectivePriorities };
+    }
+    if (effectiveAssignees && Array.isArray(effectiveAssignees) && effectiveAssignees.length > 0) {
+      query.assignedTo = { $in: effectiveAssignees };
+    }
+    if (effectiveSprintId && effectiveSprintId !== "all") {
+      query.sprintId = effectiveSprintId === "backlog" ? null : effectiveSprintId;
+    }
+    if (effectiveMilestoneId && effectiveMilestoneId !== "all") {
+      query.milestoneId = effectiveMilestoneId === "none" ? null : effectiveMilestoneId;
+    }
+
+    // For exports, load all matching tasks (up to 5,000 safety threshold without silent truncation)
+    const tasks = await Task.find(query)
+      .populate("assignedTo", "name email avatar")
+      .populate("sprintId", "name status")
+      .populate("milestoneId", "name status dueDate")
+      .limit(5000);
+
+    const workflow = await Workflow.findOne({ projectId });
+
+    // Aggregate custom report groups
+    const reportData = aggregateCustomReportData({
+      tasks,
+      workflow,
+      groupBy: effectiveGroupBy,
+      sortBy: effectiveSortBy,
+      sortOrder: effectiveSortOrder,
+      page: 1,
+      limit: 5000,
+    });
+
+    // Compose formatted date range label
+    let dateRangeLabel = "All Time";
+    if (dateBounds) {
+      dateRangeLabel = `${dateBounds.start.toISOString().slice(0, 10)} to ${dateBounds.end.toISOString().slice(0, 10)} (${effectiveDateField})`;
+    } else if (effectiveRange && effectiveRange !== "all") {
+      dateRangeLabel = effectiveRange.replace(/_/g, " ").toUpperCase();
+    }
+
+    const metricDefinitions = [
+      "Estimated Hours and Story Points are maintained as distinct capacity metrics and never combined.",
+      "Zero Fabrication Guarantee: Missing historical data or unestimated tasks display as unestimated rather than synthetic values.",
+      `Grouping Dimension: ${effectiveGroupBy} | Sorting: ${effectiveSortBy} (${effectiveSortOrder.toUpperCase()})`,
+    ];
+
+    const safeBaseName = (effectiveTitle || "Analytics_Report")
+      .replace(/[^a-zA-Z0-9_-]/g, "_")
+      .replace(/_+/g, "_")
+      .slice(0, 40);
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const exportFormat = String(format).toLowerCase() === "pdf" ? "pdf" : "csv";
+
+    if (exportFormat === "pdf") {
+      const pdfBuffer = generateReportPdf({
+        reportTitle: effectiveTitle,
+        projectName: project.name,
+        generatedAt: new Date().toISOString(),
+        dateRange: dateRangeLabel,
+        metricDefinitions,
+        groups: reportData.groups,
+        tasks: reportData.tasks,
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="${safeBaseName}_${dateStamp}.pdf"`
+      );
+      res.setHeader("Content-Length", pdfBuffer.length);
+      return res.send(pdfBuffer);
+    }
+
+    // Default: CSV export
+    const csvContent = generateReportCsv({
+      reportTitle: effectiveTitle,
+      projectName: project.name,
+      generatedAt: new Date().toISOString(),
+      dateRange: dateRangeLabel,
+      metricDefinitions,
+      groups: reportData.groups,
+      tasks: reportData.tasks,
+    });
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${safeBaseName}_${dateStamp}.csv"`
+    );
+    return res.send(csvContent);
+  } catch (err) {
+    console.error("Export Analytics Report Error:", err);
+    res.status(500).json({ message: err.message || "Failed to export analytics report." });
   }
 };
