@@ -460,3 +460,193 @@ export function MemberTaskStatusBreakdownChart({ members = [] }) {
     </div>
   );
 }
+
+/**
+ * Task Completion Trends Chart (Day, Week, Month Area chart) (ANL-04)
+ */
+export function TaskCompletionTrendsChart({ data = [], granularity = "daily" }) {
+  if (!data || data.length === 0) {
+    return (
+      <div className="h-72 flex flex-col items-center justify-center text-slate-400 text-sm">
+        <p>No completion trends recorded for this period</p>
+      </div>
+    );
+  }
+
+  const dateKey = granularity === "weekly" ? "label" : granularity === "monthly" ? "month" : "date";
+
+  return (
+    <div className="h-72">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={data} margin={{ top: 10, right: 15, left: -20, bottom: 25 }}>
+          <defs>
+            <linearGradient id="completionAreaGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#10B981" stopOpacity={0.4} />
+              <stop offset="95%" stopColor="#10B981" stopOpacity={0.0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid stroke="var(--card-border, #334155)" strokeDasharray="3 3" opacity={0.3} />
+          <XAxis
+            dataKey={dateKey}
+            tick={{ fill: "var(--text-muted, #94a3b8)", fontSize: 11 }}
+            angle={-20}
+            textAnchor="end"
+            interval="preserveStartEnd"
+          />
+          <YAxis tick={{ fill: "var(--text-muted, #94a3b8)", fontSize: 12 }} allowDecimals={false} />
+          <Tooltip
+            contentStyle={{
+              background: "var(--bg-card, #1e293b)",
+              border: "1px solid var(--card-border, #334155)",
+              borderRadius: "8px",
+              color: "var(--text-main, #f8fafc)",
+            }}
+          />
+          <Area
+            type="monotone"
+            dataKey="count"
+            name="Tasks Completed"
+            stroke="#10B981"
+            strokeWidth={2.5}
+            fillOpacity={1}
+            fill="url(#completionAreaGrad)"
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/**
+ * Cycle Time vs Lead Time Percentile Comparison Bar Chart (ANL-04)
+ */
+export function CycleLeadTimeComparisonChart({ cycleStats = null, leadStats = null }) {
+  const hasCycle = cycleStats && cycleStats.count > 0;
+  const hasLead = leadStats && leadStats.count > 0;
+
+  if (!hasCycle && !hasLead) {
+    return (
+      <div className="h-72 flex flex-col items-center justify-center text-slate-400 text-sm">
+        <p>No historical cycle or lead time data recorded yet</p>
+        <span className="text-xs text-slate-500 mt-1">Requires completed tasks with start and finish timestamps</span>
+      </div>
+    );
+  }
+
+  const comparisonData = [
+    {
+      metric: "Average",
+      cycleTime: cycleStats?.average ?? 0,
+      leadTime: leadStats?.average ?? 0,
+    },
+    {
+      metric: "Median (p50)",
+      cycleTime: cycleStats?.median ?? 0,
+      leadTime: leadStats?.median ?? 0,
+    },
+    {
+      metric: "85th %ile",
+      cycleTime: cycleStats?.p85 ?? 0,
+      leadTime: leadStats?.p85 ?? 0,
+    },
+    {
+      metric: "95th %ile",
+      cycleTime: cycleStats?.p95 ?? 0,
+      leadTime: leadStats?.p95 ?? 0,
+    },
+  ];
+
+  return (
+    <div className="h-72">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={comparisonData} margin={{ top: 10, right: 15, left: -10, bottom: 20 }}>
+          <CartesianGrid stroke="var(--card-border, #334155)" strokeDasharray="3 3" opacity={0.3} />
+          <XAxis dataKey="metric" tick={{ fill: "var(--text-muted, #94a3b8)", fontSize: 11 }} />
+          <YAxis
+            tick={{ fill: "var(--text-muted, #94a3b8)", fontSize: 12 }}
+            unit="h"
+          />
+          <Tooltip
+            contentStyle={{
+              background: "var(--bg-card, #1e293b)",
+              border: "1px solid var(--card-border, #334155)",
+              borderRadius: "8px",
+              color: "var(--text-main, #f8fafc)",
+            }}
+            formatter={(val) => [`${val} hrs`, ""]}
+          />
+          <Legend
+            verticalAlign="top"
+            height={36}
+            formatter={(value) => (
+              <span style={{ color: "var(--text-muted, #94a3b8)", fontSize: "12px" }}>
+                {value === "cycleTime" ? "Cycle Time (Start → Done)" : "Lead Time (Create → Done)"}
+              </span>
+            )}
+          />
+          <Bar dataKey="cycleTime" fill="#6366F1" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="leadTime" fill="#EC4899" radius={[4, 4, 0, 0]} />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/**
+ * Stage Bottleneck Duration Bar Chart (ANL-04)
+ */
+export function StageBottleneckChart({ stageBottlenecks = [] }) {
+  if (!stageBottlenecks || stageBottlenecks.length === 0) {
+    return (
+      <div className="h-72 flex flex-col items-center justify-center text-slate-400 text-sm">
+        <p>No stage transition history recorded yet</p>
+      </div>
+    );
+  }
+
+  const chartData = stageBottlenecks.map((s) => ({
+    name: s.name,
+    avgHours: s.averageHours,
+    totalHours: s.totalHours,
+    taskCount: s.taskCount,
+    color: s.color || "#6366f1",
+  }));
+
+  return (
+    <div className="h-72">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chartData} margin={{ top: 10, right: 15, left: -10, bottom: 25 }}>
+          <CartesianGrid stroke="var(--card-border, #334155)" strokeDasharray="3 3" opacity={0.3} />
+          <XAxis
+            dataKey="name"
+            tick={{ fill: "var(--text-muted, #94a3b8)", fontSize: 11 }}
+            angle={-15}
+            textAnchor="end"
+            interval={0}
+          />
+          <YAxis
+            tick={{ fill: "var(--text-muted, #94a3b8)", fontSize: 12 }}
+            unit="h"
+          />
+          <Tooltip
+            contentStyle={{
+              background: "var(--bg-card, #1e293b)",
+              border: "1px solid var(--card-border, #334155)",
+              borderRadius: "8px",
+              color: "var(--text-main, #f8fafc)",
+            }}
+            formatter={(val, name, item) => [
+              `${val} hrs avg (${item.payload.taskCount} tasks, ${item.payload.totalHours}h total)`,
+              "Average Time in Stage",
+            ]}
+          />
+          <Bar dataKey="avgHours" name="Avg Hours in Stage" radius={[4, 4, 0, 0]}>
+            {chartData.map((entry, index) => (
+              <Cell key={`cell-bottleneck-${index}`} fill={entry.color} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}

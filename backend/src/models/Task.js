@@ -147,6 +147,25 @@ const taskSchema = new mongoose.Schema(
         ref: "Document",
       },
     ],
+
+    // Actual lifecycle timestamps & status transition history (ANL-04)
+    startedAt: {
+      type: Date,
+      default: null,
+    },
+    completedAt: {
+      type: Date,
+      default: null,
+    },
+    statusHistory: [
+      {
+        status: { type: String, required: true },
+        enteredAt: { type: Date, required: true, default: Date.now },
+        exitedAt: { type: Date, default: null },
+        durationMs: { type: Number, default: null },
+        changedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+      },
+    ],
   },
   { timestamps: true }
 );
@@ -165,6 +184,8 @@ taskSchema.index({ projectId: 1, milestoneId: 1 });
 taskSchema.index({ assignedTo: 1 });
 taskSchema.index({ dueDate: 1 });
 taskSchema.index({ linkedDocuments: 1 });
+taskSchema.index({ projectId: 1, completedAt: -1 });
+taskSchema.index({ projectId: 1, startedAt: -1 });
 taskSchema.index({ createdAt: -1 });
 
 export default mongoose.model("Task", taskSchema);

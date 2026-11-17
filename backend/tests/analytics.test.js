@@ -5,6 +5,9 @@ import {
   calculateProjectAnalyticsMetrics,
   calculateSprintBurndownMetrics,
   calculateTeamWorkloadCapacityMetrics,
+  calculateTaskCompletionCycleTimeMetrics,
+  calculatePercentile,
+  calculateDurationStats,
 } from "../src/controllers/analyticsController.js";
 
 test("ANL-01: Date Range Filtering Bounds", async (t) => {
@@ -543,5 +546,195 @@ test("ANL-03: Team Workload & Capacity Analysis Calculations", async (t) => {
     assert.equal(dev.completedWork, 5);
     assert.equal(dev.pendingWork, 8);
     assert.equal(dev.utilizationRate, 65); // 13 / 20 * 100
+  });
+});
+
+test("ANL-04: Task Completion & Cycle-Time Metrics Calculations", async (t) => {
+  const fixedNow = new Date("2026-11-18T12:00:00.000Z");
+
+  await t.test("calculates cycle time and lead time accurately from actual timestamps", () => {
+    // Task 1: created 2026-11-10T00:00:00Z, started 2026-11-12T00:00:00Z, completed 2026-11-14T00:00:00Z
+    // Lead time = 4 days = 96 hours. Cycle time = 2 days = 48 hours.
+    // Task 2: created 2026-11-10T00:00:00Z, started 2026-11-11T00:00:00Z, completed 2026-11-12T12:00:00Z
+    // Lead time = 2.5 days = 60 hours. Cycle time = 1.5 days = 36 hours.
+    const tasks = [
+      {
+        _id: "task_1",
+        title: "Feature A",
+        status: "done",
+        createdAt: "2026-11-10T00:00:00.000Z",
+        startedAt: "2026-11-12T00:00:00.000Z",
+        completedAt: "2026-11-14T00:00:00.000Z",
+        dueDate: "2026-11-15T00:00:00.000Z",
+        statusHistory: [
+          { status: "todo", enteredAt: "2026-11-10T00:00:00.000Z", exitedAt: "2026-11-12T00:00:00.000Z", durationMs: 48 * 3600 * 1000 },
+          { status: "in-progress", enteredAt: "2026-11-12T00:00:00.000Z", exitedAt: "2026-11-14T00:00:00.000Z", durationMs: 48 * 3600 * 1000 },
+          { status: "done", enteredAt: "2026-11-14T00:00:00.000Z", exitedAt: null, durationMs: null },
+        ],
+      },
+      {
+        _id: "task_2",
+        title: "Feature B",
+        status: "done",
+        createdAt: "2026-11-10T00:00:00.000Z",
+        startedAt: "2026-11-11T00:00:00.000Z",
+        completedAt: "2026-11-12T12:00:00.000Z",
+        dueDate: "2026-11-11T00:00:00.000Z", // overdue completion!
+        statusHistory: [
+          { status: "todo", enteredAt: "2026-11-10T00:00:00.000Z", exitedAt: "2026-11-11T00:00:00.000Z", durationMs: 24 * 3600 * 1000 },
+          { status: "in-progress", enteredAt: "2026-11-11T00:00:00.000Z", exitedAt: "2026-11-12T12:00:00.000Z", durationMs: 36 * 3600 * 1000 },
+          { status: "done", enteredAt: "2026-11-12T12:00:00.000Z", exitedAt: null, durationMs: null },
+        ],
+      },
+    ];
+
+    const result = calculateTaskCompletionCycleTimeMetrics({
+      tasks,
+      now: fixedNow,
+    });
+
+    assert.equal(result.summary.totalTasks, 2);
+    assert.equal(result.summary.completedTasks, 2);
+    assert.equal(result.summary.completionRate, 100);
+    assert.equal(result.summary.overdueCompletedCount, 1);
+    assert.equal(result.summary.onTimeCompletedCount, 1);
+    assert.equal(result.summary.onTimeCompletionRate, 50);
+
+    // Lead time stats: [60, 96] -> avg 78, median 78
+    assert.equal(result.leadTime.count, 2);
+    assert.equal(result.leadTime.average, 78);
+    assert.equal(result.leadTime.min, 60);
+    assert.equal(result.leadTime.max, 96);
+
+    // Cycle time stats: [36, 48] -> avg 42, median 42
+    assert.equal(result.cycleTime.count, 2);
+    assert.equal(result.cycleTime.average, 42);
+    assert.equal(result.cycleTime.min, 36);
+    assert.equal(result.cycleTime.max, 48);
+
+    // Trends: day trends have 2026-11-12 and 2026-11-14
+    assert.equal(result.trends.daily.length, 2);
+    assert.equal(result.trends.daily[0].date, "2026-11-12");
+    assert.equal(result.trends.daily[0].count, 1);
+    assert.equal(result.trends.daily[1].date, "2026-11-14");
+    assert.equal(result.trends.daily[1].count, 1);
+  });
+
+  await t.test("clearly distinguishes missing historical start dates from zero and does not fabricate metrics", () => {
+    // Task without startedAt (e.g. legacy task moved straight to done)
+    const tasks = [
+      {
+        _id: "legacy_task",
+        title: "Legacy Task",
+        status: "done",
+        createdAt: "2026-11-01T00:00:00.000Z",
+        startedAt: null, // MISSING startedAt!
+        completedAt: "2026-11-05T00:00:00.000Z",
+      },
+    ];
+
+    const result = calculateTaskCompletionCycleTimeMetrics({
+      tasks,
+      now: fixedNow,
+    });
+
+    assert.equal(result.summary.totalTasks, 1);
+    assert.equal(result.summary.completedTasks, 1);
+    assert.equal(result.summary.tasksWithCycleTime, 0);
+    assert.equal(result.summary.hasHistoricalCycleData, false);
+    // Cycle time average must be null, NOT 0!
+    assert.equal(result.cycleTime.average, null);
+    assert.equal(result.cycleTime.median, null);
+
+    // Lead time was present: 4 days = 96 hours
+    assert.equal(result.summary.tasksWithLeadTime, 1);
+    assert.equal(result.summary.hasHistoricalLeadData, true);
+    assert.equal(result.leadTime.average, 96);
+  });
+
+  await t.test("identifies reopened tasks accurately from status transition history", () => {
+    const tasks = [
+      {
+        _id: "reopened_task",
+        title: "Bug Fix",
+        status: "in-progress",
+        createdAt: "2026-11-01T00:00:00.000Z",
+        startedAt: "2026-11-01T10:00:00.000Z",
+        completedAt: null,
+        statusHistory: [
+          { status: "todo", enteredAt: "2026-11-01T00:00:00.000Z", exitedAt: "2026-11-01T10:00:00.000Z", durationMs: 10 * 3600 * 1000 },
+          { status: "in-progress", enteredAt: "2026-11-01T10:00:00.000Z", exitedAt: "2026-11-02T10:00:00.000Z", durationMs: 24 * 3600 * 1000 },
+          { status: "done", enteredAt: "2026-11-02T10:00:00.000Z", exitedAt: "2026-11-03T10:00:00.000Z", durationMs: 24 * 3600 * 1000 },
+          { status: "in-progress", enteredAt: "2026-11-03T10:00:00.000Z", exitedAt: null, durationMs: null }, // Reopened!
+        ],
+      },
+      {
+        _id: "normal_task",
+        title: "Feature Normal",
+        status: "todo",
+        createdAt: "2026-11-05T00:00:00.000Z",
+        statusHistory: [
+          { status: "todo", enteredAt: "2026-11-05T00:00:00.000Z", exitedAt: null, durationMs: null },
+        ],
+      },
+    ];
+
+    const result = calculateTaskCompletionCycleTimeMetrics({
+      tasks,
+      now: fixedNow,
+    });
+
+    assert.equal(result.summary.totalTasks, 2);
+    assert.equal(result.summary.reopenedCount, 1);
+    assert.equal(result.summary.reopenedRate, 50); // 1 / 2 * 100
+  });
+
+  await t.test("analyzes workflow stage bottlenecks and respects custom workflow statuses", () => {
+    const customWorkflow = {
+      projectId: "proj_custom",
+      statuses: [
+        { key: "backlog", name: "Backlog", category: "todo", color: "#64748b", order: 0 },
+        { key: "dev", name: "Development", category: "in_progress", color: "#3b82f6", order: 1 },
+        { key: "qa", name: "QA & Testing", category: "review", color: "#f59e0b", order: 2 },
+        { key: "shipped", name: "Shipped", category: "done", color: "#10b981", order: 3 },
+      ],
+    };
+
+    const tasks = [
+      {
+        _id: "custom_task_1",
+        title: "Custom 1",
+        status: "shipped",
+        createdAt: "2026-11-01T00:00:00.000Z",
+        startedAt: "2026-11-02T00:00:00.000Z",
+        completedAt: "2026-11-05T00:00:00.000Z",
+        statusHistory: [
+          { status: "backlog", enteredAt: "2026-11-01T00:00:00.000Z", exitedAt: "2026-11-02T00:00:00.000Z", durationMs: 24 * 3600 * 1000 },
+          { status: "dev", enteredAt: "2026-11-02T00:00:00.000Z", exitedAt: "2026-11-03T12:00:00.000Z", durationMs: 36 * 3600 * 1000 },
+          { status: "qa", enteredAt: "2026-11-03T12:00:00.000Z", exitedAt: "2026-11-05T00:00:00.000Z", durationMs: 36 * 3600 * 1000 },
+          { status: "shipped", enteredAt: "2026-11-05T00:00:00.000Z", exitedAt: null, durationMs: null },
+        ],
+      },
+    ];
+
+    const result = calculateTaskCompletionCycleTimeMetrics({
+      tasks,
+      workflow: customWorkflow,
+      now: fixedNow,
+    });
+
+    assert.equal(result.summary.completedTasks, 1);
+    assert.equal(result.stageBottlenecks.length >= 4, true);
+
+    const devStage = result.stageBottlenecks.find((s) => s.key === "dev");
+    const qaStage = result.stageBottlenecks.find((s) => s.key === "qa");
+
+    assert.ok(devStage);
+    assert.equal(devStage.name, "Development");
+    assert.equal(devStage.averageHours, 36);
+
+    assert.ok(qaStage);
+    assert.equal(qaStage.name, "QA & Testing");
+    assert.equal(qaStage.averageHours, 36);
   });
 });

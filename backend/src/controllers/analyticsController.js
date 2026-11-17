@@ -6,7 +6,7 @@ import Activity from "../models/Activity.js";
 import Workflow from "../models/Workflow.js";
 import Sprint from "../models/Sprint.js";
 import { checkProjectAccess, checkSprintAccess } from "../utils/authHelpers.js";
-import { isStatusCompleted, getCompletedStatusKeys } from "../utils/workflowHelpers.js";
+import { isStatusCompleted, getCompletedStatusKeys, getStatusCategory } from "../utils/workflowHelpers.js";
 
 /**
  * Builds standard ISO start and end Date bounds from date range filter presets.
@@ -905,6 +905,346 @@ export const getTeamWorkloadCapacity = async (req, res) => {
     });
   } catch (err) {
     console.error("Team Workload Capacity Error:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Calculates quantile value from an ascending sorted array of numbers using nearest-rank / linear interpolation.
+ */
+export const calculatePercentile = (sortedArr, percentile) => {
+  if (!sortedArr || sortedArr.length === 0) return null;
+  if (sortedArr.length === 1) return sortedArr[0];
+  const p = Math.max(0, Math.min(100, percentile)) / 100;
+  const index = (sortedArr.length - 1) * p;
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  const weight = index - lower;
+  return Math.round((sortedArr[lower] * (1 - weight) + sortedArr[upper] * weight) * 10) / 10;
+};
+
+/**
+ * Computes descriptive summary statistics (count, avg, median, p85, p90, p95, min, max) for an array of duration numbers (hours).
+ */
+export const calculateDurationStats = (durationsInHours) => {
+  if (!durationsInHours || durationsInHours.length === 0) {
+    return {
+      count: 0,
+      average: null,
+      median: null,
+      p85: null,
+      p90: null,
+      p95: null,
+      min: null,
+      max: null,
+    };
+  }
+
+  const sorted = [...durationsInHours].sort((a, b) => a - b);
+  const count = sorted.length;
+  const sum = sorted.reduce((acc, v) => acc + v, 0);
+  const average = Math.round((sum / count) * 10) / 10;
+  const median = calculatePercentile(sorted, 50);
+  const p85 = calculatePercentile(sorted, 85);
+  const p90 = calculatePercentile(sorted, 90);
+  const p95 = calculatePercentile(sorted, 95);
+  const min = Math.round(sorted[0] * 10) / 10;
+  const max = Math.round(sorted[sorted.length - 1] * 10) / 10;
+
+  return {
+    count,
+    average,
+    median,
+    p85,
+    p90,
+    p95,
+    min,
+    max,
+  };
+};
+
+/**
+ * Calculates Task Completion & Cycle-Time Metrics (ANL-04).
+ * Pure calculation function for unit testability and controller execution.
+ */
+export const calculateTaskCompletionCycleTimeMetrics = ({
+  tasks = [],
+  workflow = null,
+  now = new Date(),
+  dateRange = null,
+}) => {
+  const completedKeys = new Set(getCompletedStatusKeys(workflow));
+  const currentDate = new Date(now);
+
+  const completedTasks = [];
+  const activeTasks = [];
+  let reopenedTaskCount = 0;
+  let overdueCompletedCount = 0;
+  let onTimeCompletedCount = 0;
+
+  const cycleDurationsHours = [];
+  const leadDurationsHours = [];
+
+  // Stage bottleneck tracking map: statusKey -> { statusKey, statusName, category, color, order, totalTimeMs, taskCount, avgHours }
+  const statusMap = new Map();
+  if (workflow && Array.isArray(workflow.statuses)) {
+    workflow.statuses.forEach((s) => {
+      statusMap.set(s.key, {
+        key: s.key,
+        name: s.name,
+        category: s.category,
+        color: s.color || "#6366f1",
+        order: s.order || 0,
+        totalTimeMs: 0,
+        taskCount: 0,
+      });
+    });
+  } else {
+    [
+      { key: "todo", name: "Todo", category: "todo", color: "#94a3b8", order: 0 },
+      { key: "in-progress", name: "In Progress", category: "in_progress", color: "#3b82f6", order: 1 },
+      { key: "review", name: "In Review", category: "review", color: "#f59e0b", order: 2 },
+      { key: "done", name: "Done", category: "done", color: "#10b981", order: 3 },
+    ].forEach((s) => {
+      statusMap.set(s.key, { ...s, totalTimeMs: 0, taskCount: 0 });
+    });
+  }
+
+  // Inspect each task
+  tasks.forEach((t) => {
+    const isCompleted = completedKeys.has(t.status) || Boolean(t.completedAt);
+    const completedTimestamp = t.completedAt ? new Date(t.completedAt) : null;
+    const createdTimestamp = t.createdAt ? new Date(t.createdAt) : null;
+    const startedTimestamp = t.startedAt ? new Date(t.startedAt) : null;
+
+    // Check for reopened state in status history:
+    // If a task exited a done status into a non-done status
+    let wasReopened = false;
+    if (Array.isArray(t.statusHistory) && t.statusHistory.length > 1) {
+      let sawDone = false;
+      for (const entry of t.statusHistory) {
+        if (completedKeys.has(entry.status)) {
+          sawDone = true;
+        } else if (sawDone && !completedKeys.has(entry.status)) {
+          wasReopened = true;
+          break;
+        }
+      }
+    }
+    if (wasReopened) {
+      reopenedTaskCount++;
+    }
+
+    // Accumulate stage times from actual status history
+    if (Array.isArray(t.statusHistory) && t.statusHistory.length > 0) {
+      t.statusHistory.forEach((entry) => {
+        let entryDurationMs = entry.durationMs;
+        if (entryDurationMs === null || entryDurationMs === undefined) {
+          // If this is the current active entry
+          if (entry.enteredAt && !entry.exitedAt) {
+            entryDurationMs = Math.max(0, currentDate.getTime() - new Date(entry.enteredAt).getTime());
+          }
+        }
+        if (typeof entryDurationMs === "number" && entryDurationMs >= 0) {
+          let stageObj = statusMap.get(entry.status);
+          if (!stageObj) {
+            stageObj = {
+              key: entry.status,
+              name: entry.status,
+              category: getStatusCategory(entry.status, workflow),
+              color: "#64748b",
+              order: 99,
+              totalTimeMs: 0,
+              taskCount: 0,
+            };
+            statusMap.set(entry.status, stageObj);
+          }
+          stageObj.totalTimeMs += entryDurationMs;
+          stageObj.taskCount += 1;
+        }
+      });
+    }
+
+    if (isCompleted && completedTimestamp) {
+      completedTasks.push(t);
+
+      // Overdue vs on-time completion
+      if (t.dueDate) {
+        const due = new Date(t.dueDate);
+        if (completedTimestamp.getTime() > due.getTime()) {
+          overdueCompletedCount++;
+        } else {
+          onTimeCompletedCount++;
+        }
+      }
+
+      // Lead Time: creation to completion (both timestamps must actually exist)
+      if (createdTimestamp && !isNaN(createdTimestamp.getTime()) && completedTimestamp.getTime() >= createdTimestamp.getTime()) {
+        const leadHours = (completedTimestamp.getTime() - createdTimestamp.getTime()) / (1000 * 60 * 60);
+        leadDurationsHours.push(leadHours);
+      }
+
+      // Cycle Time: task start to completion (must have actual persisted startedAt)
+      if (startedTimestamp && !isNaN(startedTimestamp.getTime()) && completedTimestamp.getTime() >= startedTimestamp.getTime()) {
+        const cycleHours = (completedTimestamp.getTime() - startedTimestamp.getTime()) / (1000 * 60 * 60);
+        cycleDurationsHours.push(cycleHours);
+      }
+    } else {
+      activeTasks.push(t);
+    }
+  });
+
+  // Calculate descriptive stats
+  const cycleTimeStats = calculateDurationStats(cycleDurationsHours);
+  const leadTimeStats = calculateDurationStats(leadDurationsHours);
+
+  // Completion Trends by Day, Week, and Month (based on actual completedAt)
+  // Day trend: group by YYYY-MM-DD
+  const dayTrendMap = new Map();
+  // Week trend: group by YYYY-Www (or week start date)
+  const weekTrendMap = new Map();
+  // Month trend: group by YYYY-MM
+  const monthTrendMap = new Map();
+
+  completedTasks.forEach((t) => {
+    const cDate = new Date(t.completedAt);
+    if (isNaN(cDate.getTime())) return;
+
+    // Day key: YYYY-MM-DD
+    const dayKey = cDate.toISOString().slice(0, 10);
+    dayTrendMap.set(dayKey, (dayTrendMap.get(dayKey) || 0) + 1);
+
+    // Month key: YYYY-MM
+    const monthKey = cDate.toISOString().slice(0, 7);
+    monthTrendMap.set(monthKey, (monthTrendMap.get(monthKey) || 0) + 1);
+
+    // Week key: start of the week Sunday YYYY-MM-DD
+    const d = new Date(cDate);
+    const dayOfWeek = d.getDay();
+    d.setDate(d.getDate() - dayOfWeek);
+    const weekKey = d.toISOString().slice(0, 10);
+    weekTrendMap.set(weekKey, (weekTrendMap.get(weekKey) || 0) + 1);
+  });
+
+  const dailyTrends = Array.from(dayTrendMap.entries())
+    .map(([date, count]) => ({ date, count }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const weeklyTrends = Array.from(weekTrendMap.entries())
+    .map(([weekStart, count]) => ({ weekStart, label: `Week of ${weekStart}`, count }))
+    .sort((a, b) => a.weekStart.localeCompare(b.weekStart));
+
+  const monthlyTrends = Array.from(monthTrendMap.entries())
+    .map(([month, count]) => ({ month, count }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+
+  // Stage bottleneck analysis list
+  const stageBottlenecks = Array.from(statusMap.values())
+    .map((stage) => {
+      const avgHours = stage.taskCount > 0 ? Math.round((stage.totalTimeMs / (stage.taskCount * 1000 * 60 * 60)) * 10) / 10 : 0;
+      return {
+        key: stage.key,
+        name: stage.name,
+        category: stage.category,
+        color: stage.color,
+        order: stage.order,
+        taskCount: stage.taskCount,
+        totalHours: Math.round((stage.totalTimeMs / (1000 * 60 * 60)) * 10) / 10,
+        averageHours: avgHours,
+      };
+    })
+    .sort((a, b) => a.order - b.order);
+
+  // Overall rates and summaries
+  const totalTasksCount = tasks.length;
+  const completedCount = completedTasks.length;
+  const completionRate = totalTasksCount > 0 ? Math.round((completedCount / totalTasksCount) * 1000) / 10 : 0;
+  const reopenedRate = totalTasksCount > 0 ? Math.round((reopenedTaskCount / totalTasksCount) * 1000) / 10 : 0;
+  const completedWithDueDateCount = overdueCompletedCount + onTimeCompletedCount;
+  const onTimeCompletionRate = completedWithDueDateCount > 0 ? Math.round((onTimeCompletedCount / completedWithDueDateCount) * 1000) / 10 : null;
+
+  return {
+    summary: {
+      totalTasks: totalTasksCount,
+      completedTasks: completedCount,
+      activeTasks: activeTasks.length,
+      completionRate,
+      reopenedCount: reopenedTaskCount,
+      reopenedRate,
+      overdueCompletedCount,
+      onTimeCompletedCount,
+      onTimeCompletionRate,
+      tasksWithCycleTime: cycleDurationsHours.length,
+      tasksWithLeadTime: leadDurationsHours.length,
+      hasHistoricalCycleData: cycleDurationsHours.length > 0,
+      hasHistoricalLeadData: leadDurationsHours.length > 0,
+    },
+    cycleTime: cycleTimeStats,
+    leadTime: leadTimeStats,
+    trends: {
+      daily: dailyTrends,
+      weekly: weeklyTrends,
+      monthly: monthlyTrends,
+    },
+    stageBottlenecks,
+  };
+};
+
+/**
+ * Controller for GET /api/analytics/project/:projectId/completion-cycle-time
+ */
+export const getTaskCompletionCycleTime = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { sprintId, memberId, priority, range, startDate, endDate } = req.query;
+
+    const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not a member of this project's team" });
+    }
+
+    const dateRange = buildDateFilterRange({ range, startDate, endDate });
+
+    // Build task query
+    const taskQuery = { projectId };
+    if (sprintId && sprintId !== "all") {
+      taskQuery.sprintId = sprintId;
+    }
+    if (memberId && memberId !== "all") {
+      taskQuery.assignedTo = memberId;
+    }
+    if (priority && priority !== "all") {
+      taskQuery.priority = priority;
+    }
+    if (dateRange && dateRange.start && dateRange.end) {
+      // Filter tasks whose creation or completion falls within the requested date bounds
+      taskQuery.$or = [
+        { completedAt: { $gte: dateRange.start, $lte: dateRange.end } },
+        { createdAt: { $gte: dateRange.start, $lte: dateRange.end } },
+      ];
+    }
+
+    const tasks = await Task.find(taskQuery)
+      .populate("assignedTo", "name email avatar")
+      .select("title status priority dueDate assignedTo sprintId createdAt updatedAt startedAt completedAt statusHistory");
+
+    const workflow = await Workflow.findOne({ projectId });
+
+    const metrics = calculateTaskCompletionCycleTimeMetrics({
+      tasks,
+      workflow,
+      now: new Date(),
+      dateRange,
+    });
+
+    res.json({
+      projectId,
+      projectName: project.name,
+      ...metrics,
+    });
+  } catch (err) {
+    console.error("Task Completion Cycle Time Error:", err);
     res.status(500).json({ message: err.message });
   }
 };

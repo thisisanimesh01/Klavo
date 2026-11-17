@@ -1,4 +1,4 @@
-import { isStatusCompleted, getCompletedStatusKeys } from "../utils/workflowHelpers.js";
+import { isStatusCompleted, getCompletedStatusKeys, getStatusCategory } from "../utils/workflowHelpers.js";
 import Workflow from "../models/Workflow.js";
 import Task from "../models/Task.js";
 import TaskTemplate from "../models/TaskTemplate.js";
@@ -100,10 +100,16 @@ export const createTask = async (req, res) => {
       status: status || "todo",
     });
 
+    const initialStatus = status || "todo";
+    const initialWorkflow = await Workflow.findOne({ projectId });
+    const isInitialDone = isStatusCompleted(initialStatus, initialWorkflow);
+    const initialCategory = getStatusCategory(initialStatus, initialWorkflow);
+    const now = new Date();
+
     const task = await Task.create({
       title: finalTitle,
       description: finalDescription,
-      status: status || "todo",
+      status: initialStatus,
       priority: finalPriority,
       sprintId: sprintId || null,
       milestoneId: milestoneId || null,
@@ -120,6 +126,17 @@ export const createTask = async (req, res) => {
       projectId,
       createdBy: req.user._id,
       order: existingCount,
+      startedAt: initialCategory === "in_progress" || isInitialDone ? now : null,
+      completedAt: isInitialDone ? now : null,
+      statusHistory: [
+        {
+          status: initialStatus,
+          enteredAt: now,
+          exitedAt: null,
+          durationMs: null,
+          changedBy: req.user._id,
+        },
+      ],
     });
 
     // Populate assignedTo and sprintId for immediate full response
@@ -377,6 +394,48 @@ export const updateTask = async (req, res) => {
     allowed.forEach((f) => {
       if (req.body[f] !== undefined) updates[f] = req.body[f];
     });
+
+    const isStatusChanging = req.body.status && req.body.status !== task.status;
+    const now = new Date();
+
+    if (isStatusChanging) {
+      const workflow = await Workflow.findOne({ projectId: task.projectId });
+      const targetStatus = req.body.status;
+      const targetCategory = getStatusCategory(targetStatus, workflow);
+      const isTargetDone = isStatusCompleted(targetStatus, workflow);
+
+      // Close previous open statusHistory entry if present
+      const history = Array.isArray(task.statusHistory) ? [...task.statusHistory] : [];
+      if (history.length > 0) {
+        const lastEntry = history[history.length - 1];
+        if (!lastEntry.exitedAt) {
+          lastEntry.exitedAt = now;
+          lastEntry.durationMs = Math.max(0, now.getTime() - new Date(lastEntry.enteredAt).getTime());
+        }
+      }
+
+      // Add new status history entry
+      history.push({
+        status: targetStatus,
+        enteredAt: now,
+        exitedAt: null,
+        durationMs: null,
+        changedBy: req.user._id,
+      });
+      updates.statusHistory = history;
+
+      // Update startedAt: if first time entering in_progress (or not set)
+      if (!task.startedAt && (targetCategory === "in_progress" || isTargetDone)) {
+        updates.startedAt = now;
+      }
+
+      // Update completedAt: set when moving to done; clear (reopened) when moving out of done
+      if (isTargetDone) {
+        updates.completedAt = now;
+      } else if (task.completedAt) {
+        updates.completedAt = null;
+      }
+    }
 
     const updatedTask = await Task.findByIdAndUpdate(taskId, updates, { new: true })
       .populate("assignedTo", "name email avatar")
@@ -644,6 +703,44 @@ export const moveTask = async (req, res) => {
     }
 
     const previousStatus = task.status;
+    const now = new Date();
+
+    if (previousStatus !== status) {
+      const targetCategory = getStatusCategory(status, moveWorkflow);
+
+      // Close previous open statusHistory entry if present
+      if (!Array.isArray(task.statusHistory)) {
+        task.statusHistory = [];
+      }
+      if (task.statusHistory.length > 0) {
+        const lastEntry = task.statusHistory[task.statusHistory.length - 1];
+        if (!lastEntry.exitedAt) {
+          lastEntry.exitedAt = now;
+          lastEntry.durationMs = Math.max(0, now.getTime() - new Date(lastEntry.enteredAt).getTime());
+        }
+      }
+
+      task.statusHistory.push({
+        status,
+        enteredAt: now,
+        exitedAt: null,
+        durationMs: null,
+        changedBy: req.user._id,
+      });
+
+      // Update startedAt
+      if (!task.startedAt && (targetCategory === "in_progress" || isMoveTargetDone)) {
+        task.startedAt = now;
+      }
+
+      // Update completedAt: set when moving to done; clear when reopened from done
+      if (isMoveTargetDone) {
+        task.completedAt = now;
+      } else if (task.completedAt) {
+        task.completedAt = null;
+      }
+    }
+
     task.status = status;
     task.order = order;
     await task.save();

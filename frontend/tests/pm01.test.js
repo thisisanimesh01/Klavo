@@ -1260,3 +1260,95 @@ test("FRONTEND ANL-03: Team Workload & Capacity UI Helpers", async (t) => {
     );
   });
 });
+
+test("FRONTEND ANL-04: Task Completion & Cycle Time UI Helpers", async (t) => {
+  await t.test("Validates cycle time and lead time percentile comparison dataset mapping", () => {
+    const cycleStats = {
+      average: 42,
+      median: 36,
+      p85: 60,
+      p95: 72,
+      count: 10,
+    };
+    const leadStats = {
+      average: 84,
+      median: 72,
+      p85: 120,
+      p95: 144,
+      count: 12,
+    };
+
+    const comparisonData = [
+      { metric: "Average", cycleTime: cycleStats.average, leadTime: leadStats.average },
+      { metric: "Median (p50)", cycleTime: cycleStats.median, leadTime: leadStats.median },
+      { metric: "85th %ile", cycleTime: cycleStats.p85, leadTime: leadStats.p85 },
+      { metric: "95th %ile", cycleTime: cycleStats.p95, leadTime: leadStats.p95 },
+    ];
+
+    assert.equal(comparisonData.length, 4);
+    assert.equal(comparisonData[0].cycleTime, 42);
+    assert.equal(comparisonData[0].leadTime, 84);
+    assert.equal(comparisonData[2].cycleTime, 60);
+    assert.equal(comparisonData[2].leadTime, 120);
+  });
+
+  await t.test("Validates completion trend granularity dataset selection", () => {
+    const trends = {
+      daily: [{ date: "2026-11-15", count: 3 }, { date: "2026-11-16", count: 5 }],
+      weekly: [{ weekStart: "2026-11-10", label: "Week of 2026-11-10", count: 12 }],
+      monthly: [{ month: "2026-11", count: 25 }],
+    };
+
+    const getTrendData = (granularity) => {
+      if (granularity === "weekly") return trends.weekly;
+      if (granularity === "monthly") return trends.monthly;
+      return trends.daily;
+    };
+
+    assert.equal(getTrendData("daily").length, 2);
+    assert.equal(getTrendData("weekly")[0].label, "Week of 2026-11-10");
+    assert.equal(getTrendData("monthly")[0].count, 25);
+  });
+
+  await t.test("Validates stage bottleneck table sorting and average dwell formatting", () => {
+    const stages = [
+      { key: "todo", name: "Todo", averageHours: 12.5, order: 0 },
+      { key: "in-progress", name: "In Progress", averageHours: 48.0, order: 1 },
+      { key: "review", name: "In Review", averageHours: 18.2, order: 2 },
+    ];
+
+    const sortedByBottleneck = [...stages].sort((a, b) => b.averageHours - a.averageHours);
+    assert.equal(sortedByBottleneck[0].name, "In Progress");
+    assert.equal(sortedByBottleneck[0].averageHours, 48.0);
+    assert.equal(sortedByBottleneck[2].name, "Todo");
+  });
+
+  await t.test("Validates cycle time filter query string composition", () => {
+    const composeCycleParams = ({ sprintId, memberId, priority, range, startDate, endDate }) => {
+      const params = new URLSearchParams();
+      if (sprintId && sprintId !== "all") params.append("sprintId", sprintId);
+      if (memberId && memberId !== "all") params.append("memberId", memberId);
+      if (priority && priority !== "all") params.append("priority", priority);
+      if (range && range !== "all") params.append("range", range);
+      if (range === "custom" && startDate && endDate) {
+        params.append("startDate", startDate);
+        params.append("endDate", endDate);
+      }
+      return params.toString();
+    };
+
+    const query = composeCycleParams({
+      sprintId: "sprint_456",
+      memberId: "user_789",
+      priority: "urgent",
+      range: "custom",
+      startDate: "2026-11-01",
+      endDate: "2026-11-30",
+    });
+
+    assert.equal(
+      query,
+      "sprintId=sprint_456&memberId=user_789&priority=urgent&range=custom&startDate=2026-11-01&endDate=2026-11-30"
+    );
+  });
+});

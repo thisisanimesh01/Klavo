@@ -42,6 +42,21 @@ export const isStatusCompleted = (statusKey, workflow) => {
 };
 
 /**
+ * Resolves the lifecycle category ('todo', 'in_progress', 'review', 'done') of a statusKey.
+ */
+export const getStatusCategory = (statusKey, workflow) => {
+  if (!statusKey) return "todo";
+  if (!workflow || !Array.isArray(workflow.statuses)) {
+    if (statusKey === "done") return "done";
+    if (statusKey === "in-progress") return "in_progress";
+    if (statusKey === "review") return "review";
+    return "todo";
+  }
+  const st = workflow.statuses.find((s) => s.key === statusKey);
+  return st ? st.category : (statusKey === "done" ? "done" : "todo");
+};
+
+/**
  * Returns a Set or Array of all status keys that belong to the "done" category for a project.
  */
 export const getCompletedStatusKeys = (workflow) => {
