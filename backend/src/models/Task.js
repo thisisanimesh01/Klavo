@@ -134,11 +134,19 @@ const taskSchema = new mongoose.Schema(
       ref: "User",
       required: true,
     },
+
+    // Linked Documents & Knowledge Base Articles (DOC-08)
+    linkedDocuments: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Document",
+      },
+    ],
   },
   { timestamps: true }
 );
 
-// Performance Indexes for Kanban boards, filters, sprints, labels, priorities, parent-child, and dependencies
+// Performance Indexes for Kanban boards, filters, sprints, labels, priorities, parent-child, dependencies, and linked docs
 taskSchema.index({ projectId: 1, status: 1, order: 1 });
 taskSchema.index({ projectId: 1, sprintId: 1, status: 1 });
 taskSchema.index({ projectId: 1, parentId: 1 });
@@ -151,6 +159,7 @@ taskSchema.index({ milestoneId: 1 });
 taskSchema.index({ projectId: 1, milestoneId: 1 });
 taskSchema.index({ assignedTo: 1 });
 taskSchema.index({ dueDate: 1 });
+taskSchema.index({ linkedDocuments: 1 });
 taskSchema.index({ createdAt: -1 });
 
 export default mongoose.model("Task", taskSchema);

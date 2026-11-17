@@ -126,6 +126,13 @@ const documentSchema = new mongoose.Schema(
       default: null,
       trim: true,
     },
+    // Direct Task Links (DOC-08)
+    linkedTasks: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Task",
+      },
+    ],
   },
   { timestamps: true }
 );
@@ -140,5 +147,6 @@ documentSchema.index({ "shares.userId": 1 });
 documentSchema.index({ projectId: 1, isWiki: 1, isArchived: 1 });
 documentSchema.index({ projectId: 1, parentWikiId: 1, wikiOrder: 1 });
 documentSchema.index({ projectId: 1, isWikiHome: 1 });
+documentSchema.index({ linkedTasks: 1 });
 
 export default mongoose.model("Document", documentSchema);

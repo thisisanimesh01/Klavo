@@ -1015,3 +1015,57 @@ test("FRONTEND DOC-07: Project Wiki & Knowledge Base UI Helpers", async (t) => {
     assert.equal(qEmpty.length, 3);
   });
 });
+
+test("FRONTEND DOC-08: Document & Task Linking UI Helpers", async (t) => {
+  await t.test("Validates deduplicated document linking and available document exclusion", () => {
+    const allDocs = [
+      { _id: "doc_1", title: "API Spec", isWiki: false },
+      { _id: "doc_2", title: "Database Architecture", isWiki: true },
+      { _id: "doc_3", title: "Frontend Guidelines", isWiki: false },
+    ];
+
+    const linkedDocs = [
+      { _id: "doc_1", title: "API Spec" },
+    ];
+
+    // Filter available docs to exclude already linked docs
+    const availableToLink = allDocs.filter(
+      (d) => !linkedDocs.some((ld) => ld._id === d._id)
+    );
+
+    assert.equal(availableToLink.length, 2);
+    assert.equal(availableToLink[0]._id, "doc_2");
+    assert.equal(availableToLink[1]._id, "doc_3");
+  });
+
+  await t.test("Validates document link target URL generation for docs vs wiki", () => {
+    const getDocUrl = (projectId, doc) => {
+      return doc.isWiki
+        ? `/wiki/${projectId}/${doc._id}`
+        : `/documents/${projectId}/${doc._id}`;
+    };
+
+    assert.equal(
+      getDocUrl("p_123", { _id: "d_1", isWiki: false }),
+      "/documents/p_123/d_1"
+    );
+    assert.equal(
+      getDocUrl("p_123", { _id: "w_1", isWiki: true }),
+      "/wiki/p_123/w_1"
+    );
+  });
+
+  await t.test("Validates optimistic unlink state update", () => {
+    let linkedList = [
+      { _id: "d_1", title: "Doc 1" },
+      { _id: "d_2", title: "Doc 2" },
+      { _id: "d_3", title: "Doc 3" },
+    ];
+
+    const removeDoc = (list, targetId) => list.filter((d) => d._id !== targetId);
+
+    linkedList = removeDoc(linkedList, "d_2");
+    assert.equal(linkedList.length, 2);
+    assert.equal(linkedList.some((d) => d._id === "d_2"), false);
+  });
+});

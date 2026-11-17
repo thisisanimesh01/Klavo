@@ -12,6 +12,11 @@ import {
   addTaskDependency,
   removeTaskDependency,
 } from "../controllers/taskController.js";
+import {
+  linkDocumentToTask,
+  unlinkDocumentFromTask,
+  getTaskLinkedDocuments,
+} from "../controllers/documentLinkController.js";
 
 const router = express.Router();
 
@@ -29,5 +34,10 @@ router.put("/:taskId/move", moveTask);
 // Task Dependency Relationships
 router.post("/:taskId/dependencies", addTaskDependency);
 router.delete("/:taskId/dependencies/:dependencyTaskId", removeTaskDependency);
+
+// Document & Knowledge Base Linking (DOC-08)
+router.post("/:taskId/documents/:documentId", linkDocumentToTask);
+router.delete("/:taskId/documents/:documentId", unlinkDocumentFromTask);
+router.get("/:taskId/documents", getTaskLinkedDocuments);
 
 export default router;

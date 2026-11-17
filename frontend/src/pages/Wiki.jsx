@@ -8,6 +8,7 @@ import ThemeToggle from "../components/ThemeToggle";
 import DocumentShareModal from "../components/DocumentShareModal";
 import DocumentCommentsPanel from "../components/DocumentCommentsPanel";
 import DocumentVersionHistoryModal from "../components/DocumentVersionHistoryModal";
+import LinkedTasksDrawer from "../components/LinkedTasksDrawer";
 import { CollabSocketProvider } from "../utils/collabSocketProvider";
 import * as Y from "yjs";
 import {
@@ -35,6 +36,7 @@ import {
   ArrowUp,
   ArrowDown,
   Lock,
+  CheckSquare,
 } from "lucide-react";
 
 export default function Wiki() {
@@ -63,6 +65,9 @@ export default function Wiki() {
   const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
   const [activeAnchor, setActiveAnchor] = useState(null);
   const [versionModalOpen, setVersionModalOpen] = useState(false);
+
+  // Linked Tasks Drawer (DOC-08)
+  const [linkedTasksOpen, setLinkedTasksOpen] = useState(false);
 
   // Modals & Organization State
   const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -531,6 +536,20 @@ export default function Wiki() {
             </div>
           )}
 
+          {/* Linked Tasks Button (DOC-08) */}
+          <button
+            onClick={() => setLinkedTasksOpen(!linkedTasksOpen)}
+            className={`inline-flex items-center gap-1 px-2.5 py-1.5 border rounded-lg text-xs font-semibold transition ${
+              linkedTasksOpen
+                ? "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400"
+                : "border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+            }`}
+            title="Linked Tasks"
+          >
+            <CheckSquare size={14} className="text-indigo-500" />
+            <span className="hidden sm:inline">Tasks</span>
+          </button>
+
           {/* Action buttons */}
           <button
             onClick={() => setVersionModalOpen(true)}
@@ -821,6 +840,17 @@ export default function Wiki() {
               onClose={() => setCommentsPanelOpen(false)}
             />
           </aside>
+        )}
+
+        {/* Linked Tasks Drawer (DOC-08) */}
+        {linkedTasksOpen && selectedPage && (
+          <LinkedTasksDrawer
+            documentId={selectedPage._id}
+            projectId={projectId}
+            canEdit={Boolean(selectedPage.userPermission?.canEdit)}
+            isOpen={linkedTasksOpen}
+            onClose={() => setLinkedTasksOpen(false)}
+          />
         )}
       </div>
 
