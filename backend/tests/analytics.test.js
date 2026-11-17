@@ -9,6 +9,8 @@ import {
   calculatePercentile,
   calculateDurationStats,
   calculateProjectHealthMetrics,
+  validateAndNormalizeDateRange,
+  aggregateCustomReportData,
 } from "../src/controllers/analyticsController.js";
 
 test("ANL-01: Date Range Filtering Bounds", async (t) => {
@@ -892,5 +894,130 @@ test("ANL-05: Project Health & Progress Indicators Calculations", async (t) => {
     assert.equal(result.healthState, "Healthy");
     assert.equal(result.metrics.completedTasks, 1);
     assert.equal(result.metrics.overdueTasksCount, 0); // Not counted as overdue!
+  });
+});
+
+test("ANL-06: Custom Reports & Date-Range Filtering Logic", async (t) => {
+  const fixedNow = new Date("2026-11-18T12:00:00.000Z");
+
+  await t.test("validates and normalizes date ranges with boundary and ordering checks", () => {
+    // Valid custom date range
+    const valid = validateAndNormalizeDateRange({
+      range: "custom",
+      startDate: "2026-11-01",
+      endDate: "2026-11-15",
+    }, fixedNow);
+
+    assert.ok(valid);
+    assert.equal(valid.start.toISOString().slice(0, 10), "2026-11-01");
+    assert.equal(valid.end.toISOString().slice(0, 10), "2026-11-15");
+
+    // Invalid range: startDate > endDate
+    assert.throws(
+      () => {
+        validateAndNormalizeDateRange({
+          range: "custom",
+          startDate: "2026-11-20",
+          endDate: "2026-11-10",
+        }, fixedNow);
+      },
+      /Start date cannot be after end date/
+    );
+
+    // Invalid format
+    assert.throws(
+      () => {
+        validateAndNormalizeDateRange({
+          range: "custom",
+          startDate: "invalid-date",
+          endDate: "2026-11-10",
+        }, fixedNow);
+      },
+      /Invalid date format/
+    );
+  });
+
+  await t.test("aggregates report data by status dimension with metrics summary", () => {
+    const tasks = [
+      { _id: "t1", title: "Task 1", status: "todo", estimatedHours: 8, storyPoints: 3, createdAt: "2026-11-10" },
+      { _id: "t2", title: "Task 2", status: "todo", estimatedHours: 4, storyPoints: 2, createdAt: "2026-11-12" },
+      { _id: "t3", title: "Task 3", status: "done", estimatedHours: 16, storyPoints: 5, createdAt: "2026-11-08" },
+    ];
+
+    const result = aggregateCustomReportData({
+      tasks,
+      groupBy: "status",
+      sortBy: "createdAt",
+      sortOrder: "desc",
+      page: 1,
+      limit: 50,
+    });
+
+    assert.equal(result.summary.totalTasks, 3);
+    assert.equal(result.summary.completedTasks, 1);
+    assert.equal(result.summary.totalEstimatedHours, 28);
+    assert.equal(result.summary.totalStoryPoints, 10);
+    assert.equal(result.groups.length, 2); // 'todo' and 'done'
+
+    const todoGroup = result.groups.find((g) => g.key === "todo");
+    assert.ok(todoGroup);
+    assert.equal(todoGroup.count, 2);
+    assert.equal(todoGroup.estimatedHours, 12);
+    assert.equal(todoGroup.storyPoints, 5);
+
+    const doneGroup = result.groups.find((g) => g.key === "done");
+    assert.ok(doneGroup);
+    assert.equal(doneGroup.count, 1);
+    assert.equal(doneGroup.completionRate, 100);
+  });
+
+  await t.test("aggregates report data by priority dimension and handles unassigned gracefully", () => {
+    const tasks = [
+      { _id: "t1", title: "Urgent Task", priority: "urgent", assignedTo: [], estimatedHours: 5 },
+      { _id: "t2", title: "Medium Task", priority: "medium", assignedTo: [{ _id: "u1", name: "Alice" }], estimatedHours: 10 },
+    ];
+
+    // Group by priority
+    const priorityReport = aggregateCustomReportData({
+      tasks,
+      groupBy: "priority",
+    });
+    assert.equal(priorityReport.groups.length, 2);
+    assert.ok(priorityReport.groups.find((g) => g.key === "urgent"));
+    assert.ok(priorityReport.groups.find((g) => g.key === "medium"));
+
+    // Group by assignee
+    const assigneeReport = aggregateCustomReportData({
+      tasks,
+      groupBy: "assignee",
+    });
+    assert.equal(assigneeReport.groups.length, 2);
+    const unassignedGroup = assigneeReport.groups.find((g) => g.key === "unassigned");
+    assert.ok(unassignedGroup);
+    assert.equal(unassignedGroup.label, "Unassigned");
+    assert.equal(unassignedGroup.count, 1);
+  });
+
+  await t.test("respects pagination limits and safely bounds limit caps", () => {
+    const tasks = Array.from({ length: 25 }, (_, i) => ({
+      _id: `t_${i}`,
+      title: `Task ${i}`,
+      status: "todo",
+      createdAt: new Date(Date.now() - i * 1000).toISOString(),
+    }));
+
+    const paginated = aggregateCustomReportData({
+      tasks,
+      groupBy: "status",
+      page: 2,
+      limit: 10,
+    });
+
+    assert.equal(paginated.pagination.total, 25);
+    assert.equal(paginated.pagination.page, 2);
+    assert.equal(paginated.pagination.limit, 10);
+    assert.equal(paginated.pagination.pages, 3);
+    assert.equal(paginated.tasks.length, 10);
+    assert.equal(paginated.tasks[0]._id, "t_10");
   });
 });

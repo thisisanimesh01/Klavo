@@ -33,6 +33,14 @@ import {
   HeartPulse,
   Check,
   XCircle,
+  FileText,
+  Save,
+  Trash2,
+  PieChart as PieChartIcon,
+  Table as TableIcon,
+  ChevronLeft,
+  ChevronRight,
+  Share2,
 } from "lucide-react";
 import {
   StatusDistributionChart,
@@ -48,13 +56,15 @@ import {
   StageBottleneckChart,
   HealthScoreGauge,
   MilestoneProgressChart,
+  CustomReportBarChart,
+  CustomReportPieChart,
 } from "../components/AnalyticsCharts";
 
 export default function Analytics() {
   const { projectId: urlProjectId } = useParams();
   const navigate = useNavigate();
 
-  // Navigation tab: 'overview' | 'health' | 'capacity' | 'cycle_time' | 'sprints'
+  // Navigation tab: 'overview' | 'health' | 'capacity' | 'cycle_time' | 'sprints' | 'custom_reports'
   const [activeTab, setActiveTab] = useState("overview");
 
   // Project selection & multi-project support
@@ -109,6 +119,30 @@ export default function Analytics() {
   const [healthData, setHealthData] = useState(null);
   const [healthLoading, setHealthLoading] = useState(false);
   const [healthError, setHealthError] = useState(null);
+
+  // Custom Reports states (ANL-06)
+  const [reportResult, setReportResult] = useState(null);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportError, setReportError] = useState(null);
+  const [savedReports, setSavedReports] = useState([]);
+  const [selectedSavedReportId, setSelectedSavedReportId] = useState("");
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [newReportName, setNewReportName] = useState("");
+  const [newReportDesc, setNewReportDesc] = useState("");
+  const [newReportIsShared, setNewReportIsShared] = useState(false);
+  const [reportSaving, setReportSaving] = useState(false);
+
+  // Builder config
+  const [reportGroupBy, setReportGroupBy] = useState("status");
+  const [reportSortBy, setReportSortBy] = useState("createdAt");
+  const [reportSortOrder, setReportSortOrder] = useState("desc");
+  const [reportRange, setReportRange] = useState("all");
+  const [reportStartDate, setReportStartDate] = useState("");
+  const [reportEndDate, setReportEndDate] = useState("");
+  const [reportDateField, setReportDateField] = useState("createdAt");
+  const [reportChartType, setReportChartType] = useState("bar"); // 'bar' | 'pie' | 'table'
+  const [reportMetric, setReportMetric] = useState("count"); // 'count' | 'estimatedHours' | 'storyPoints'
+  const [reportPage, setReportPage] = useState(1);
 
   // Load available projects
   useEffect(() => {
@@ -322,11 +356,145 @@ export default function Analytics() {
     }
   }, [selectedProjectId]);
 
+  // Fetch saved reports list (ANL-06)
+  const fetchSavedReports = useCallback(async () => {
+    if (!selectedProjectId) return;
+    try {
+      const res = await axiosClient.get(`/analytics/project/${selectedProjectId}/saved-reports`);
+      setSavedReports(res.data || []);
+    } catch (err) {
+      console.error("Failed to load saved reports:", err);
+    }
+  }, [selectedProjectId]);
+
+  // Run Custom Report execution (ANL-06)
+  const runCustomReport = useCallback(async () => {
+    if (!selectedProjectId) return;
+
+    try {
+      setReportLoading(true);
+      setReportError(null);
+
+      const payload = {
+        groupBy: reportGroupBy,
+        sortBy: reportSortBy,
+        sortOrder: reportSortOrder,
+        range: reportRange,
+        dateField: reportDateField,
+        page: reportPage,
+        limit: 50,
+      };
+
+      if (reportRange === "custom") {
+        if (reportStartDate) payload.startDate = reportStartDate;
+        if (reportEndDate) payload.endDate = reportEndDate;
+      }
+
+      const res = await axiosClient.post(
+        `/analytics/project/${selectedProjectId}/custom-report`,
+        payload
+      );
+      setReportResult(res.data);
+    } catch (err) {
+      console.error("Failed to execute custom report:", err);
+      setReportError(err.response?.data?.message || "Failed to generate report.");
+    } finally {
+      setReportLoading(false);
+    }
+  }, [
+    selectedProjectId,
+    reportGroupBy,
+    reportSortBy,
+    reportSortOrder,
+    reportRange,
+    reportDateField,
+    reportStartDate,
+    reportEndDate,
+    reportPage,
+  ]);
+
+  // Save new report configuration
+  const handleSaveReport = async (e) => {
+    e.preventDefault();
+    if (!newReportName.trim()) return;
+
+    try {
+      setReportSaving(true);
+      const payload = {
+        name: newReportName.trim(),
+        description: newReportDesc.trim(),
+        isShared: newReportIsShared,
+        groupBy: reportGroupBy,
+        sortBy: reportSortBy,
+        sortOrder: reportSortOrder,
+        chartType: reportChartType,
+        filters: {
+          range: reportRange,
+          startDate: reportRange === "custom" && reportStartDate ? reportStartDate : null,
+          endDate: reportRange === "custom" && reportEndDate ? reportEndDate : null,
+          dateField: reportDateField,
+        },
+      };
+
+      const res = await axiosClient.post(
+        `/analytics/project/${selectedProjectId}/saved-reports`,
+        payload
+      );
+      setSavedReports((prev) => [res.data, ...prev]);
+      setSelectedSavedReportId(res.data._id);
+      setSaveModalOpen(false);
+      setNewReportName("");
+      setNewReportDesc("");
+    } catch (err) {
+      console.error("Failed to save report configuration:", err);
+      alert(err.response?.data?.message || "Failed to save report.");
+    } finally {
+      setReportSaving(false);
+    }
+  };
+
+  // Load a saved report configuration
+  const handleSelectSavedReport = (savedReportId) => {
+    setSelectedSavedReportId(savedReportId);
+    if (!savedReportId) return;
+
+    const saved = savedReports.find((r) => r._id === savedReportId);
+    if (saved) {
+      if (saved.groupBy) setReportGroupBy(saved.groupBy);
+      if (saved.sortBy) setReportSortBy(saved.sortBy);
+      if (saved.sortOrder) setReportSortOrder(saved.sortOrder);
+      if (saved.chartType) setReportChartType(saved.chartType);
+      if (saved.filters) {
+        if (saved.filters.range) setReportRange(saved.filters.range);
+        if (saved.filters.dateField) setReportDateField(saved.filters.dateField);
+        if (saved.filters.startDate) setReportStartDate(saved.filters.startDate.slice(0, 10));
+        if (saved.filters.endDate) setReportEndDate(saved.filters.endDate.slice(0, 10));
+      }
+      setReportPage(1);
+    }
+  };
+
+  // Delete saved report configuration
+  const handleDeleteSavedReport = async (reportId) => {
+    if (!window.confirm("Are you sure you want to delete this saved report?")) return;
+    try {
+      await axiosClient.delete(`/analytics/saved-reports/${reportId}`);
+      setSavedReports((prev) => prev.filter((r) => r._id !== reportId));
+      if (selectedSavedReportId === reportId) {
+        setSelectedSavedReportId("");
+      }
+    } catch (err) {
+      console.error("Failed to delete saved report:", err);
+      alert(err.response?.data?.message || "Failed to delete saved report.");
+    }
+  };
+
   useEffect(() => {
     fetchAnalytics();
     fetchSprints();
     fetchMembers();
-  }, [fetchAnalytics, fetchSprints, fetchMembers]);
+    fetchSavedReports();
+  }, [fetchAnalytics, fetchSprints, fetchMembers, fetchSavedReports]);
 
   useEffect(() => {
     if (activeTab === "sprints") {
@@ -337,8 +505,17 @@ export default function Analytics() {
       fetchCycleTimeAnalytics();
     } else if (activeTab === "health") {
       fetchHealthAnalytics();
+    } else if (activeTab === "custom_reports") {
+      runCustomReport();
     }
-  }, [activeTab, fetchSprintAnalytics, fetchCapacityAnalytics, fetchCycleTimeAnalytics, fetchHealthAnalytics]);
+  }, [
+    activeTab,
+    fetchSprintAnalytics,
+    fetchCapacityAnalytics,
+    fetchCycleTimeAnalytics,
+    fetchHealthAnalytics,
+    runCustomReport,
+  ]);
 
   const handleProjectChange = (e) => {
     const newProjectId = e.target.value;
@@ -427,20 +604,21 @@ export default function Analytics() {
               if (activeTab === "capacity") fetchCapacityAnalytics();
               if (activeTab === "cycle_time") fetchCycleTimeAnalytics();
               if (activeTab === "health") fetchHealthAnalytics();
+              if (activeTab === "custom_reports") runCustomReport();
             }}
-            disabled={loading || sprintLoading || capacityLoading || cycleLoading || healthLoading}
+            disabled={loading || sprintLoading || capacityLoading || cycleLoading || healthLoading || reportLoading}
             className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 transition disabled:opacity-50"
             title="Refresh analytics"
           >
             <RefreshCw
               size={16}
-              className={loading || sprintLoading || capacityLoading || cycleLoading || healthLoading ? "animate-spin" : ""}
+              className={loading || sprintLoading || capacityLoading || cycleLoading || healthLoading || reportLoading ? "animate-spin" : ""}
             />
           </button>
         </div>
       </div>
 
-      {/* Navigation Tabs (Overview vs Health vs Team Capacity vs Cycle Time vs Sprints) */}
+      {/* Navigation Tabs (Overview vs Health vs Capacity vs Cycle Time vs Sprints vs Custom Reports) */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-2">
         <div className="flex flex-wrap gap-2">
           <button
@@ -501,6 +679,18 @@ export default function Analytics() {
           >
             <Flame size={16} className="text-amber-400" />
             <span>Sprint Velocity & Burndown</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("custom_reports")}
+            className={`px-4 py-2 text-sm font-medium rounded-xl transition flex items-center gap-2 ${
+              activeTab === "custom_reports"
+                ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-semibold"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+            }`}
+          >
+            <FileText size={16} className="text-cyan-400" />
+            <span>Custom Reports & Filters</span>
           </button>
         </div>
 
@@ -2207,6 +2397,498 @@ export default function Analytics() {
                 </div>
               </div>
             </>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 4: CUSTOM REPORTS & DATE-RANGE FILTERING (ANL-06)                      */}
+      {/* ========================================================================= */}
+      {activeTab === "custom_reports" && (
+        <div className="space-y-6">
+          {/* Top Control Bar: Saved Reports Selector & Action Buttons */}
+          <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              <FileText size={18} className="text-cyan-400" />
+              <div>
+                <h2 className="text-sm font-semibold text-slate-200">
+                  Custom Analytics Report Builder
+                </h2>
+                <span className="text-xs text-slate-400">
+                  Configure dimensions, metrics, date-range filters, and grouping
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Saved Reports Dropdown */}
+              <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs">
+                <BookmarkIcon className="text-slate-400" size={14} />
+                <span className="text-slate-400">Saved:</span>
+                <select
+                  value={selectedSavedReportId}
+                  onChange={(e) => handleSelectSavedReport(e.target.value)}
+                  className="bg-transparent text-slate-200 focus:outline-none cursor-pointer max-w-[160px] truncate"
+                >
+                  <option value="" className="bg-slate-900">Custom Ad-hoc Report</option>
+                  {savedReports.map((r) => (
+                    <option key={r._id} value={r._id} className="bg-slate-900">
+                      {r.name} {r.isShared ? "(Shared)" : "(Personal)"}
+                    </option>
+                  ))}
+                </select>
+                {selectedSavedReportId && (
+                  <button
+                    onClick={() => handleDeleteSavedReport(selectedSavedReportId)}
+                    className="text-red-400 hover:text-red-300 ml-1 p-0.5"
+                    title="Delete saved report"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                )}
+              </div>
+
+              {/* Save Configuration Button */}
+              <button
+                onClick={() => setSaveModalOpen(true)}
+                className="px-3 py-1.5 rounded-xl bg-cyan-600/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-600/30 text-xs font-semibold flex items-center gap-1.5 transition"
+              >
+                <Save size={14} />
+                <span>Save Report</span>
+              </button>
+
+              {/* Run / Apply Filters Button */}
+              <button
+                onClick={runCustomReport}
+                disabled={reportLoading}
+                className="px-3.5 py-1.5 rounded-xl bg-indigo-600 text-white hover:bg-indigo-500 text-xs font-semibold flex items-center gap-1.5 transition disabled:opacity-50"
+              >
+                <RefreshCw size={14} className={reportLoading ? "animate-spin" : ""} />
+                <span>Run Report</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Report Configuration Builder Drawer / Panel */}
+          <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-400 block">
+              Report Dimensions & Filters
+            </span>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3.5 text-xs">
+              {/* Group By Dimension */}
+              <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-slate-400 font-semibold block mb-1">Group By Dimension:</span>
+                <select
+                  value={reportGroupBy}
+                  onChange={(e) => setReportGroupBy(e.target.value)}
+                  className="w-full bg-slate-900 text-slate-200 border border-slate-800 rounded-lg p-1.5 focus:outline-none"
+                >
+                  <option value="status">Workflow Status</option>
+                  <option value="priority">Priority Level</option>
+                  <option value="assignee">Assigned Member</option>
+                  <option value="sprint">Sprint</option>
+                  <option value="milestone">Milestone</option>
+                  <option value="none">No Grouping (Flat)</option>
+                </select>
+              </div>
+
+              {/* Date Field to Filter On */}
+              <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-slate-400 font-semibold block mb-1">Date Field:</span>
+                <select
+                  value={reportDateField}
+                  onChange={(e) => setReportDateField(e.target.value)}
+                  className="w-full bg-slate-900 text-slate-200 border border-slate-800 rounded-lg p-1.5 focus:outline-none"
+                >
+                  <option value="createdAt">Creation Date</option>
+                  <option value="dueDate">Due Date</option>
+                  <option value="completedAt">Completion Date</option>
+                  <option value="updatedAt">Last Updated Date</option>
+                </select>
+              </div>
+
+              {/* Date Range Preset */}
+              <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-slate-400 font-semibold block mb-1">Date Interval:</span>
+                <select
+                  value={reportRange}
+                  onChange={(e) => setReportRange(e.target.value)}
+                  className="w-full bg-slate-900 text-slate-200 border border-slate-800 rounded-lg p-1.5 focus:outline-none"
+                >
+                  <option value="all">All Dates</option>
+                  <option value="today">Today</option>
+                  <option value="this_week">This Week</option>
+                  <option value="this_month">This Month</option>
+                  <option value="last_30_days">Last 30 Days</option>
+                  <option value="custom">Custom Date Range</option>
+                </select>
+              </div>
+
+              {/* Sort Dimension */}
+              <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-slate-400 font-semibold block mb-1">Sort Order:</span>
+                <div className="flex gap-1.5">
+                  <select
+                    value={reportSortBy}
+                    onChange={(e) => setReportSortBy(e.target.value)}
+                    className="w-2/3 bg-slate-900 text-slate-200 border border-slate-800 rounded-lg p-1.5 focus:outline-none"
+                  >
+                    <option value="createdAt">Date Created</option>
+                    <option value="dueDate">Due Date</option>
+                    <option value="completedAt">Date Done</option>
+                    <option value="priority">Priority</option>
+                    <option value="title">Title</option>
+                    <option value="estimatedHours">Est. Hours</option>
+                  </select>
+                  <select
+                    value={reportSortOrder}
+                    onChange={(e) => setReportSortOrder(e.target.value)}
+                    className="w-1/3 bg-slate-900 text-slate-200 border border-slate-800 rounded-lg p-1.5 focus:outline-none"
+                  >
+                    <option value="desc">Desc</option>
+                    <option value="asc">Asc</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* View / Chart Visualization Mode */}
+              <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
+                <span className="text-slate-400 font-semibold block mb-1">Visualization:</span>
+                <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-lg p-0.5">
+                  <button
+                    onClick={() => setReportChartType("bar")}
+                    className={`flex-1 py-1 rounded transition text-center ${
+                      reportChartType === "bar" ? "bg-indigo-600 text-white font-bold" : "text-slate-400"
+                    }`}
+                    title="Bar chart"
+                  >
+                    Bar
+                  </button>
+                  <button
+                    onClick={() => setReportChartType("pie")}
+                    className={`flex-1 py-1 rounded transition text-center ${
+                      reportChartType === "pie" ? "bg-indigo-600 text-white font-bold" : "text-slate-400"
+                    }`}
+                    title="Pie chart"
+                  >
+                    Pie
+                  </button>
+                  <button
+                    onClick={() => setReportChartType("table")}
+                    className={`flex-1 py-1 rounded transition text-center ${
+                      reportChartType === "table" ? "bg-indigo-600 text-white font-bold" : "text-slate-400"
+                    }`}
+                    title="Tabular view only"
+                  >
+                    Table
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Custom Date Bounds when selected */}
+            {reportRange === "custom" && (
+              <div className="p-3 bg-slate-950 rounded-xl border border-slate-800 flex flex-wrap items-center gap-3 text-xs">
+                <span className="text-slate-400 font-medium">Custom Bounds:</span>
+                <input
+                  type="date"
+                  value={reportStartDate}
+                  onChange={(e) => setReportStartDate(e.target.value)}
+                  className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200 focus:outline-none"
+                />
+                <span className="text-slate-500">to</span>
+                <input
+                  type="date"
+                  value={reportEndDate}
+                  onChange={(e) => setReportEndDate(e.target.value)}
+                  className="bg-slate-900 border border-slate-800 rounded-lg px-2.5 py-1 text-slate-200 focus:outline-none"
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Report Results */}
+          {reportLoading ? (
+            <div className="h-64 flex flex-col items-center justify-center gap-3">
+              <RefreshCw className="animate-spin text-cyan-400" size={24} />
+              <p className="text-sm text-slate-400">Aggregating and executing custom report...</p>
+            </div>
+          ) : reportError ? (
+            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-3 text-sm">
+              <AlertTriangle size={18} />
+              <span>{reportError}</span>
+            </div>
+          ) : !reportResult ? (
+            <div className="p-8 text-center text-slate-500 border border-dashed border-slate-800 rounded-2xl">
+              <FileText size={32} className="mx-auto mb-2 opacity-50 text-cyan-400" />
+              <p>Configure filters above and click 'Run Report' to generate analytics.</p>
+            </div>
+          ) : (
+            <>
+              {/* Summary Metrics Row */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/50">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Total Tasks</span>
+                  <span className="text-xl font-bold text-slate-100">{reportResult.summary.totalTasks}</span>
+                </div>
+                <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/50">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Completed</span>
+                  <span className="text-xl font-bold text-emerald-400">{reportResult.summary.completedTasks}</span>
+                </div>
+                <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/50">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Overdue</span>
+                  <span className={`text-xl font-bold ${reportResult.summary.overdueTasks > 0 ? "text-red-400" : "text-slate-100"}`}>
+                    {reportResult.summary.overdueTasks}
+                  </span>
+                </div>
+                <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/50">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Completion</span>
+                  <span className="text-xl font-bold text-indigo-400">{reportResult.summary.completionRate}%</span>
+                </div>
+                <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/50">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Est. Hours</span>
+                  <span className="text-xl font-bold text-slate-100">{reportResult.summary.totalEstimatedHours}h</span>
+                </div>
+                <div className="p-3.5 rounded-xl border border-slate-800 bg-slate-900/50">
+                  <span className="text-[10px] text-slate-400 uppercase font-semibold block">Story Points</span>
+                  <span className="text-xl font-bold text-purple-400">{reportResult.summary.totalStoryPoints}</span>
+                </div>
+              </div>
+
+              {/* Chart Visualization (if not 'table' only) */}
+              {reportChartType !== "table" && (
+                <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                        <BarChart3 size={18} className="text-cyan-400" />
+                        Report Breakdown by {reportGroupBy.charAt(0).toUpperCase() + reportGroupBy.slice(1)}
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Group-level distribution across chosen metric
+                      </p>
+                    </div>
+
+                    {/* Metric Selector for Chart */}
+                    <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs">
+                      <button
+                        onClick={() => setReportMetric("count")}
+                        className={`px-2 py-0.5 rounded transition ${
+                          reportMetric === "count" ? "bg-cyan-600 text-white font-semibold" : "text-slate-400"
+                        }`}
+                      >
+                        Tasks
+                      </button>
+                      <button
+                        onClick={() => setReportMetric("estimatedHours")}
+                        className={`px-2 py-0.5 rounded transition ${
+                          reportMetric === "estimatedHours" ? "bg-cyan-600 text-white font-semibold" : "text-slate-400"
+                        }`}
+                      >
+                        Hours
+                      </button>
+                      <button
+                        onClick={() => setReportMetric("storyPoints")}
+                        className={`px-2 py-0.5 rounded transition ${
+                          reportMetric === "storyPoints" ? "bg-cyan-600 text-white font-semibold" : "text-slate-400"
+                        }`}
+                      >
+                        Points
+                      </button>
+                    </div>
+                  </div>
+
+                  {reportChartType === "pie" ? (
+                    <CustomReportPieChart groups={reportResult.groups || []} metric={reportMetric} />
+                  ) : (
+                    <CustomReportBarChart groups={reportResult.groups || []} metric={reportMetric} />
+                  )}
+                </div>
+              )}
+
+              {/* Detailed Tasks Table */}
+              <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                      <TableIcon size={18} className="text-indigo-400" />
+                      Report Task Records ({reportResult.pagination.total} total)
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Showing page {reportResult.pagination.page} of {reportResult.pagination.pages}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 font-semibold">
+                        <th className="pb-2.5">Title</th>
+                        <th className="pb-2.5">Status</th>
+                        <th className="pb-2.5">Priority</th>
+                        <th className="pb-2.5">Assignee</th>
+                        <th className="pb-2.5">Due Date</th>
+                        <th className="pb-2.5 text-center">Hours</th>
+                        <th className="pb-2.5 text-center">Points</th>
+                        <th className="pb-2.5 text-right">Created</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {reportResult.tasks && reportResult.tasks.length > 0 ? (
+                        reportResult.tasks.map((t) => (
+                          <tr key={t._id} className="hover:bg-slate-800/20">
+                            <td className="py-2.5 font-medium text-slate-200 max-w-[200px] truncate">
+                              {t.title}
+                            </td>
+                            <td className="py-2.5">
+                              <span className="px-2 py-0.5 rounded text-[11px] bg-slate-800 text-slate-300 font-medium">
+                                {t.status}
+                              </span>
+                            </td>
+                            <td className="py-2.5">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
+                                  t.priority === "urgent"
+                                    ? "bg-red-500/10 text-red-400"
+                                    : t.priority === "high"
+                                    ? "bg-amber-500/10 text-amber-400"
+                                    : "bg-slate-800 text-slate-300"
+                                }`}
+                              >
+                                {t.priority}
+                              </span>
+                            </td>
+                            <td className="py-2.5 text-slate-300">
+                              {t.assignedTo && t.assignedTo.length > 0 ? t.assignedTo[0].name : "Unassigned"}
+                            </td>
+                            <td className="py-2.5 text-slate-400">
+                              {t.dueDate ? new Date(t.dueDate).toLocaleDateString() : "—"}
+                            </td>
+                            <td className="py-2.5 text-center text-slate-300">
+                              {t.estimatedHours !== null && t.estimatedHours !== undefined ? t.estimatedHours : "—"}
+                            </td>
+                            <td className="py-2.5 text-center text-purple-400">
+                              {t.storyPoints !== null && t.storyPoints !== undefined ? t.storyPoints : "—"}
+                            </td>
+                            <td className="py-2.5 text-right text-slate-500">
+                              {t.createdAt ? new Date(t.createdAt).toLocaleDateString() : "—"}
+                            </td>
+                          </tr>
+                        ))
+                      ) : (
+                        <tr>
+                          <td colSpan={8} className="py-6 text-center text-slate-500">
+                            No tasks match the selected report criteria.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Pagination Controls */}
+                {reportResult.pagination.pages > 1 && (
+                  <div className="flex items-center justify-between pt-3 border-t border-slate-800 text-xs">
+                    <span className="text-slate-400">
+                      Page {reportResult.pagination.page} of {reportResult.pagination.pages}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setReportPage((p) => Math.max(1, p - 1))}
+                        disabled={reportResult.pagination.page <= 1}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300"
+                      >
+                        Prev
+                      </button>
+                      <button
+                        onClick={() => setReportPage((p) => Math.min(reportResult.pagination.pages, p + 1))}
+                        disabled={reportResult.pagination.page >= reportResult.pagination.pages}
+                        className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {/* Save Report Modal Dialog */}
+          {saveModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-slate-100 flex items-center gap-2">
+                    <Save size={18} className="text-cyan-400" />
+                    Save Report Configuration
+                  </h3>
+                  <button
+                    onClick={() => setSaveModalOpen(false)}
+                    className="text-slate-400 hover:text-slate-200"
+                  >
+                    <XCircle size={18} />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSaveReport} className="space-y-4 text-xs">
+                  <div>
+                    <label className="text-slate-400 font-semibold block mb-1">Report Name *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Q4 Task Bottlenecks"
+                      value={newReportName}
+                      onChange={(e) => setNewReportName(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-slate-400 font-semibold block mb-1">Description (Optional)</label>
+                    <textarea
+                      rows={2}
+                      placeholder="Brief context for team members..."
+                      value={newReportDesc}
+                      onChange={(e) => setNewReportDesc(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-slate-200 focus:outline-none resize-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <input
+                      type="checkbox"
+                      id="shareReport"
+                      checked={newReportIsShared}
+                      onChange={(e) => setNewReportIsShared(e.target.checked)}
+                      className="rounded bg-slate-950 border-slate-800 text-indigo-600 focus:ring-0"
+                    />
+                    <label htmlFor="shareReport" className="text-slate-300 cursor-pointer">
+                      Share with all members of this project team
+                    </label>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-3 border-t border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setSaveModalOpen(false)}
+                      className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={reportSaving || !newReportName.trim()}
+                      className="px-4 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-semibold disabled:opacity-50"
+                    >
+                      {reportSaving ? "Saving..." : "Save Configuration"}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
           )}
         </div>
       )}

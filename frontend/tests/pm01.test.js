@@ -1417,3 +1417,120 @@ test("FRONTEND ANL-05: Project Health & Progress UI Helpers", async (t) => {
     assert.equal(factorDeductionFormat(25).isDeduction, true);
   });
 });
+
+test("FRONTEND ANL-06: Custom Reports & Date-Range Filtering UI Helpers", async (t) => {
+  await t.test("Validates group-by dimension mapping and label formatting", () => {
+    const dimensionOptions = [
+      { id: "status", label: "Workflow Status" },
+      { id: "priority", label: "Task Priority" },
+      { id: "assignee", label: "Team Assignee" },
+      { id: "sprint", label: "Sprint" },
+      { id: "milestone", label: "Milestone" },
+      { id: "none", label: "Flat (No Grouping)" },
+    ];
+
+    const getDimensionLabel = (dimId) => {
+      const match = dimensionOptions.find((d) => d.id === dimId);
+      return match ? match.label : "Unknown";
+    };
+
+    assert.equal(getDimensionLabel("status"), "Workflow Status");
+    assert.equal(getDimensionLabel("assignee"), "Team Assignee");
+    assert.equal(getDimensionLabel("none"), "Flat (No Grouping)");
+    assert.equal(getDimensionLabel("invalid"), "Unknown");
+  });
+
+  await t.test("Validates client-side date range validation and error detection", () => {
+    const validateDateRange = (startDate, endDate) => {
+      if (!startDate || !endDate) return { valid: false, error: "Both start and end dates are required" };
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        return { valid: false, error: "Invalid date format" };
+      }
+      if (start > end) {
+        return { valid: false, error: "Start date cannot be after end date" };
+      }
+      return { valid: true, error: null };
+    };
+
+    assert.equal(validateDateRange("2026-11-01", "2026-11-30").valid, true);
+    assert.equal(validateDateRange("2026-11-30", "2026-11-01").valid, false);
+    assert.equal(validateDateRange("2026-11-30", "2026-11-01").error, "Start date cannot be after end date");
+    assert.equal(validateDateRange("not-a-date", "2026-11-30").valid, false);
+    assert.equal(validateDateRange("", "2026-11-30").valid, false);
+  });
+
+  await t.test("Validates metric selection and value extraction for custom report charts", () => {
+    const sampleGroup = {
+      groupKey: "in_progress",
+      groupLabel: "In Progress",
+      count: 14,
+      totalEstimatedHours: 42.5,
+      totalStoryPoints: 26,
+    };
+
+    const extractMetricValue = (group, metric) => {
+      switch (metric) {
+        case "estimatedHours":
+          return group.totalEstimatedHours || 0;
+        case "storyPoints":
+          return group.totalStoryPoints || 0;
+        case "count":
+        default:
+          return group.count || 0;
+      }
+    };
+
+    assert.equal(extractMetricValue(sampleGroup, "count"), 14);
+    assert.equal(extractMetricValue(sampleGroup, "estimatedHours"), 42.5);
+    assert.equal(extractMetricValue(sampleGroup, "storyPoints"), 26);
+    assert.equal(extractMetricValue(sampleGroup, "unknown"), 14);
+  });
+
+  await t.test("Validates saved report configuration serialization and payload building", () => {
+    const buildSavedReportPayload = (formState) => {
+      return {
+        name: formState.name.trim(),
+        description: formState.description?.trim() || "",
+        isShared: Boolean(formState.isShared),
+        reportType: formState.reportType || "tasks",
+        groupBy: formState.groupBy || "status",
+        sortBy: formState.sortBy || "createdAt",
+        sortOrder: formState.sortOrder || "desc",
+        chartType: formState.chartType || "bar",
+        filters: {
+          range: formState.range || "all",
+          startDate: formState.startDate || null,
+          endDate: formState.endDate || null,
+          dateField: formState.dateField || "createdAt",
+        },
+      };
+    };
+
+    const payload = buildSavedReportPayload({
+      name: "  Sprint 4 Capacity & Overdue  ",
+      description: "  Weekly executive summary  ",
+      isShared: true,
+      groupBy: "assignee",
+      sortBy: "dueDate",
+      sortOrder: "asc",
+      chartType: "pie",
+      range: "custom",
+      startDate: "2026-11-01",
+      endDate: "2026-11-15",
+      dateField: "dueDate",
+    });
+
+    assert.equal(payload.name, "Sprint 4 Capacity & Overdue");
+    assert.equal(payload.description, "Weekly executive summary");
+    assert.equal(payload.isShared, true);
+    assert.equal(payload.groupBy, "assignee");
+    assert.equal(payload.sortBy, "dueDate");
+    assert.equal(payload.sortOrder, "asc");
+    assert.equal(payload.chartType, "pie");
+    assert.equal(payload.filters.range, "custom");
+    assert.equal(payload.filters.startDate, "2026-11-01");
+    assert.equal(payload.filters.dateField, "dueDate");
+  });
+});

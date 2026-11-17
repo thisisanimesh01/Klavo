@@ -771,3 +771,119 @@ export function MilestoneProgressChart({ milestones = [] }) {
     </div>
   );
 }
+
+/**
+ * Custom Report Breakdown Bar Chart (ANL-06)
+ */
+export function CustomReportBarChart({ groups = [], metric = "count" }) {
+  if (!groups || groups.length === 0) {
+    return (
+      <div className="h-72 flex flex-col items-center justify-center text-slate-400 text-sm">
+        <p>No group data matches the current report filters</p>
+      </div>
+    );
+  }
+
+  const metricLabel =
+    metric === "estimatedHours"
+      ? "Estimated Hours"
+      : metric === "storyPoints"
+      ? "Story Points"
+      : metric === "completedCount"
+      ? "Completed Tasks"
+      : "Task Count";
+
+  const chartData = groups.map((g, i) => ({
+    name: g.label,
+    value: g[metric] || 0,
+    color: COLORS[i % COLORS.length],
+  }));
+
+  return (
+    <div className="h-72">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chartData} margin={{ top: 10, right: 15, left: -10, bottom: 25 }}>
+          <CartesianGrid stroke="var(--card-border, #334155)" strokeDasharray="3 3" opacity={0.3} />
+          <XAxis
+            dataKey="name"
+            tick={{ fill: "var(--text-muted, #94a3b8)", fontSize: 11 }}
+            angle={-15}
+            textAnchor="end"
+            interval={0}
+          />
+          <YAxis tick={{ fill: "var(--text-muted, #94a3b8)", fontSize: 12 }} />
+          <Tooltip
+            contentStyle={{
+              background: "var(--bg-card, #1e293b)",
+              border: "1px solid var(--card-border, #334155)",
+              borderRadius: "8px",
+              color: "var(--text-main, #f8fafc)",
+            }}
+            formatter={(val) => [val, metricLabel]}
+          />
+          <Bar dataKey="value" name={metricLabel} radius={[4, 4, 0, 0]}>
+            {chartData.map((entry, index) => (
+              <Cell key={`cell-report-${index}`} fill={entry.color} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+/**
+ * Custom Report Pie Distribution Chart (ANL-06)
+ */
+export function CustomReportPieChart({ groups = [], metric = "count" }) {
+  if (!groups || groups.length === 0) {
+    return (
+      <div className="h-72 flex flex-col items-center justify-center text-slate-400 text-sm">
+        <p>No group distribution data matches the current report filters</p>
+      </div>
+    );
+  }
+
+  const chartData = groups.map((g, i) => ({
+    name: g.label,
+    value: g[metric] || 0,
+    color: COLORS[i % COLORS.length],
+  }));
+
+  return (
+    <div className="h-72">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={chartData}
+            cx="50%"
+            cy="50%"
+            innerRadius={55}
+            outerRadius={85}
+            paddingAngle={3}
+            dataKey="value"
+          >
+            {chartData.map((entry, index) => (
+              <Cell key={`cell-pie-${index}`} fill={entry.color} />
+            ))}
+          </Pie>
+          <Tooltip
+            contentStyle={{
+              background: "var(--bg-card, #1e293b)",
+              border: "1px solid var(--card-border, #334155)",
+              borderRadius: "8px",
+              color: "var(--text-main, #f8fafc)",
+            }}
+          />
+          <Legend
+            verticalAlign="bottom"
+            height={36}
+            formatter={(value) => (
+              <span style={{ color: "var(--text-muted, #94a3b8)", fontSize: "11px" }}>{value}</span>
+            )}
+          />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}

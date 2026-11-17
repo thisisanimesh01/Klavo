@@ -7,6 +7,10 @@ import {
   getTeamWorkloadCapacity,
   getTaskCompletionCycleTime,
   getProjectHealth,
+  generateCustomReport,
+  getSavedReports,
+  createSavedReport,
+  deleteSavedReport,
 } from "../controllers/analyticsController.js";
 
 const router = express.Router();
@@ -30,5 +34,11 @@ router.get("/project/:projectId/completion-cycle-time", getTaskCompletionCycleTi
 
 // Project Health & Progress Indicators (ANL-05)
 router.get("/project/:projectId/health", getProjectHealth);
+
+// Custom Reports & Date-Range Filtering (ANL-06)
+router.post("/project/:projectId/custom-report", generateCustomReport);
+router.get("/project/:projectId/saved-reports", getSavedReports);
+router.post("/project/:projectId/saved-reports", createSavedReport);
+router.delete("/saved-reports/:reportId", deleteSavedReport);
 
 export default router;
