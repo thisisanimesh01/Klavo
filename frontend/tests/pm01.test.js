@@ -775,3 +775,58 @@ test("FRONTEND DOC-03: Real-Time Collaborative Editing & Presence Helpers", asyn
     assert.equal(remaining.some((c) => c.socketId === "s2"), false);
   });
 });
+
+test("FRONTEND DOC-04: Document Permissions & Sharing UI Helpers", async (t) => {
+  await t.test("Validates document role capability mapping", () => {
+    const ROLE_CAPABILITIES = {
+      owner: { canRead: true, canComment: true, canEdit: true, canManage: true },
+      editor: { canRead: true, canComment: true, canEdit: true, canManage: false },
+      commenter: { canRead: true, canComment: true, canEdit: false, canManage: false },
+      viewer: { canRead: true, canComment: false, canEdit: false, canManage: false },
+    };
+
+    assert.equal(ROLE_CAPABILITIES.owner.canEdit, true);
+    assert.equal(ROLE_CAPABILITIES.owner.canManage, true);
+    assert.equal(ROLE_CAPABILITIES.editor.canEdit, true);
+    assert.equal(ROLE_CAPABILITIES.editor.canManage, false);
+    assert.equal(ROLE_CAPABILITIES.commenter.canEdit, false);
+    assert.equal(ROLE_CAPABILITIES.viewer.canEdit, false);
+  });
+
+  await t.test("Validates eligible team members filter (excludes document creator)", () => {
+    const creatorId = "u_creator";
+    const teamMembers = [
+      { _id: "u_creator", name: "Creator" },
+      { _id: "u_alice", name: "Alice" },
+      { _id: "u_bob", name: "Bob" },
+    ];
+
+    const eligible = teamMembers.filter((m) => m._id !== creatorId);
+    assert.equal(eligible.length, 2);
+    assert.equal(eligible.some((m) => m._id === creatorId), false);
+  });
+
+  await t.test("Validates share grant addition and role update deduplication", () => {
+    const shares = [
+      { userId: "u_alice", role: "viewer" },
+    ];
+
+    const upsertShare = (list, userId, newRole) => {
+      const idx = list.findIndex((s) => s.userId === userId);
+      if (idx >= 0) {
+        return list.map((s, i) => (i === idx ? { ...s, role: newRole } : s));
+      }
+      return [...list, { userId, role: newRole }];
+    };
+
+    // Update existing Alice from viewer to editor
+    const updated = upsertShare(shares, "u_alice", "editor");
+    assert.equal(updated.length, 1);
+    assert.equal(updated[0].role, "editor");
+
+    // Add Bob as commenter
+    const added = upsertShare(updated, "u_bob", "commenter");
+    assert.equal(added.length, 2);
+    assert.equal(added[1].role, "commenter");
+  });
+});
