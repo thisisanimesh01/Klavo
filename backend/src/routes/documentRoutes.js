@@ -5,6 +5,9 @@ import {
   getDocumentsByProject,
   getDocumentById,
   updateDocument,
+  shareDocument,
+  revokeDocumentShare,
+  transferDocumentOwnership,
   deleteDocument,
 } from "../controllers/documentController.js";
 import {
@@ -19,12 +22,17 @@ const router = express.Router();
 
 router.use(authRequired);
 
-// Document CRUD
+// Document CRUD & Sharing
 router.post("/", createDocument);
 router.get("/project/:projectId", getDocumentsByProject);
 router.get("/:documentId", getDocumentById);
 router.put("/:documentId", updateDocument);
 router.delete("/:documentId", deleteDocument);
+
+// Granular Document Sharing & Ownership
+router.post("/:documentId/share", shareDocument);
+router.delete("/:documentId/share/:targetUserId", revokeDocumentShare);
+router.post("/:documentId/transfer-ownership", transferDocumentOwnership);
 
 // Document Folder CRUD & Hierarchy
 router.post("/folders", createFolder);

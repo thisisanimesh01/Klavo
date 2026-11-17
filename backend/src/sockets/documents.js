@@ -1,6 +1,7 @@
 import * as Y from "yjs";
 import Document from "../models/Document.js";
 import { checkProjectAccess } from "../utils/authHelpers.js";
+import { resolveDocumentAccess } from "../utils/documentPermissions.js";
 
 // Active document room state in memory:
 // Map<documentId, {
@@ -8,7 +9,7 @@ import { checkProjectAccess } from "../utils/authHelpers.js";
 //   projectId: string,
 //   teamId: string,
 //   connectedSockets: Set<string>, // socket.id
-//   collaborators: Map<string, { socketId, userId, name, email, avatar, color, cursor, selection, lastActive }>,
+//   collaborators: Map<string, { socketId, userId, name, email, avatar, color, role, canEdit, cursor, selection, lastActive }>,
 //   debounceTimer: NodeJS.Timeout | null,
 //   dirty: boolean
 // }>
@@ -68,7 +69,7 @@ export const persistDocumentState = async (documentId) => {
  * @param {import("socket.io").Socket} socket
  */
 export const initDocumentSockets = (io, socket) => {
-  // Join a document collaborative editing room
+  // Join a document collaborative editing room with granular permissions check
   socket.on("joinDocumentCollab", async ({ documentId }) => {
     if (!documentId) return;
 
@@ -79,12 +80,22 @@ export const initDocumentSockets = (io, socket) => {
         return;
       }
 
-      // Authorization & anti-IDOR check:
+      // Check granular document-level permission (Owner, Editor, Commenter, Viewer)
+      let perm = {
+        hasAccess: true,
+        role: "editor",
+        canRead: true,
+        canComment: true,
+        canEdit: true,
+        canManagePermissions: false,
+        canDelete: false,
+      };
+
       if (socket.user) {
-        const { hasAccess } = await checkProjectAccess(doc.projectId, socket.user._id);
-        if (!hasAccess) {
+        perm = await resolveDocumentAccess(doc, socket.user._id);
+        if (!perm.canRead) {
           socket.emit("collabError", {
-            message: "Unauthorized: You do not have access to this document",
+            message: "Unauthorized: You do not have permission to access this document",
           });
           return;
         }
@@ -136,6 +147,8 @@ export const initDocumentSockets = (io, socket) => {
         email: userEmail,
         avatar: userAvatar,
         color: userColor,
+        role: perm.role,
+        canEdit: perm.canEdit,
         cursor: null,
         selection: null,
         lastActive: Date.now(),
@@ -143,13 +156,14 @@ export const initDocumentSockets = (io, socket) => {
 
       room.collaborators.set(socket.id, collaborator);
 
-      // Send initial synchronized document state to the newly joined client
+      // Send initial synchronized document state and user's resolved role
       const initialUpdate = Y.encodeStateAsUpdate(room.doc);
       socket.emit("docSyncInit", {
         documentId,
         update: Buffer.from(initialUpdate).toString("base64"),
         collaborators: Array.from(room.collaborators.values()),
         currentUserColor: userColor,
+        userPermission: perm,
       });
 
       // Broadcast new collaborator presence to others in the room
@@ -160,12 +174,20 @@ export const initDocumentSockets = (io, socket) => {
     }
   });
 
-  // Client sent incremental Yjs CRDT update
-  socket.on("docSyncUpdate", ({ documentId, update }) => {
+  // Client sent incremental Yjs CRDT update (strictly enforced: canEdit must be true)
+  socket.on("docSyncUpdate", async ({ documentId, update }) => {
     if (!documentId || !update) return;
 
     const room = activeDocRooms.get(documentId);
     if (!room || !room.connectedSockets.has(socket.id)) return;
+
+    const collaborator = room.collaborators.get(socket.id);
+    if (!collaborator || !collaborator.canEdit) {
+      socket.emit("collabError", {
+        message: "Forbidden: You have view-only access and cannot edit this document",
+      });
+      return;
+    }
 
     try {
       const updateBuffer = typeof update === "string" ? Buffer.from(update, "base64") : Buffer.from(update);
@@ -209,6 +231,7 @@ export const initDocumentSockets = (io, socket) => {
       userId: collaborator.userId,
       name: collaborator.name,
       color: collaborator.color,
+      role: collaborator.role,
       cursor,
       selection,
     });

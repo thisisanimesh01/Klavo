@@ -1,5 +1,30 @@
 import mongoose from "mongoose";
 
+const documentShareSchema = new mongoose.Schema(
+  {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    role: {
+      type: String,
+      enum: ["owner", "editor", "commenter", "viewer"],
+      default: "editor",
+    },
+    grantedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+    grantedAt: {
+      type: Date,
+      default: Date.now,
+    },
+  },
+  { _id: false }
+);
+
 const documentSchema = new mongoose.Schema(
   {
     title: {
@@ -67,6 +92,17 @@ const documentSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Default inherited access level for team members who don't have explicit share override
+    defaultAccess: {
+      type: String,
+      enum: ["owner", "editor", "commenter", "viewer"],
+      default: "editor",
+    },
+    // Granular direct document-level user access grants
+    shares: {
+      type: [documentShareSchema],
+      default: [],
+    },
   },
   { timestamps: true }
 );
@@ -77,5 +113,6 @@ documentSchema.index({ projectId: 1, folderId: 1, isArchived: 1 });
 documentSchema.index({ teamId: 1 });
 documentSchema.index({ createdBy: 1 });
 documentSchema.index({ projectId: 1, title: 1 });
+documentSchema.index({ "shares.userId": 1 });
 
 export default mongoose.model("Document", documentSchema);

@@ -5,6 +5,7 @@ import * as Y from "yjs";
 import axiosClient from "../api/axiosClient";
 import TipTapEditor from "../components/TipTapEditor";
 import ThemeToggle from "../components/ThemeToggle";
+import DocumentShareModal from "../components/DocumentShareModal";
 import { CollabSocketProvider } from "../utils/collabSocketProvider";
 import socket from "../socket";
 import {
@@ -32,6 +33,8 @@ import {
   Edit2,
   Users,
   Eye,
+  Shield,
+  Crown,
 } from "lucide-react";
 
 export default function Documents() {
@@ -41,6 +44,7 @@ export default function Documents() {
 
   const [documents, setDocuments] = useState([]);
   const [folders, setFolders] = useState([]);
+  const [projectTeamMembers, setProjectTeamMembers] = useState([]);
   const [selectedFolderId, setSelectedFolderId] = useState("all"); // 'all' | 'root' | folderId
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -55,7 +59,8 @@ export default function Documents() {
   const [collabYDoc, setCollabYDoc] = useState(null);
   const [collabProvider, setCollabProvider] = useState(null);
 
-  // Folder Modals State
+  // Modals State
+  const [shareModalOpen, setShareModalOpen] = useState(false);
   const [createFolderModalOpen, setCreateFolderModalOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [newFolderColor, setNewFolderColor] = useState("#6366f1");
@@ -111,12 +116,30 @@ export default function Documents() {
     }
   }, [projectId]);
 
+  // Fetch project team members for sharing
+  const fetchProjectTeam = useCallback(async () => {
+    try {
+      const projectRes = await axiosClient.get(`/projects/${projectId}`);
+      const teamId = projectRes.data?.teamId?._id || projectRes.data?.teamId;
+      if (teamId) {
+        const teamRes = await axiosClient.get(`/teams/${teamId}`);
+        const members = teamRes.data?.members || [];
+        const owner = teamRes.data?.owner;
+        const allMembers = owner && !members.some((m) => m._id === owner._id) ? [owner, ...members] : members;
+        setProjectTeamMembers(allMembers);
+      }
+    } catch (err) {
+      console.error("Failed to fetch project team members:", err);
+    }
+  }, [projectId]);
+
   useEffect(() => {
     if (projectId) {
       fetchDocuments();
       fetchFolders();
+      fetchProjectTeam();
     }
-  }, [projectId, fetchDocuments, fetchFolders]);
+  }, [projectId, fetchDocuments, fetchFolders, fetchProjectTeam]);
 
   // Setup real-time collaborative editing session when selectedDoc changes
   useEffect(() => {
@@ -171,7 +194,10 @@ export default function Documents() {
         prev.map((d) => (d._id === updatedDoc._id ? updatedDoc : d))
       );
       if (selectedDoc && selectedDoc._id === updatedDoc._id) {
-        setSelectedDoc(updatedDoc);
+        setSelectedDoc((prev) => ({
+          ...updatedDoc,
+          userPermission: prev?.userPermission || updatedDoc.userPermission,
+        }));
       }
     };
 
@@ -218,10 +244,12 @@ export default function Documents() {
     };
   }, [projectId, selectedDoc, selectedFolderId, fetchDocuments]);
 
-  // Debounced Autosave
+  // Debounced Autosave (strictly disabled if canEdit is false)
+  const canEditCurrentDoc = selectedDoc?.userPermission?.canEdit ?? true;
+
   const triggerAutosave = useCallback(
     (newTitle, newContent, newHtml) => {
-      if (!selectedDoc) return;
+      if (!selectedDoc || !canEditCurrentDoc) return;
       setSaveStatus("unsaved");
 
       if (saveTimeoutRef.current) {
@@ -239,7 +267,10 @@ export default function Documents() {
             contentHtml: newHtml,
           });
 
-          setSelectedDoc(res.data);
+          setSelectedDoc((prev) => ({
+            ...res.data,
+            userPermission: prev?.userPermission || res.data.userPermission,
+          }));
           setSaveStatus("saved");
         } catch (err) {
           console.error("Autosave failed:", err);
@@ -249,16 +280,18 @@ export default function Documents() {
         }
       }, 1200);
     },
-    [selectedDoc, title]
+    [selectedDoc, title, canEditCurrentDoc]
   );
 
   const handleTitleChange = (e) => {
+    if (!canEditCurrentDoc) return;
     const val = e.target.value;
     setTitle(val);
     triggerAutosave(val, contentRef.current);
   };
 
   const handleEditorChange = ({ json, html }) => {
+    if (!canEditCurrentDoc) return;
     contentRef.current = json;
     triggerAutosave(title, json, html);
   };
@@ -393,6 +426,8 @@ export default function Documents() {
     return counts;
   }, [documents]);
 
+  const userRole = selectedDoc?.userPermission?.role || "viewer";
+
   return (
     <div className="flex flex-col h-[calc(100vh-4rem)] bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
       {/* Top Header Bar */}
@@ -425,7 +460,7 @@ export default function Documents() {
                     key={c.socketId || i}
                     className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white border border-white dark:border-slate-900 shadow-xs"
                     style={{ backgroundColor: c.color || "#6366f1" }}
-                    title={`${c.name} (${c.email || "Active"})`}
+                    title={`${c.name} (${c.role || "collaborator"})`}
                   >
                     {c.name ? c.name.charAt(0).toUpperCase() : "U"}
                   </div>
@@ -437,8 +472,16 @@ export default function Documents() {
             </div>
           )}
 
-          {/* Autosave Status Pill */}
+          {/* User Document Role Badge */}
           {selectedDoc && (
+            <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60 capitalize">
+              <Shield className="w-3.5 h-3.5 text-indigo-500" />
+              <span>{userRole}</span>
+            </div>
+          )}
+
+          {/* Autosave Status Pill (shown only when user has edit permissions) */}
+          {selectedDoc && canEditCurrentDoc && (
             <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
               {saveStatus === "saving" && (
                 <>
@@ -465,6 +508,17 @@ export default function Documents() {
                 </>
               )}
             </div>
+          )}
+
+          {/* Share Button (opens permission management modal) */}
+          {selectedDoc && (
+            <button
+              onClick={() => setShareModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl transition border border-slate-200 dark:border-slate-700"
+            >
+              <Share2 className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Share</span>
+            </button>
           )}
 
           <button
@@ -603,6 +657,7 @@ export default function Documents() {
             ) : (
               filteredDocuments.map((doc) => {
                 const isSelected = selectedDoc?._id === doc._id;
+                const canDelete = doc.userPermission?.canDelete;
                 return (
                   <div
                     key={doc._id}
@@ -637,16 +692,18 @@ export default function Documents() {
                           {doc.title || "Untitled Document"}
                         </span>
                       </div>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteDocument(doc._id);
-                        }}
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 text-slate-400 transition"
-                        title="Delete Document"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                      {canDelete && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteDocument(doc._id);
+                          }}
+                          className="opacity-0 group-hover:opacity-100 p-1 hover:text-red-500 text-slate-400 transition"
+                          title="Delete Document"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
                     </div>
 
                     {doc.description && (
@@ -662,6 +719,11 @@ export default function Documents() {
                           <span>•</span>
                           <Folder className="w-2.5 h-2.5" />
                           <span>{doc.folderId.name || "Folder"}</span>
+                        </span>
+                      )}
+                      {doc.userPermission?.role && (
+                        <span className="text-[10px] uppercase font-semibold text-indigo-500 dark:text-indigo-400">
+                          • {doc.userPermission.role}
                         </span>
                       )}
                     </div>
@@ -704,33 +766,51 @@ export default function Documents() {
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      setTargetMoveFolderId(selectedDoc.folderId?._id || "root");
-                      setMoveDocModalOpen(true);
-                    }}
-                    className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition"
-                    title="Move to another folder"
-                  >
-                    <MoveRight className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Move</span>
-                  </button>
+                  {selectedDoc.userPermission?.canEdit && (
+                    <button
+                      onClick={() => {
+                        setTargetMoveFolderId(selectedDoc.folderId?._id || "root");
+                        setMoveDocModalOpen(true);
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition"
+                      title="Move to another folder"
+                    >
+                      <MoveRight className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Move</span>
+                    </button>
+                  )}
                 </div>
               </div>
+
+              {/* Read-Only Notice Banner if viewer / commenter */}
+              {!canEditCurrentDoc && (
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                  <Eye className="w-4 h-4 shrink-0" />
+                  <span>
+                    You have <strong>{userRole}</strong> access to this document. Editing is restricted.
+                  </span>
+                </div>
+              )}
 
               {/* Document Title Header */}
               <input
                 type="text"
                 value={title}
+                readOnly={!canEditCurrentDoc}
                 onChange={handleTitleChange}
                 placeholder="Untitled Document"
-                className="w-full text-3xl font-extrabold tracking-tight bg-transparent text-slate-900 dark:text-white border-b border-transparent hover:border-slate-300 dark:hover:border-slate-700 focus:border-indigo-500 focus:outline-hidden pb-2 transition"
+                className={`w-full text-3xl font-extrabold tracking-tight bg-transparent text-slate-900 dark:text-white border-b border-transparent pb-2 transition ${
+                  canEditCurrentDoc
+                    ? "hover:border-slate-300 dark:hover:border-slate-700 focus:border-indigo-500 focus:outline-hidden"
+                    : "cursor-default"
+                }`}
               />
 
               {/* Collaborative Rich Text Editor */}
               <TipTapEditor
                 key={selectedDoc._id}
                 content={selectedDoc.content}
+                readOnly={!canEditCurrentDoc}
                 onChange={handleEditorChange}
                 ydoc={collabYDoc}
                 provider={collabProvider}
@@ -764,6 +844,23 @@ export default function Documents() {
           )}
         </div>
       </div>
+
+      {/* Modal: Share & Permissions */}
+      {shareModalOpen && selectedDoc && (
+        <DocumentShareModal
+          isOpen={shareModalOpen}
+          onClose={() => setShareModalOpen(false)}
+          document={selectedDoc}
+          projectTeamMembers={projectTeamMembers}
+          currentUser={authUser}
+          onUpdateDocument={(updated) => {
+            setSelectedDoc(updated);
+            setDocuments((prev) =>
+              prev.map((d) => (d._id === updated._id ? updated : d))
+            );
+          }}
+        />
+      )}
 
       {/* Modal: Create Folder */}
       {createFolderModalOpen && (

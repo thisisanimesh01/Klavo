@@ -572,3 +572,36 @@ Project workflows configure dynamic task stages, status ordering, and categoriza
 | **Document Collaboration Sync** | Send/Receive Updates | `docSyncUpdate` (`documentId`) | Active Member in collaborative room |
 | **Document Cursor Presence** | Transmit Cursor/Selection | `collabCursorMove` (`documentId`) | Active Member in collaborative room |
 | **Document Collaboration Room** | Leave Collab Room | `leaveDocumentCollab` (`documentId`) | Any joined user |
+
+---
+
+## 22. Granular Document Permissions & Secure Sharing (DOC-04)
+
+### Document Role Hierarchy:
+- **Owner (Level 4)**: Full control. Read, comment, edit, manage permissions/shares, transfer ownership, move cross-project, and delete document.
+- **Editor (Level 3)**: Content authoring. Read, comment, edit TipTap content, and participate in real-time collaborative editing (`docSyncUpdate`).
+- **Commenter (Level 2)**: Read document content and view collaboration cursors without modification rights.
+- **Viewer (Level 1)**: Read-only access. Cannot edit or broadcast collaboration sync updates.
+
+### Permission Inheritance & Explicit Overrides:
+- **Creator / Team Owner Guarantee**: The document creator and project team owner always hold the **Owner** role.
+- **Project-Level Default Access (`defaultAccess`)**: Unspecified team members inherit `doc.defaultAccess` (configurable to `editor`, `commenter`, or `viewer`).
+- **Direct Share Grants (`shares`)**: Explicit grants to individual team members override project-level defaults.
+- **Cross-Tenant Boundary**: Shares are strictly restricted to authenticated members of the project's parent team. Non-team members cannot be granted access.
+
+### Real-Time Socket.IO Synchronization Enforcement:
+- `joinDocumentCollab`: Verifies user has at least `canRead` permission before admitting the socket into `doc_collab_${documentId}`.
+- `docSyncUpdate`: Verified server-side. Collaborators with `canEdit === false` (Viewers/Commenters) are rejected with `collabError` if they attempt to broadcast CRDT changes.
+- **Revocation / Downgrade Broadcasts**: When permissions are updated or revoked, the server broadcasts `collabPermissionUpdated` or `collabPermissionRevoked` to immediately downgrade or evict participants.
+
+### Authorization Matrix for Document Sharing & Permissions:
+| Resource | Action | Endpoint / Socket | Required Role / Permission |
+| :--- | :--- | :--- | :--- |
+| **Document Share** | Grant / Update Share | `POST /api/documents/:documentId/share` | Document Owner or Team Owner |
+| **Document Share** | Revoke Share | `DELETE /api/documents/:documentId/share/:targetUserId` | Document Owner or Team Owner |
+| **Document Ownership** | Transfer Ownership | `POST /api/documents/:documentId/transfer-ownership` | Document Owner or Team Owner |
+| **Document Read** | View Document | `GET /api/documents/:documentId` | Viewer, Commenter, Editor, or Owner |
+| **Document Edit** | Update Content | `PUT /api/documents/:documentId` | Editor or Owner |
+| **Document Move** | Move between Projects | `PUT /api/documents/:documentId` (`targetProjectId`) | Document Owner or Team Owner |
+| **Document Delete** | Delete Document | `DELETE /api/documents/:documentId` | Document Owner or Team Owner |
+| **Real-Time Collab Sync** | Broadcast CRDT Updates | `docSyncUpdate` | Editor or Owner (`canEdit === true`) |

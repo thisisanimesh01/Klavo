@@ -1,6 +1,9 @@
 import Document from "../models/Document.js";
 import DocumentFolder from "../models/DocumentFolder.js";
+import { User } from "../models/User.js";
+import { Team } from "../models/Team.js";
 import { checkProjectAccess } from "../utils/authHelpers.js";
+import { resolveDocumentAccess, DOCUMENT_ROLES } from "../utils/documentPermissions.js";
 import { logActivity } from "./activityController.js";
 import {
   sanitizeDocumentHtml,
@@ -13,7 +16,7 @@ import {
  */
 export const createDocument = async (req, res) => {
   try {
-    const { title, content, contentHtml, projectId, folderId } = req.body;
+    const { title, content, contentHtml, projectId, folderId, defaultAccess } = req.body;
 
     if (!projectId) {
       return res.status(400).json({ message: "projectId is required" });
@@ -46,6 +49,8 @@ export const createDocument = async (req, res) => {
     const safeJson = sanitizeDocumentJson(content);
     const excerpt = extractPlainTextExcerpt(safeHtml);
 
+    const safeDefaultAccess = DOCUMENT_ROLES.includes(defaultAccess) ? defaultAccess : "editor";
+
     const doc = await Document.create({
       title: safeTitle,
       content: safeJson,
@@ -56,6 +61,8 @@ export const createDocument = async (req, res) => {
       teamId: project.teamId,
       createdBy: req.user._id,
       lastUpdatedBy: req.user._id,
+      defaultAccess: safeDefaultAccess,
+      shares: [],
     });
 
     await doc.populate("createdBy", "name email avatar");
@@ -83,7 +90,17 @@ export const createDocument = async (req, res) => {
       });
     }
 
-    res.status(201).json(doc);
+    const docObj = doc.toObject();
+    docObj.userPermission = {
+      role: "owner",
+      canRead: true,
+      canComment: true,
+      canEdit: true,
+      canManagePermissions: true,
+      canDelete: true,
+    };
+
+    res.status(201).json(docObj);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -139,16 +156,30 @@ export const getDocumentsByProject = async (req, res) => {
       .populate("createdBy", "name email avatar")
       .populate("lastUpdatedBy", "name email avatar")
       .populate("folderId", "name color icon")
+      .populate("shares.userId", "name email avatar")
       .sort(sort);
 
-    res.json(documents);
+    // Compute effective permission for current user on each document
+    const docsWithPermissions = await Promise.all(
+      documents.map(async (d) => {
+        const perm = await resolveDocumentAccess(d, req.user._id);
+        const obj = d.toObject();
+        obj.userPermission = perm;
+        return obj;
+      })
+    );
+
+    // Filter out any documents where current user does not have at least read permission
+    const accessibleDocs = docsWithPermissions.filter((d) => d.userPermission.canRead);
+
+    res.json(accessibleDocs);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
 /**
- * Retrieves a single document by ID.
+ * Retrieves a single document by ID with permission resolution.
  */
 export const getDocumentById = async (req, res) => {
   try {
@@ -157,43 +188,54 @@ export const getDocumentById = async (req, res) => {
     const doc = await Document.findById(documentId)
       .populate("createdBy", "name email avatar")
       .populate("lastUpdatedBy", "name email avatar")
-      .populate("folderId", "name color icon");
+      .populate("folderId", "name color icon")
+      .populate("shares.userId", "name email avatar");
 
     if (!doc) return res.status(404).json({ message: "Document not found" });
 
-    const { hasAccess } = await checkProjectAccess(doc.projectId, req.user._id);
-    if (!hasAccess) {
+    const perm = await resolveDocumentAccess(doc, req.user._id);
+    if (!perm.canRead) {
       return res.status(403).json({
-        message: "Forbidden: You are not authorized to view this document",
+        message: "Forbidden: You do not have permission to view this document",
       });
     }
 
-    res.json(doc);
+    const docObj = doc.toObject();
+    docObj.userPermission = perm;
+
+    res.json(docObj);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
 
 /**
- * Updates an existing document (content, title, folder move, or cross-project transfer).
+ * Updates an existing document (content, title, folder move, cross-project transfer).
+ * Requires Editor or Owner role.
  */
 export const updateDocument = async (req, res) => {
   try {
     const { documentId } = req.params;
-    const { title, content, contentHtml, folderId, targetProjectId } = req.body;
+    const { title, content, contentHtml, folderId, targetProjectId, defaultAccess } = req.body;
 
     const doc = await Document.findById(documentId);
     if (!doc) return res.status(404).json({ message: "Document not found" });
 
-    const { hasAccess } = await checkProjectAccess(doc.projectId, req.user._id);
-    if (!hasAccess) {
+    const perm = await resolveDocumentAccess(doc, req.user._id);
+    if (!perm.canEdit) {
       return res.status(403).json({
-        message: "Forbidden: You are not authorized to update this document",
+        message: "Forbidden: You do not have permission to edit this document",
       });
     }
 
-    // Moving document to a different project
+    // Moving document to a different project requires managePermissions/Owner role
     if (targetProjectId && targetProjectId.toString() !== doc.projectId.toString()) {
+      if (!perm.canManagePermissions) {
+        return res.status(403).json({
+          message: "Forbidden: Only document owners can move documents between projects",
+        });
+      }
+
       const targetAccess = await checkProjectAccess(targetProjectId, req.user._id);
       if (!targetAccess.hasAccess || !targetAccess.project) {
         return res.status(403).json({
@@ -202,7 +244,8 @@ export const updateDocument = async (req, res) => {
       }
       doc.projectId = targetProjectId;
       doc.teamId = targetAccess.project.teamId;
-      doc.folderId = null; // Reset folder on cross-project move unless re-assigned
+      doc.folderId = null; // Reset folder on cross-project move
+      doc.shares = []; // Clear direct shares on cross-project transfer to prevent cross-tenant leakage
     }
 
     // Moving document to a different folder within the same project
@@ -221,6 +264,10 @@ export const updateDocument = async (req, res) => {
         }
         doc.folderId = targetFolder._id;
       }
+    }
+
+    if (defaultAccess && perm.canManagePermissions && DOCUMENT_ROLES.includes(defaultAccess)) {
+      doc.defaultAccess = defaultAccess;
     }
 
     if (title && title.trim()) {
@@ -244,13 +291,234 @@ export const updateDocument = async (req, res) => {
     if (doc.folderId) {
       await doc.populate("folderId", "name color icon");
     }
+    await doc.populate("shares.userId", "name email avatar");
 
     const io = req.app.get("io");
     if (io) {
       io.to(`project_${doc.projectId}`).emit("documentUpdated", doc);
     }
 
-    res.json(doc);
+    const docObj = doc.toObject();
+    docObj.userPermission = await resolveDocumentAccess(doc, req.user._id);
+
+    res.json(docObj);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Grants or updates direct document-level permissions to a team member.
+ * Requires Owner role on the document.
+ */
+export const shareDocument = async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { userId, role, defaultAccess } = req.body;
+
+    const doc = await Document.findById(documentId);
+    if (!doc) return res.status(404).json({ message: "Document not found" });
+
+    const perm = await resolveDocumentAccess(doc, req.user._id);
+    if (!perm.canManagePermissions) {
+      return res.status(403).json({
+        message: "Forbidden: Only document owners can manage document permissions",
+      });
+    }
+
+    // Update inherited default access if provided
+    if (defaultAccess && DOCUMENT_ROLES.includes(defaultAccess)) {
+      doc.defaultAccess = defaultAccess;
+    }
+
+    // If userId and role provided, grant/update direct share
+    if (userId) {
+      if (!DOCUMENT_ROLES.includes(role)) {
+        return res.status(400).json({
+          message: `Invalid role. Must be one of: ${DOCUMENT_ROLES.join(", ")}`,
+        });
+      }
+
+      // Verify target user is an active member of the project team (anti-cross-tenant protection)
+      const targetAccess = await checkProjectAccess(doc.projectId, userId);
+      if (!targetAccess.hasAccess) {
+        return res.status(400).json({
+          message: "User does not belong to the project team and cannot be granted document access",
+        });
+      }
+
+      // If user is the creator or team owner, they are immutable owners
+      if (doc.createdBy.toString() === userId.toString()) {
+        return res.status(400).json({
+          message: "The document creator is already the permanent owner",
+        });
+      }
+
+      // Update existing share or add new share
+      const existingIdx = doc.shares.findIndex((s) => s.userId.toString() === userId.toString());
+      if (existingIdx >= 0) {
+        doc.shares[existingIdx].role = role;
+        doc.shares[existingIdx].grantedBy = req.user._id;
+        doc.shares[existingIdx].grantedAt = new Date();
+      } else {
+        doc.shares.push({
+          userId,
+          role,
+          grantedBy: req.user._id,
+          grantedAt: new Date(),
+        });
+      }
+    }
+
+    await doc.save();
+    await doc.populate("createdBy", "name email avatar");
+    await doc.populate("lastUpdatedBy", "name email avatar");
+    await doc.populate("shares.userId", "name email avatar");
+
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`project_${doc.projectId}`).emit("documentUpdated", doc);
+
+      // If collaborator was downgraded to viewer or commenter, notify the active room
+      if (userId && (role === "viewer" || role === "commenter")) {
+        io.to(`doc_collab_${doc._id}`).emit("collabPermissionUpdated", {
+          documentId: doc._id,
+          userId,
+          role,
+        });
+      }
+    }
+
+    const docObj = doc.toObject();
+    docObj.userPermission = await resolveDocumentAccess(doc, req.user._id);
+
+    res.json({
+      message: "Permissions updated successfully",
+      document: docObj,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Revokes direct document-level permissions from a user.
+ * Requires Owner role on the document.
+ */
+export const revokeDocumentShare = async (req, res) => {
+  try {
+    const { documentId, targetUserId } = req.params;
+
+    const doc = await Document.findById(documentId);
+    if (!doc) return res.status(404).json({ message: "Document not found" });
+
+    const perm = await resolveDocumentAccess(doc, req.user._id);
+    if (!perm.canManagePermissions) {
+      return res.status(403).json({
+        message: "Forbidden: Only document owners can revoke permissions",
+      });
+    }
+
+    if (doc.createdBy.toString() === targetUserId.toString()) {
+      return res.status(400).json({
+        message: "Cannot revoke permissions from the document creator",
+      });
+    }
+
+    doc.shares = doc.shares.filter((s) => s.userId.toString() !== targetUserId.toString());
+    await doc.save();
+
+    await doc.populate("createdBy", "name email avatar");
+    await doc.populate("lastUpdatedBy", "name email avatar");
+    await doc.populate("shares.userId", "name email avatar");
+
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`project_${doc.projectId}`).emit("documentUpdated", doc);
+      io.to(`doc_collab_${doc._id}`).emit("collabPermissionRevoked", {
+        documentId: doc._id,
+        userId: targetUserId,
+      });
+    }
+
+    const docObj = doc.toObject();
+    docObj.userPermission = await resolveDocumentAccess(doc, req.user._id);
+
+    res.json({
+      message: "Share revoked successfully",
+      document: docObj,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Transfers document ownership to another project team member.
+ * Requires Owner role on the document.
+ */
+export const transferDocumentOwnership = async (req, res) => {
+  try {
+    const { documentId } = req.params;
+    const { newOwnerId } = req.body;
+
+    if (!newOwnerId) {
+      return res.status(400).json({ message: "newOwnerId is required" });
+    }
+
+    const doc = await Document.findById(documentId);
+    if (!doc) return res.status(404).json({ message: "Document not found" });
+
+    const perm = await resolveDocumentAccess(doc, req.user._id);
+    if (!perm.canDelete) {
+      // Only full owner can transfer ownership
+      return res.status(403).json({
+        message: "Forbidden: Only document owners can transfer ownership",
+      });
+    }
+
+    const targetAccess = await checkProjectAccess(doc.projectId, newOwnerId);
+    if (!targetAccess.hasAccess) {
+      return res.status(400).json({
+        message: "Target user must belong to the project team",
+      });
+    }
+
+    // Set new creator/owner, and downgrade old creator to editor in shares
+    const oldOwnerId = doc.createdBy;
+    doc.createdBy = newOwnerId;
+    doc.lastUpdatedBy = req.user._id;
+
+    // Remove new owner from shares if present
+    doc.shares = doc.shares.filter((s) => s.userId.toString() !== newOwnerId.toString());
+
+    // Add old owner as editor
+    if (oldOwnerId.toString() !== newOwnerId.toString()) {
+      doc.shares.push({
+        userId: oldOwnerId,
+        role: "editor",
+        grantedBy: req.user._id,
+        grantedAt: new Date(),
+      });
+    }
+
+    await doc.save();
+    await doc.populate("createdBy", "name email avatar");
+    await doc.populate("lastUpdatedBy", "name email avatar");
+    await doc.populate("shares.userId", "name email avatar");
+
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`project_${doc.projectId}`).emit("documentUpdated", doc);
+    }
+
+    const docObj = doc.toObject();
+    docObj.userPermission = await resolveDocumentAccess(doc, req.user._id);
+
+    res.json({
+      message: "Document ownership transferred successfully",
+      document: docObj,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -258,6 +526,7 @@ export const updateDocument = async (req, res) => {
 
 /**
  * Archives or permanently deletes a document.
+ * Requires Owner role on the document.
  */
 export const deleteDocument = async (req, res) => {
   try {
@@ -266,17 +535,10 @@ export const deleteDocument = async (req, res) => {
     const doc = await Document.findById(documentId);
     if (!doc) return res.status(404).json({ message: "Document not found" });
 
-    const { hasAccess, isOwner } = await checkProjectAccess(doc.projectId, req.user._id);
-    if (!hasAccess) {
+    const perm = await resolveDocumentAccess(doc, req.user._id);
+    if (!perm.canDelete) {
       return res.status(403).json({
-        message: "Forbidden: You are not authorized to delete this document",
-      });
-    }
-
-    const isCreator = doc.createdBy.toString() === req.user._id.toString();
-    if (!isCreator && !isOwner) {
-      return res.status(403).json({
-        message: "Forbidden: Only the document creator or team owner can delete this document",
+        message: "Forbidden: Only document owners or team owners can delete this document",
       });
     }
 
@@ -293,6 +555,8 @@ export const deleteDocument = async (req, res) => {
     const io = req.app.get("io");
     if (io) {
       io.to(`project_${projectId}`).emit("documentDeleted", { documentId });
+      // Evict any connected sockets from collaborative room
+      io.to(`doc_collab_${documentId}`).emit("collabDocumentDeleted", { documentId });
     }
 
     res.json({ message: "Document deleted successfully", documentId });
