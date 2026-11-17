@@ -605,3 +605,34 @@ Project workflows configure dynamic task stages, status ordering, and categoriza
 | **Document Move** | Move between Projects | `PUT /api/documents/:documentId` (`targetProjectId`) | Document Owner or Team Owner |
 | **Document Delete** | Delete Document | `DELETE /api/documents/:documentId` | Document Owner or Team Owner |
 | **Real-Time Collab Sync** | Broadcast CRDT Updates | `docSyncUpdate` | Editor or Owner (`canEdit === true`) |
+
+---
+
+## 23. Document Comments, Mentions & Inline Discussions (DOC-05)
+
+### Comment Hierarchy & Model Architecture (`DocumentComment`):
+- `documentId` / `projectId`: Strictly scoped tenancy references.
+- `parentCommentId`: `null` for root discussion threads; references parent comment ID for threaded replies.
+- `userId`: Author of the comment.
+- `text`: Plain/markdown comment content.
+- `anchor`: Metadata anchoring discussion to selected text excerpt (`selectedText`, `from`, `to`).
+- `isResolved` / `resolvedBy` / `resolvedAt`: Lifecycle tracking for resolved threads.
+- `mentions`: Array of referenced User ObjectIds extracted via `@username` pattern.
+
+### Mention Resolution & Privacy Bounds:
+- `resolveEligibleMentions`: Parses `@username` from text and restricts mention eligibility strictly to active members of the project's parent team. Mentions of non-team members are ignored to prevent cross-tenant data leakage.
+- Persistent targeted notifications are delivered to mentioned members and parent thread authors.
+
+### Role Authorization Matrix for Document Comments:
+| Role | View Comments | Create / Reply | Resolve / Reopen | Edit / Delete Own | Edit Document Content |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Owner** | Yes | Yes | Yes | Yes (and can delete any) | Yes |
+| **Editor** | Yes | Yes | Yes | Yes | Yes |
+| **Commenter** | Yes | Yes | Yes | Yes | **No (Read-Only Editor)** |
+| **Viewer** | Yes | **No** | **No** | **No** | **No** |
+
+### Real-Time Socket.IO Synchronization:
+- `docCommentAdded`: Emitted to `doc_collab_${documentId}` when a thread or reply is posted.
+- `docCommentResolved`: Broadcast when a thread is marked resolved or reopened.
+- `docCommentDeleted`: Broadcast when a comment or thread is deleted (deleting root threads cascades to all replies).
+- `docCommentUpdated`: Broadcast when an author edits their comment text.

@@ -6,6 +6,7 @@ import axiosClient from "../api/axiosClient";
 import TipTapEditor from "../components/TipTapEditor";
 import ThemeToggle from "../components/ThemeToggle";
 import DocumentShareModal from "../components/DocumentShareModal";
+import DocumentCommentsPanel from "../components/DocumentCommentsPanel";
 import { CollabSocketProvider } from "../utils/collabSocketProvider";
 import socket from "../socket";
 import {
@@ -35,6 +36,7 @@ import {
   Eye,
   Shield,
   Crown,
+  MessageSquare,
 } from "lucide-react";
 
 export default function Documents() {
@@ -58,6 +60,11 @@ export default function Documents() {
   const [collaborators, setCollaborators] = useState([]);
   const [collabYDoc, setCollabYDoc] = useState(null);
   const [collabProvider, setCollabProvider] = useState(null);
+
+  // Comments & Discussions State (DOC-05)
+  const [comments, setComments] = useState([]);
+  const [commentsPanelOpen, setCommentsPanelOpen] = useState(false);
+  const [activeAnchor, setActiveAnchor] = useState(null);
 
   // Modals State
   const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -116,7 +123,7 @@ export default function Documents() {
     }
   }, [projectId]);
 
-  // Fetch project team members for sharing
+  // Fetch project team members for sharing and mentions
   const fetchProjectTeam = useCallback(async () => {
     try {
       const projectRes = await axiosClient.get(`/projects/${projectId}`);
@@ -133,6 +140,20 @@ export default function Documents() {
     }
   }, [projectId]);
 
+  // Fetch comments for selected document
+  const fetchComments = useCallback(async () => {
+    if (!selectedDoc?._id) {
+      setComments([]);
+      return;
+    }
+    try {
+      const res = await axiosClient.get(`/documents/${selectedDoc._id}/comments`);
+      setComments(res.data || []);
+    } catch (err) {
+      console.error("Failed to fetch document comments:", err);
+    }
+  }, [selectedDoc?._id]);
+
   useEffect(() => {
     if (projectId) {
       fetchDocuments();
@@ -140,6 +161,12 @@ export default function Documents() {
       fetchProjectTeam();
     }
   }, [projectId, fetchDocuments, fetchFolders, fetchProjectTeam]);
+
+  useEffect(() => {
+    if (selectedDoc?._id) {
+      fetchComments();
+    }
+  }, [selectedDoc?._id, fetchComments]);
 
   // Setup real-time collaborative editing session when selectedDoc changes
   useEffect(() => {
@@ -178,7 +205,7 @@ export default function Documents() {
     };
   }, [selectedDoc?._id, authUser]);
 
-  // Socket.IO real-time project-level events (CRUD)
+  // Socket.IO real-time project-level & document comment events
   useEffect(() => {
     if (!projectId) return;
     if (!socket.connected) socket.connect();
@@ -226,12 +253,62 @@ export default function Documents() {
       fetchDocuments();
     };
 
+    // Real-time comment event handlers (DOC-05)
+    const handleCommentAdded = (newComment) => {
+      if (newComment.documentId?.toString() !== selectedDoc?._id?.toString()) return;
+
+      setComments((prev) => {
+        if (newComment.parentCommentId) {
+          // Reply added
+          return prev.map((thread) => {
+            if (thread._id === newComment.parentCommentId) {
+              const replies = thread.replies || [];
+              if (replies.some((r) => r._id === newComment._id)) return thread;
+              return { ...thread, replies: [...replies, newComment] };
+            }
+            return thread;
+          });
+        }
+        // Top-level thread added
+        if (prev.some((t) => t._id === newComment._id)) return prev;
+        return [...prev, { ...newComment, replies: [] }];
+      });
+    };
+
+    const handleCommentResolved = ({ commentId, isResolved, resolvedBy, resolvedAt }) => {
+      setComments((prev) =>
+        prev.map((thread) =>
+          thread._id === commentId
+            ? { ...thread, isResolved, resolvedBy, resolvedAt }
+            : thread
+        )
+      );
+    };
+
+    const handleCommentDeleted = ({ commentId, parentCommentId }) => {
+      setComments((prev) => {
+        if (parentCommentId) {
+          // Remove reply from thread
+          return prev.map((thread) =>
+            thread._id === parentCommentId
+              ? { ...thread, replies: (thread.replies || []).filter((r) => r._id !== commentId) }
+              : thread
+          );
+        }
+        // Remove root thread
+        return prev.filter((t) => t._id !== commentId);
+      });
+    };
+
     socket.on("documentCreated", handleDocCreated);
     socket.on("documentUpdated", handleDocUpdated);
     socket.on("documentDeleted", handleDocDeleted);
     socket.on("documentFolderCreated", handleFolderCreated);
     socket.on("documentFolderUpdated", handleFolderUpdated);
     socket.on("documentFolderDeleted", handleFolderDeleted);
+    socket.on("docCommentAdded", handleCommentAdded);
+    socket.on("docCommentResolved", handleCommentResolved);
+    socket.on("docCommentDeleted", handleCommentDeleted);
 
     return () => {
       socket.off("documentCreated", handleDocCreated);
@@ -240,12 +317,17 @@ export default function Documents() {
       socket.off("documentFolderCreated", handleFolderCreated);
       socket.off("documentFolderUpdated", handleFolderUpdated);
       socket.off("documentFolderDeleted", handleFolderDeleted);
+      socket.off("docCommentAdded", handleCommentAdded);
+      socket.off("docCommentResolved", handleCommentResolved);
+      socket.off("docCommentDeleted", handleCommentDeleted);
       socket.emit("leaveProject", { projectId });
     };
   }, [projectId, selectedDoc, selectedFolderId, fetchDocuments]);
 
   // Debounced Autosave (strictly disabled if canEdit is false)
   const canEditCurrentDoc = selectedDoc?.userPermission?.canEdit ?? true;
+  const canCommentCurrentDoc = selectedDoc?.userPermission?.canComment ?? true;
+  const isOwnerCurrentDoc = selectedDoc?.userPermission?.canManagePermissions ?? false;
 
   const triggerAutosave = useCallback(
     (newTitle, newContent, newHtml) => {
@@ -338,6 +420,69 @@ export default function Documents() {
     }
   };
 
+  // Comments Actions (DOC-05)
+  const handleCreateComment = async ({ text, parentCommentId, anchor }) => {
+    if (!selectedDoc?._id) return;
+    try {
+      const res = await axiosClient.post(`/documents/${selectedDoc._id}/comments`, {
+        text,
+        parentCommentId,
+        anchor,
+      });
+
+      // Update state locally
+      const newComment = res.data;
+      if (parentCommentId) {
+        setComments((prev) =>
+          prev.map((thread) =>
+            thread._id === parentCommentId
+              ? { ...thread, replies: [...(thread.replies || []), newComment] }
+              : thread
+          )
+        );
+      } else {
+        setComments((prev) => [...prev, { ...newComment, replies: [] }]);
+      }
+    } catch (err) {
+      console.error("Failed to create comment:", err);
+      alert(err.response?.data?.message || "Failed to post comment");
+    }
+  };
+
+  const handleResolveComment = async (commentId, isResolved) => {
+    try {
+      const res = await axiosClient.patch(`/documents/comments/${commentId}/resolve`, {
+        isResolved,
+      });
+      setComments((prev) =>
+        prev.map((thread) =>
+          thread._id === commentId ? { ...thread, ...res.data } : thread
+        )
+      );
+    } catch (err) {
+      console.error("Failed to toggle resolve comment:", err);
+      alert(err.response?.data?.message || "Failed to resolve comment");
+    }
+  };
+
+  const handleDeleteComment = async (commentId) => {
+    if (!window.confirm("Delete this comment?")) return;
+    try {
+      await axiosClient.delete(`/documents/comments/${commentId}`);
+      setComments((prev) =>
+        prev
+          .filter((t) => t._id !== commentId)
+          .map((t) => ({
+            ...t,
+            replies: (t.replies || []).filter((r) => r._id !== commentId),
+          }))
+      );
+    } catch (err) {
+      console.error("Failed to delete comment:", err);
+      alert(err.response?.data?.message || "Failed to delete comment");
+    }
+  };
+
   // Create new folder
   const handleCreateFolder = async (e) => {
     e.preventDefault();
@@ -389,6 +534,17 @@ export default function Documents() {
     } catch (err) {
       console.error("Failed to delete folder:", err);
       alert(err.response?.data?.message || "Failed to delete folder");
+    }
+  };
+
+  // Capture mouse selection to enable inline comment anchor
+  const handleEditorSelection = () => {
+    const sel = window.getSelection();
+    if (sel && sel.toString().trim().length > 0) {
+      setActiveAnchor({
+        selectedText: sel.toString().trim(),
+      });
+      setCommentsPanelOpen(true);
     }
   };
 
@@ -478,6 +634,29 @@ export default function Documents() {
               <Shield className="w-3.5 h-3.5 text-indigo-500" />
               <span>{userRole}</span>
             </div>
+          )}
+
+          {/* Discussions Button */}
+          {selectedDoc && (
+            <button
+              onClick={() => setCommentsPanelOpen(!commentsPanelOpen)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition border ${
+                commentsPanelOpen
+                  ? "bg-indigo-600 text-white border-indigo-600 shadow-xs"
+                  : "bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
+              }`}
+              title="Toggle Discussion Panel"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>Comments</span>
+              {comments.length > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${
+                  commentsPanelOpen ? "bg-white/20 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"
+                }`}>
+                  {comments.length}
+                </span>
+              )}
+            </button>
           )}
 
           {/* Autosave Status Pill (shown only when user has edit permissions) */}
@@ -734,8 +913,11 @@ export default function Documents() {
           </div>
         </div>
 
-        {/* Right Editor Area */}
-        <div className="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto w-full">
+        {/* Center Editor Area */}
+        <div
+          className="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto w-full"
+          onMouseUp={handleEditorSelection}
+        >
           {selectedDoc ? (
             <div className="space-y-6">
               {/* Document Breadcrumb & Folder Actions */}
@@ -843,6 +1025,24 @@ export default function Documents() {
             </div>
           )}
         </div>
+
+        {/* Right Collapsible Comments & Discussions Panel (DOC-05) */}
+        {commentsPanelOpen && selectedDoc && (
+          <DocumentCommentsPanel
+            isOpen={commentsPanelOpen}
+            onClose={() => setCommentsPanelOpen(false)}
+            comments={comments}
+            onCreateComment={handleCreateComment}
+            onResolveComment={handleResolveComment}
+            onDeleteComment={handleDeleteComment}
+            projectTeamMembers={projectTeamMembers}
+            currentUser={authUser}
+            canComment={canCommentCurrentDoc}
+            isOwner={isOwnerCurrentDoc}
+            activeAnchor={activeAnchor}
+            onClearActiveAnchor={() => setActiveAnchor(null)}
+          />
+        )}
       </div>
 
       {/* Modal: Share & Permissions */}
