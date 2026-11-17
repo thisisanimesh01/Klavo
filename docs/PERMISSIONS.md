@@ -1039,3 +1039,41 @@ Enables project members to export project analytics and custom reports directly 
 | Endpoint | Method | Required Permission / Role | Description |
 | :--- | :--- | :--- | :--- |
 | `/api/analytics/project/:projectId/export` | `POST` | Project Team Member / Owner | Export analytics or custom reports in RFC 4180 CSV or styled PDF format |
+
+---
+
+## 34. Workspace-Wide Analytics & Reporting (ANL-08)
+
+### Overview & Data Architecture:
+Enables organization leaders, managers, and team members to review cross-project intelligence, project performance rankings, and aggregate capacity across entire teams/workspaces. Strictly enforces multi-project authorization, guaranteeing that users can only view metrics from projects they have explicit rights to access.
+
+### Cross-Project Aggregation & Ranking Model:
+- **Project Tenancy Isolation**:
+  - `getUserAuthorizedProjectsForTeam(teamId, userId)` resolves authorized project IDs scoped to the user's verified team membership.
+  - Queries for tasks, workflows, sprints, and milestones strictly filter by `{ projectId: { $in: authorizedProjectIds } }`. Foreign or unapproved projects are completely excluded from aggregation queries.
+- **Transparent Project Ranking Matrix**:
+  - Calculates real-time objective health scores (0–100) using established project health deductions (schedule compliance, dependency blockers, milestone slippage, team capacity).
+  - Projects are ranked by `healthScore` descending, using completion rate as a secondary tie-breaker. Projects with insufficient data are handled without synthetic scoring.
+- **Global Workspace KPIs**:
+  - `completionRate`: Total completed tasks / total tasks across authorized projects.
+  - `overdueRate`: Incomplete tasks past due date / total tasks across authorized projects.
+  - `totalEstimatedHours` vs `totalStoryPoints`: Strictly segregated capacity metrics.
+  - `averageHealthScore` & `healthState`: Aggregated average health score across projects with telemetry, transitioning through Healthy (>=80), At Risk (50–79), Critical (<50), or Insufficient Data.
+- **Workspace Team Capacity & Workload Imbalance**:
+  - Evaluates team-wide utilization across all active projects, tracking committed work, completed work, and individual member over-allocation flags (>100% capacity).
+
+### Saved Reports & Multi-Project Exports:
+- **Workspace-Level Saved Reports**:
+  - Extends `SavedReport` with `scope: 'workspace'`, supporting project filtering across `projectIds`.
+  - Private reports are strictly visible only to their creator; shared reports are accessible to all team members in the workspace.
+- **Export Capabilities**:
+  - Integrates ANL-07 CSV and PDF export engines (`POST /api/analytics/workspace/:teamId/export`).
+  - Embeds formula injection neutralization, RFC 4180 escaping, multi-page PDF tables, project rankings, and distinct metric disclosures.
+
+### Permissions & Anti-IDOR Enforcement:
+| Endpoint | Method | Required Permission / Role | Description |
+| :--- | :--- | :--- | :--- |
+| `/api/analytics/workspace/:teamId` | `GET` | Team Member or Owner | Workspace-wide KPI aggregation, project rankings, and capacity analysis for authorized projects |
+| `/api/analytics/workspace/:teamId/saved-reports` | `GET` | Team Member or Owner | List workspace-level saved reports accessible to requester (shared + private) |
+| `/api/analytics/workspace/:teamId/saved-reports` | `POST` | Team Member or Owner | Create a new workspace-level saved report configuration |
+| `/api/analytics/workspace/:teamId/export` | `POST` | Team Member or Owner | Export workspace metrics and project rankings in CSV or PDF format |

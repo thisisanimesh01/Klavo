@@ -43,6 +43,8 @@ import {
   Share2,
   Download,
   FileSpreadsheet,
+  Building,
+  Trophy,
 } from "lucide-react";
 import {
   StatusDistributionChart,
@@ -151,23 +153,43 @@ export default function Analytics() {
   const [exportError, setExportError] = useState(null);
   const [exportSuccess, setExportSuccess] = useState(null);
 
-  // Load available projects
+  // Workspace-wide Analytics states (ANL-08)
+  const [workspaceData, setWorkspaceData] = useState(null);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
+  const [workspaceError, setWorkspaceError] = useState(null);
+  const [selectedTeamId, setSelectedTeamId] = useState("");
+  const [teams, setTeams] = useState([]);
+  const [workspaceFilterProjects, setWorkspaceFilterProjects] = useState("all");
+
+  // Load available projects and workspaces (teams)
   useEffect(() => {
-    const fetchProjects = async () => {
+    const fetchInitialData = async () => {
       try {
-        const res = await axiosClient.get("/projects");
-        const projectList = res.data || [];
+        const [projRes, teamsRes] = await Promise.allSettled([
+          axiosClient.get("/projects"),
+          axiosClient.get("/teams"),
+        ]);
+
+        const projectList = projRes.status === "fulfilled" ? projRes.value.data || [] : [];
         setProjects(projectList);
+
+        const teamList = teamsRes.status === "fulfilled" ? teamsRes.value.data || [] : [];
+        setTeams(teamList);
 
         if (!selectedProjectId && projectList.length > 0) {
           setSelectedProjectId(projectList[0]._id);
         }
+        if (!selectedTeamId && teamList.length > 0) {
+          setSelectedTeamId(teamList[0]._id);
+        } else if (!selectedTeamId && projectList.length > 0 && projectList[0].teamId) {
+          setSelectedTeamId(projectList[0].teamId);
+        }
       } catch (err) {
-        console.error("Failed to load user projects:", err);
+        console.error("Failed to load user projects and teams:", err);
       }
     };
-    fetchProjects();
-  }, [selectedProjectId]);
+    fetchInitialData();
+  }, [selectedProjectId, selectedTeamId]);
 
   // Sync state if urlProjectId changes
   useEffect(() => {
@@ -519,34 +541,56 @@ export default function Analytics() {
       } else if (activeTab === "custom_reports") {
         const savedMatch = savedReports.find((r) => r._id === selectedSavedReportId);
         title = savedMatch ? savedMatch.name : `${projName} Custom Report`;
+      } else if (activeTab === "workspace") {
+        const teamObj = teams.find((t) => t._id === selectedTeamId);
+        title = `${teamObj ? teamObj.name : "Workspace"} Analytics & Ranking Report`;
       }
 
-      const payload = {
-        format,
-        reportTitle: title,
-        savedReportId: activeTab === "custom_reports" && selectedSavedReportId ? selectedSavedReportId : undefined,
-        range: activeTab === "custom_reports" ? reportRange : dateRange,
-        dateField: activeTab === "custom_reports" ? reportDateField : "createdAt",
-        groupBy: activeTab === "custom_reports" ? reportGroupBy : "status",
-        sortBy: activeTab === "custom_reports" ? reportSortBy : "createdAt",
-        sortOrder: activeTab === "custom_reports" ? reportSortOrder : "desc",
-      };
-
-      if (payload.range === "custom") {
-        if (activeTab === "custom_reports") {
-          if (reportStartDate) payload.startDate = reportStartDate;
-          if (reportEndDate) payload.endDate = reportEndDate;
-        } else {
-          if (customStartDate) payload.startDate = customStartDate;
-          if (customEndDate) payload.endDate = customEndDate;
+      let res;
+      if (activeTab === "workspace") {
+        const wsPayload = {
+          format,
+          reportTitle: title,
+          range: dateRange,
+          projectIds: workspaceFilterProjects === "all" ? undefined : workspaceFilterProjects,
+        };
+        if (dateRange === "custom") {
+          if (customStartDate) wsPayload.startDate = customStartDate;
+          if (customEndDate) wsPayload.endDate = customEndDate;
         }
-      }
+        res = await axiosClient.post(
+          `/analytics/workspace/${selectedTeamId}/export`,
+          wsPayload,
+          { responseType: "blob" }
+        );
+      } else {
+        const payload = {
+          format,
+          reportTitle: title,
+          savedReportId: activeTab === "custom_reports" && selectedSavedReportId ? selectedSavedReportId : undefined,
+          range: activeTab === "custom_reports" ? reportRange : dateRange,
+          dateField: activeTab === "custom_reports" ? reportDateField : "createdAt",
+          groupBy: activeTab === "custom_reports" ? reportGroupBy : "status",
+          sortBy: activeTab === "custom_reports" ? reportSortBy : "createdAt",
+          sortOrder: activeTab === "custom_reports" ? reportSortOrder : "desc",
+        };
 
-      const res = await axiosClient.post(
-        `/analytics/project/${selectedProjectId}/export`,
-        payload,
-        { responseType: "blob" }
-      );
+        if (payload.range === "custom") {
+          if (activeTab === "custom_reports") {
+            if (reportStartDate) payload.startDate = reportStartDate;
+            if (reportEndDate) payload.endDate = reportEndDate;
+          } else {
+            if (customStartDate) payload.startDate = customStartDate;
+            if (customEndDate) payload.endDate = customEndDate;
+          }
+        }
+
+        res = await axiosClient.post(
+          `/analytics/project/${selectedProjectId}/export`,
+          payload,
+          { responseType: "blob" }
+        );
+      }
 
       // Extract filename from Content-Disposition header if available
       const contentDisposition = res.headers["content-disposition"] || "";
@@ -579,6 +623,33 @@ export default function Analytics() {
     }
   };
 
+  // Fetch workspace analytics (ANL-08)
+  const fetchWorkspaceAnalytics = useCallback(async () => {
+    if (!selectedTeamId) return;
+    try {
+      setWorkspaceLoading(true);
+      setWorkspaceError(null);
+
+      const params = new URLSearchParams();
+      params.append("range", dateRange);
+      if (dateRange === "custom") {
+        if (customStartDate) params.append("startDate", customStartDate);
+        if (customEndDate) params.append("endDate", customEndDate);
+      }
+      if (workspaceFilterProjects !== "all") {
+        params.append("projectIds", workspaceFilterProjects);
+      }
+
+      const res = await axiosClient.get(`/analytics/workspace/${selectedTeamId}?${params.toString()}`);
+      setWorkspaceData(res.data);
+    } catch (err) {
+      console.error("Failed to load workspace analytics:", err);
+      setWorkspaceError(err.response?.data?.message || "Failed to load workspace analytics.");
+    } finally {
+      setWorkspaceLoading(false);
+    }
+  }, [selectedTeamId, dateRange, customStartDate, customEndDate, workspaceFilterProjects]);
+
   useEffect(() => {
     fetchAnalytics();
     fetchSprints();
@@ -597,6 +668,8 @@ export default function Analytics() {
       fetchHealthAnalytics();
     } else if (activeTab === "custom_reports") {
       runCustomReport();
+    } else if (activeTab === "workspace") {
+      fetchWorkspaceAnalytics();
     }
   }, [
     activeTab,
@@ -605,6 +678,7 @@ export default function Analytics() {
     fetchCycleTimeAnalytics,
     fetchHealthAnalytics,
     runCustomReport,
+    fetchWorkspaceAnalytics,
   ]);
 
   const handleProjectChange = (e) => {
@@ -640,27 +714,49 @@ export default function Analytics() {
           </p>
         </div>
 
-        {/* Global Project Selector, Unit Toggle & Refresh */}
+        {/* Global Project/Workspace Selector, Unit Toggle & Refresh */}
         <div className="flex flex-wrap items-center gap-3">
-          {/* Project Selector */}
-          <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 shadow-sm">
-            <FolderKanban size={16} className="text-indigo-400" />
-            <select
-              value={selectedProjectId}
-              onChange={handleProjectChange}
-              className="bg-transparent text-sm text-slate-200 focus:outline-none cursor-pointer"
-            >
-              {projects.length === 0 ? (
-                <option value="">No projects available</option>
-              ) : (
-                projects.map((p) => (
-                  <option key={p._id} value={p._id} className="bg-slate-900 text-slate-200">
-                    {p.name}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
+          {/* Workspace (Team) Selector if in Workspace tab */}
+          {activeTab === "workspace" ? (
+            <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 shadow-sm">
+              <Building size={16} className="text-cyan-400" />
+              <select
+                value={selectedTeamId}
+                onChange={(e) => setSelectedTeamId(e.target.value)}
+                className="bg-transparent text-sm text-slate-200 focus:outline-none cursor-pointer"
+              >
+                {teams.length === 0 ? (
+                  <option value="">No workspaces available</option>
+                ) : (
+                  teams.map((t) => (
+                    <option key={t._id} value={t._id} className="bg-slate-900 text-slate-200">
+                      {t.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+          ) : (
+            /* Project Selector */
+            <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 shadow-sm">
+              <FolderKanban size={16} className="text-indigo-400" />
+              <select
+                value={selectedProjectId}
+                onChange={handleProjectChange}
+                className="bg-transparent text-sm text-slate-200 focus:outline-none cursor-pointer"
+              >
+                {projects.length === 0 ? (
+                  <option value="">No projects available</option>
+                ) : (
+                  projects.map((p) => (
+                    <option key={p._id} value={p._id} className="bg-slate-900 text-slate-200">
+                      {p.name}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+          )}
 
           {/* Measurement Unit Toggle */}
           <div className="flex items-center gap-1 bg-slate-900 border border-slate-800 rounded-xl p-1 text-xs">
@@ -804,10 +900,22 @@ export default function Analytics() {
             <FileText size={16} className="text-cyan-400" />
             <span>Custom Reports & Filters</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab("workspace")}
+            className={`px-4 py-2 text-sm font-medium rounded-xl transition flex items-center gap-2 ${
+              activeTab === "workspace"
+                ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-semibold"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+            }`}
+          >
+            <Building size={16} className="text-pink-400" />
+            <span>Workspace Analytics</span>
+          </button>
         </div>
 
-        {/* Overview Tab Range Selector */}
-        {activeTab === "overview" && (
+        {/* Overview & Workspace Tab Range Selector */}
+        {(activeTab === "overview" || activeTab === "workspace") && (
           <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 shadow-sm">
             <Filter size={15} className="text-slate-400" />
             <select
@@ -3043,6 +3151,345 @@ export default function Analytics() {
                 </form>
               </div>
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 6: WORKSPACE-WIDE ANALYTICS & REPORTING (ANL-08) */}
+      {/* ========================================================================= */}
+      {activeTab === "workspace" && (
+        <div className="space-y-6">
+          {/* Workspace Filters & Project Scoping */}
+          <div className="flex flex-wrap items-center justify-between gap-4 bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              <Building size={20} className="text-pink-400" />
+              <div>
+                <h2 className="text-sm font-semibold text-slate-200">
+                  {workspaceData?.workspaceName || "Workspace"} Multi-Project Overview
+                </h2>
+                <span className="text-xs text-slate-400">
+                  Aggregating metrics across {workspaceData?.summary?.totalProjects ?? 0} authorized project(s)
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Project Filter (All vs Specific) */}
+              <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs">
+                <FolderKanban size={14} className="text-slate-400" />
+                <span className="text-slate-400">Projects:</span>
+                <select
+                  value={workspaceFilterProjects}
+                  onChange={(e) => setWorkspaceFilterProjects(e.target.value)}
+                  className="bg-transparent text-slate-200 focus:outline-none cursor-pointer max-w-[150px] truncate"
+                >
+                  <option value="all" className="bg-slate-900">All Authorized Projects</option>
+                  {projects.map((p) => (
+                    <option key={p._id} value={p._id} className="bg-slate-900">
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Export Workspace Report */}
+              <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-xl p-1 text-xs">
+                <button
+                  onClick={() => handleExportReport("csv")}
+                  disabled={exportLoading}
+                  className="px-2.5 py-1 rounded-lg bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 font-medium transition flex items-center gap-1 disabled:opacity-50"
+                  title="Export workspace analytics as CSV"
+                >
+                  <FileSpreadsheet size={13} />
+                  <span>CSV</span>
+                </button>
+                <button
+                  onClick={() => handleExportReport("pdf")}
+                  disabled={exportLoading}
+                  className="px-2.5 py-1 rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 font-medium transition flex items-center gap-1 disabled:opacity-50"
+                  title="Export workspace analytics as PDF"
+                >
+                  <Download size={13} />
+                  <span>PDF</span>
+                </button>
+              </div>
+
+              {/* Refresh Workspace Data */}
+              <button
+                onClick={fetchWorkspaceAnalytics}
+                disabled={workspaceLoading}
+                className="p-1.5 rounded-xl bg-slate-800 text-slate-300 hover:bg-slate-700 transition disabled:opacity-50"
+                title="Refresh workspace analytics"
+              >
+                <RefreshCw size={14} className={workspaceLoading ? "animate-spin" : ""} />
+              </button>
+            </div>
+          </div>
+
+          {/* Loading / Error States */}
+          {workspaceLoading ? (
+            <div className="p-12 text-center text-slate-400 bg-slate-900/40 rounded-2xl border border-slate-800/60">
+              <RefreshCw className="animate-spin mx-auto mb-2 text-indigo-400" size={24} />
+              <span>Calculating workspace analytics and project ranking...</span>
+            </div>
+          ) : workspaceError ? (
+            <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-400 text-sm flex items-center gap-2">
+              <AlertTriangle size={16} />
+              <span>{workspaceError}</span>
+            </div>
+          ) : !workspaceData || workspaceData.summary.totalProjects === 0 ? (
+            <div className="p-12 text-center text-slate-400 bg-slate-900/40 rounded-2xl border border-slate-800/60 space-y-2">
+              <Building size={36} className="mx-auto text-slate-500 opacity-60" />
+              <h3 className="font-semibold text-slate-200">No Projects Found in Workspace</h3>
+              <p className="text-xs text-slate-400 max-w-md mx-auto">
+                This workspace does not currently have any active projects or you have not been granted access to them.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Workspace Top KPI Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3.5">
+                {/* Workspace Health */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/60 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span className="font-semibold">Workspace Health</span>
+                    <HeartPulse size={16} style={{ color: workspaceData.summary.healthColor }} />
+                  </div>
+                  <div className="mt-2">
+                    <span className="text-2xl font-bold block" style={{ color: workspaceData.summary.healthColor }}>
+                      {workspaceData.summary.averageHealthScore !== null ? `${workspaceData.summary.averageHealthScore}/100` : "N/A"}
+                    </span>
+                    <span className="text-[11px] font-medium" style={{ color: workspaceData.summary.healthColor }}>
+                      {workspaceData.summary.healthState}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Active Projects */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/60 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span className="font-semibold">Active Projects</span>
+                    <FolderKanban size={16} className="text-indigo-400" />
+                  </div>
+                  <div className="mt-2">
+                    <span className="text-2xl font-bold text-slate-100 block">{workspaceData.summary.totalProjects}</span>
+                    <span className="text-[11px] text-slate-400">Authorized Tenancies</span>
+                  </div>
+                </div>
+
+                {/* Total Tasks & Completion */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/60 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span className="font-semibold">Task Progress</span>
+                    <CheckCircle size={16} className="text-emerald-400" />
+                  </div>
+                  <div className="mt-2">
+                    <span className="text-2xl font-bold text-slate-100 block">
+                      {workspaceData.summary.completionRate}%
+                    </span>
+                    <span className="text-[11px] text-slate-400">
+                      {workspaceData.summary.completedTasks} of {workspaceData.summary.totalTasks} Tasks
+                    </span>
+                  </div>
+                </div>
+
+                {/* Overdue Work */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/60 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span className="font-semibold">Overdue Tasks</span>
+                    <Clock size={16} className="text-red-400" />
+                  </div>
+                  <div className="mt-2">
+                    <span className="text-2xl font-bold text-red-400 block">{workspaceData.summary.overdueTasks}</span>
+                    <span className="text-[11px] text-slate-400">{workspaceData.summary.overdueRate}% of Total</span>
+                  </div>
+                </div>
+
+                {/* Estimated Hours */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/60 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span className="font-semibold">Estimated Hours</span>
+                    <Timer size={16} className="text-blue-400" />
+                  </div>
+                  <div className="mt-2">
+                    <span className="text-2xl font-bold text-slate-100 block">
+                      {workspaceData.summary.completedEstimatedHours}
+                      <span className="text-xs font-normal text-slate-400"> / {workspaceData.summary.totalEstimatedHours}h</span>
+                    </span>
+                    <span className="text-[11px] text-slate-400">Work Hours Tracked</span>
+                  </div>
+                </div>
+
+                {/* Story Points */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/60 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between text-xs text-slate-400">
+                    <span className="font-semibold">Story Points</span>
+                    <Zap size={16} className="text-amber-400" />
+                  </div>
+                  <div className="mt-2">
+                    <span className="text-2xl font-bold text-slate-100 block">
+                      {workspaceData.summary.completedStoryPoints}
+                      <span className="text-xs font-normal text-slate-400"> / {workspaceData.summary.totalStoryPoints}p</span>
+                    </span>
+                    <span className="text-[11px] text-slate-400">Velocity Points</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Project Comparison & Ranking Matrix */}
+              <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                      <Trophy size={18} className="text-amber-400" />
+                      Project Comparison & Performance Ranking
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Objective ranking derived from real-time health score, milestone slippage, and completion percentage
+                    </p>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 font-semibold">
+                        <th className="pb-2.5">Rank</th>
+                        <th className="pb-2.5">Project Name</th>
+                        <th className="pb-2.5 text-center">Health Status</th>
+                        <th className="pb-2.5 text-center">Progress</th>
+                        <th className="pb-2.5 text-center">Tasks</th>
+                        <th className="pb-2.5 text-center">Overdue</th>
+                        <th className="pb-2.5 text-center">Est. Hours</th>
+                        <th className="pb-2.5 text-center">Story Points</th>
+                        <th className="pb-2.5 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {workspaceData.projectRankings.map((p, idx) => (
+                        <tr key={p.projectId} className="hover:bg-slate-800/20 transition">
+                          <td className="py-3 font-bold text-slate-400">
+                            #{idx + 1}
+                          </td>
+                          <td className="py-3">
+                            <span className="font-semibold text-slate-200 block">{p.projectName}</span>
+                            <span className="text-[11px] text-slate-500 truncate max-w-xs block">
+                              {p.description || "No project description"}
+                            </span>
+                          </td>
+                          <td className="py-3 text-center">
+                            <span
+                              className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold"
+                              style={{
+                                backgroundColor: `${p.statusColor}15`,
+                                color: p.statusColor,
+                                border: `1px solid ${p.statusColor}30`,
+                              }}
+                            >
+                              {p.healthScore !== null ? `${p.healthScore} - ${p.healthState}` : "Insufficient Data"}
+                            </span>
+                          </td>
+                          <td className="py-3 text-center">
+                            <div className="flex flex-col items-center gap-1">
+                              <span className="font-bold text-slate-200">{p.completionRate}%</span>
+                              <div className="w-16 bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                <div
+                                  className="bg-indigo-500 h-full rounded-full"
+                                  style={{ width: `${Math.min(100, p.completionRate)}%` }}
+                                />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 text-center text-slate-300">
+                            {p.completedTasks} / {p.totalTasks}
+                          </td>
+                          <td className="py-3 text-center">
+                            <span className={`font-semibold ${p.overdueTasks > 0 ? "text-red-400" : "text-slate-400"}`}>
+                              {p.overdueTasks}
+                            </span>
+                          </td>
+                          <td className="py-3 text-center text-slate-300">
+                            {p.completedEstimatedHours} / {p.totalEstimatedHours}h
+                          </td>
+                          <td className="py-3 text-center text-slate-300">
+                            {p.completedStoryPoints} / {p.totalStoryPoints}p
+                          </td>
+                          <td className="py-3 text-right">
+                            <button
+                              onClick={() => {
+                                setSelectedProjectId(p.projectId);
+                                setActiveTab("overview");
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600/30 font-medium transition text-xs"
+                            >
+                              View Analytics
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Workspace Team Capacity & Workload Imbalance */}
+              {workspaceData.teamWorkload && workspaceData.teamWorkload.members?.length > 0 && (
+                <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                        <Users size={18} className="text-blue-400" />
+                        Workspace Member Capacity & Allocation
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Team utilization across all authorized projects ({workspaceData.teamWorkload.teamUtilizationRate}% Overall Utilization)
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                    {workspaceData.teamWorkload.members.map((m) => (
+                      <div
+                        key={m.userId}
+                        className={`p-3.5 rounded-xl border ${
+                          m.isOverAllocated
+                            ? "border-red-500/40 bg-red-950/20"
+                            : "border-slate-800 bg-slate-950"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-semibold text-slate-200 truncate">{m.name}</span>
+                          <span
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                              m.isOverAllocated
+                                ? "bg-red-500/20 text-red-400 border border-red-500/30"
+                                : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                            }`}
+                          >
+                            {m.utilizationRate}%
+                          </span>
+                        </div>
+                        <div className="space-y-1 text-slate-400 text-[11px]">
+                          <div className="flex justify-between">
+                            <span>Committed:</span>
+                            <span className="text-slate-200 font-medium">{m.committedWork}h / {m.capacity}h</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Completed:</span>
+                            <span className="text-slate-200 font-medium">{m.completedWork}h</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Active Tasks:</span>
+                            <span className="text-slate-200 font-medium">{m.assignedCount} tasks</span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

@@ -12,6 +12,10 @@ import {
   createSavedReport,
   deleteSavedReport,
   exportAnalyticsReport,
+  getWorkspaceAnalytics,
+  getWorkspaceSavedReports,
+  createWorkspaceSavedReport,
+  exportWorkspaceAnalytics,
 } from "../controllers/analyticsController.js";
 
 const router = express.Router();
@@ -44,5 +48,11 @@ router.delete("/saved-reports/:reportId", deleteSavedReport);
 
 // CSV & PDF Report Export (ANL-07)
 router.post("/project/:projectId/export", exportAnalyticsReport);
+
+// Workspace-Wide Analytics & Reporting (ANL-08)
+router.get("/workspace/:teamId", getWorkspaceAnalytics);
+router.get("/workspace/:teamId/saved-reports", getWorkspaceSavedReports);
+router.post("/workspace/:teamId/saved-reports", createWorkspaceSavedReport);
+router.post("/workspace/:teamId/export", exportWorkspaceAnalytics);
 
 export default router;

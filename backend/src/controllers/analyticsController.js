@@ -7,7 +7,7 @@ import Workflow from "../models/Workflow.js";
 import Sprint from "../models/Sprint.js";
 import Milestone from "../models/Milestone.js";
 import SavedReport from "../models/SavedReport.js";
-import { checkProjectAccess, checkSprintAccess } from "../utils/authHelpers.js";
+import { checkProjectAccess, checkSprintAccess, checkTeamAccess, getUserAuthorizedProjectsForTeam } from "../utils/authHelpers.js";
 import { isStatusCompleted, getCompletedStatusKeys, getStatusCategory } from "../utils/workflowHelpers.js";
 import { generateReportCsv, generateReportPdf } from "../utils/exportHelpers.js";
 
@@ -2243,5 +2243,536 @@ export const exportAnalyticsReport = async (req, res) => {
   } catch (err) {
     console.error("Export Analytics Report Error:", err);
     res.status(500).json({ message: err.message || "Failed to export analytics report." });
+  }
+};
+
+/**
+ * Pure calculation function for workspace-wide analytics (ANL-08).
+ * Aggregates only authorized projects, computes health scores, ranking, and workload.
+ */
+export const calculateWorkspaceAnalyticsMetrics = ({
+  team,
+  projects = [],
+  workflows = [],
+  tasks = [],
+  sprints = [],
+  milestones = [],
+  teamMembers = [],
+  now = new Date(),
+}) => {
+  const currentDate = new Date(now);
+
+  // Workflow map per project
+  const workflowMap = new Map();
+  workflows.forEach((w) => {
+    if (w && w.projectId) {
+      workflowMap.set(w.projectId.toString(), w);
+    }
+  });
+
+  // Calculate project metrics and ranking
+  const projectSummaries = projects.map((proj) => {
+    const pId = proj._id.toString();
+    const pTasks = tasks.filter((t) => t.projectId && t.projectId.toString() === pId);
+    const pWorkflow = workflowMap.get(pId) || { statuses: [] };
+    const pSprints = sprints.filter((s) => s.projectId && s.projectId.toString() === pId);
+    const pMilestones = milestones.filter((m) => m.projectId && m.projectId.toString() === pId);
+
+    const completedKeys = new Set(getCompletedStatusKeys(pWorkflow));
+
+    let completedTasks = 0;
+    let overdueTasks = 0;
+    let inProgressTasks = 0;
+    let totalEstimatedHours = 0;
+    let totalStoryPoints = 0;
+    let completedEstimatedHours = 0;
+    let completedStoryPoints = 0;
+
+    pTasks.forEach((t) => {
+      const isDone = completedKeys.has(t.status) || Boolean(t.completedAt);
+      const isOverdue = !isDone && Boolean(t.dueDate && new Date(t.dueDate).getTime() < currentDate.getTime());
+
+      if (isDone) {
+        completedTasks++;
+        if (Number(t.estimatedHours) > 0) completedEstimatedHours += Number(t.estimatedHours);
+        if (Number(t.storyPoints) > 0) completedStoryPoints += Number(t.storyPoints);
+      } else {
+        if (t.status === "in_progress" || t.status === "in-progress") {
+          inProgressTasks++;
+        }
+        if (isOverdue) overdueTasks++;
+      }
+
+      if (Number(t.estimatedHours) > 0) totalEstimatedHours += Number(t.estimatedHours);
+      if (Number(t.storyPoints) > 0) totalStoryPoints += Number(t.storyPoints);
+    });
+
+    const completionRate = pTasks.length > 0 ? Math.round((completedTasks / pTasks.length) * 100) : 0;
+    const overdueRate = pTasks.length > 0 ? Math.round((overdueTasks / pTasks.length) * 100) : 0;
+
+    // Use existing project health calculation
+    const healthResult = calculateProjectHealthMetrics({
+      project: proj,
+      workflow: pWorkflow,
+      tasks: pTasks,
+      sprints: pSprints,
+      milestones: pMilestones,
+      members: teamMembers,
+      now: currentDate,
+    });
+
+    return {
+      projectId: proj._id,
+      projectName: proj.name,
+      description: proj.description || "",
+      totalTasks: pTasks.length,
+      completedTasks,
+      overdueTasks,
+      inProgressTasks,
+      completionRate,
+      overdueRate,
+      totalEstimatedHours: Math.round(totalEstimatedHours * 10) / 10,
+      completedEstimatedHours: Math.round(completedEstimatedHours * 10) / 10,
+      totalStoryPoints: Math.round(totalStoryPoints * 10) / 10,
+      completedStoryPoints: Math.round(completedStoryPoints * 10) / 10,
+      healthScore: healthResult.healthScore,
+      healthState: healthResult.healthState,
+      statusColor: healthResult.statusColor,
+      factors: healthResult.factors,
+      activeSprint: pSprints.find((s) => s.status === "active")?.name || null,
+      totalSprints: pSprints.length,
+      totalMilestones: pMilestones.length,
+    };
+  });
+
+  // Workspace ranking: sort projects by healthScore descending (or completionRate if tie), nulls last
+  projectSummaries.sort((a, b) => {
+    if (a.healthScore === null && b.healthScore === null) return b.completionRate - a.completionRate;
+    if (a.healthScore === null) return 1;
+    if (b.healthScore === null) return -1;
+    if (b.healthScore !== a.healthScore) return b.healthScore - a.healthScore;
+    return b.completionRate - a.completionRate;
+  });
+
+  // Global Workspace KPIs
+  const totalProjects = projects.length;
+  const totalTasks = tasks.length;
+  let totalCompletedTasks = 0;
+  let totalOverdueTasks = 0;
+  let totalInProgressTasks = 0;
+  let totalUnassignedTasks = 0;
+  let totalEstHours = 0;
+  let completedEstHours = 0;
+  let totalPts = 0;
+  let completedPts = 0;
+
+  tasks.forEach((t) => {
+    const pWorkflow = workflowMap.get(t.projectId?.toString()) || { statuses: [] };
+    const doneKeys = new Set(getCompletedStatusKeys(pWorkflow));
+    const isDone = doneKeys.has(t.status) || Boolean(t.completedAt);
+    const isOverdue = !isDone && Boolean(t.dueDate && new Date(t.dueDate).getTime() < currentDate.getTime());
+
+    if (isDone) {
+      totalCompletedTasks++;
+      if (Number(t.estimatedHours) > 0) completedEstHours += Number(t.estimatedHours);
+      if (Number(t.storyPoints) > 0) completedPts += Number(t.storyPoints);
+    } else {
+      if (t.status === "in_progress" || t.status === "in-progress") {
+        totalInProgressTasks++;
+      }
+      if (isOverdue) totalOverdueTasks++;
+    }
+
+    if (!t.assignedTo || (Array.isArray(t.assignedTo) && t.assignedTo.length === 0)) {
+      totalUnassignedTasks++;
+    }
+
+    if (Number(t.estimatedHours) > 0) totalEstHours += Number(t.estimatedHours);
+    if (Number(t.storyPoints) > 0) totalPts += Number(t.storyPoints);
+  });
+
+  const workspaceCompletionRate = totalTasks > 0 ? Math.round((totalCompletedTasks / totalTasks) * 100) : 0;
+  const workspaceOverdueRate = totalTasks > 0 ? Math.round((totalOverdueTasks / totalTasks) * 100) : 0;
+
+  // Aggregate Workspace Health
+  const projectsWithScores = projectSummaries.filter((p) => p.healthScore !== null && p.healthScore !== undefined);
+  let averageHealthScore = null;
+  let workspaceHealthState = "Insufficient Data";
+  let workspaceHealthColor = "#94a3b8";
+
+  if (projectsWithScores.length > 0) {
+    const sumScore = projectsWithScores.reduce((sum, p) => sum + p.healthScore, 0);
+    averageHealthScore = Math.round(sumScore / projectsWithScores.length);
+    if (averageHealthScore >= 80) {
+      workspaceHealthState = "Healthy";
+      workspaceHealthColor = "#10B981";
+    } else if (averageHealthScore >= 50) {
+      workspaceHealthState = "At Risk";
+      workspaceHealthColor = "#F59E0B";
+    } else {
+      workspaceHealthState = "Critical";
+      workspaceHealthColor = "#EF4444";
+    }
+  }
+
+  // Workload distribution across team members
+  const memberWorkload = calculateTeamWorkloadCapacityMetrics({
+    teamMembers,
+    tasks,
+    workflow: null,
+    unit: "estimatedHours",
+    defaultCapacityPerMember: 40,
+    now: currentDate,
+  });
+
+  return {
+    workspaceId: team?._id,
+    workspaceName: team?.name || "Workspace",
+    summary: {
+      totalProjects,
+      totalTasks,
+      completedTasks: totalCompletedTasks,
+      overdueTasks: totalOverdueTasks,
+      inProgressTasks: totalInProgressTasks,
+      unassignedTasks: totalUnassignedTasks,
+      completionRate: workspaceCompletionRate,
+      overdueRate: workspaceOverdueRate,
+      totalEstimatedHours: Math.round(totalEstHours * 10) / 10,
+      completedEstimatedHours: Math.round(completedEstHours * 10) / 10,
+      totalStoryPoints: Math.round(totalPts * 10) / 10,
+      completedStoryPoints: Math.round(completedPts * 10) / 10,
+      averageHealthScore,
+      healthState: workspaceHealthState,
+      healthColor: workspaceHealthColor,
+    },
+    projectRankings: projectSummaries,
+    teamWorkload: memberWorkload,
+  };
+};
+
+/**
+ * Controller: GET /api/analytics/workspace/:teamId
+ * Fetches workspace-wide analytics and cross-project ranking for authorized projects.
+ */
+export const getWorkspaceAnalytics = async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { range, startDate, endDate, projectIds, memberId } = req.query;
+
+    const { isMember, team } = await checkTeamAccess(teamId, req.user._id);
+    if (!team) return res.status(404).json({ message: "Workspace / Team not found" });
+    if (!isMember) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to view analytics for this workspace" });
+    }
+
+    // Get all authorized projects in this workspace
+    const allWorkspaceProjects = await getUserAuthorizedProjectsForTeam(teamId, req.user._id);
+    let selectedProjects = allWorkspaceProjects;
+
+    if (projectIds) {
+      const filterIds = Array.isArray(projectIds) ? projectIds : projectIds.split(",");
+      selectedProjects = allWorkspaceProjects.filter((p) => filterIds.includes(p._id.toString()));
+    }
+
+    const authProjectIds = selectedProjects.map((p) => p._id);
+
+    // Build task query with date filters and project isolation
+    const taskQuery = { projectId: { $in: authProjectIds } };
+    const dateBounds = validateAndNormalizeDateRange({ range, startDate, endDate });
+    if (dateBounds) {
+      taskQuery.createdAt = { $gte: dateBounds.start, $lte: dateBounds.end };
+    }
+    if (memberId && memberId !== "all") {
+      taskQuery.assignedTo = memberId;
+    }
+
+    const [tasks, workflows, sprints, milestones] = await Promise.all([
+      Task.find(taskQuery)
+        .populate("assignedTo", "name email avatar")
+        .populate("sprintId", "name status")
+        .populate("milestoneId", "name status dueDate"),
+      Workflow.find({ projectId: { $in: authProjectIds } }),
+      Sprint.find({ projectId: { $in: authProjectIds } }),
+      Milestone.find({ projectId: { $in: authProjectIds } }),
+    ]);
+
+    // Populate team members
+    const fullTeam = await Team.findById(teamId).populate("owner members", "name email avatar");
+    const uniqueMembers = new Map();
+    if (fullTeam.owner) uniqueMembers.set(fullTeam.owner._id.toString(), fullTeam.owner);
+    (fullTeam.members || []).forEach((m) => {
+      if (m && m._id) uniqueMembers.set(m._id.toString(), m);
+    });
+    const teamMembers = Array.from(uniqueMembers.values());
+
+    const result = calculateWorkspaceAnalyticsMetrics({
+      team,
+      projects: selectedProjects,
+      workflows,
+      tasks,
+      sprints,
+      milestones,
+      teamMembers,
+      now: new Date(),
+    });
+
+    res.json({
+      ...result,
+      appliedFilters: {
+        range: range || "all",
+        startDate: startDate || null,
+        endDate: endDate || null,
+        projectIds: projectIds || "all",
+        memberId: memberId || "all",
+      },
+    });
+  } catch (err) {
+    console.error("Workspace Analytics Error:", err);
+    res.status(500).json({ message: err.message || "Failed to load workspace analytics." });
+  }
+};
+
+/**
+ * Controller: GET /api/analytics/workspace/:teamId/saved-reports
+ * Lists workspace-level saved report configurations.
+ */
+export const getWorkspaceSavedReports = async (req, res) => {
+  try {
+    const { teamId } = req.params;
+
+    const { isMember } = await checkTeamAccess(teamId, req.user._id);
+    if (!isMember) {
+      return res.status(403).json({ message: "Forbidden: You do not have access to this workspace." });
+    }
+
+    const reports = await SavedReport.find({
+      teamId,
+      scope: "workspace",
+      $or: [{ isShared: true }, { createdBy: req.user._id }],
+    })
+      .populate("createdBy", "name email avatar")
+      .sort({ updatedAt: -1 });
+
+    res.json(reports);
+  } catch (err) {
+    console.error("Get Workspace Saved Reports Error:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Controller: POST /api/analytics/workspace/:teamId/saved-reports
+ * Creates a workspace-level saved report configuration.
+ */
+export const createWorkspaceSavedReport = async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const { name, description, isShared, groupBy, sortBy, sortOrder, filters, chartType, projectIds } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ message: "Report name is required." });
+    }
+
+    const { isMember, team } = await checkTeamAccess(teamId, req.user._id);
+    if (!team) return res.status(404).json({ message: "Workspace not found" });
+    if (!isMember) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to create reports for this workspace." });
+    }
+
+    const report = await SavedReport.create({
+      name: name.trim(),
+      description: description ? description.trim() : "",
+      teamId,
+      scope: "workspace",
+      projectIds: Array.isArray(projectIds) ? projectIds : [],
+      createdBy: req.user._id,
+      isShared: Boolean(isShared),
+      reportType: "custom",
+      groupBy: groupBy || "project",
+      sortBy: sortBy || "createdAt",
+      sortOrder: sortOrder || "desc",
+      filters: filters || {},
+      chartType: chartType || "bar",
+    });
+
+    await report.populate("createdBy", "name email avatar");
+    res.status(201).json(report);
+  } catch (err) {
+    console.error("Create Workspace Saved Report Error:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Controller: POST /api/analytics/workspace/:teamId/export
+ * Exports workspace analytics in CSV or PDF format with formula injection mitigation and PDF formatting.
+ */
+export const exportWorkspaceAnalytics = async (req, res) => {
+  try {
+    const { teamId } = req.params;
+    const {
+      format = "csv",
+      reportTitle = "Workspace Analytics Report",
+      range,
+      startDate,
+      endDate,
+      projectIds,
+      memberId,
+      savedReportId,
+    } = req.body;
+
+    const { isMember, team } = await checkTeamAccess(teamId, req.user._id);
+    if (!team) return res.status(404).json({ message: "Workspace not found" });
+    if (!isMember) {
+      return res.status(403).json({ message: "Forbidden: You do not have access to export workspace data." });
+    }
+
+    let effectiveTitle = reportTitle;
+    let effectiveRange = range;
+    let effectiveStartDate = startDate;
+    let effectiveEndDate = endDate;
+    let effectiveProjectIds = projectIds;
+
+    // If exporting saved report, verify authorization
+    if (savedReportId) {
+      const savedReport = await SavedReport.findById(savedReportId);
+      if (!savedReport) {
+        return res.status(404).json({ message: "Saved report configuration not found." });
+      }
+      if (savedReport.teamId.toString() !== teamId.toString()) {
+        return res.status(403).json({ message: "Forbidden: Saved report does not belong to this workspace." });
+      }
+      const isCreator = savedReport.createdBy.toString() === req.user._id.toString();
+      if (!savedReport.isShared && !isCreator) {
+        return res.status(403).json({ message: "Forbidden: This is a private saved report." });
+      }
+
+      effectiveTitle = savedReport.name;
+      const sf = savedReport.filters || {};
+      effectiveRange = sf.range || effectiveRange;
+      effectiveStartDate = sf.startDate || effectiveStartDate;
+      effectiveEndDate = sf.endDate || effectiveEndDate;
+      if (savedReport.projectIds && savedReport.projectIds.length > 0) {
+        effectiveProjectIds = savedReport.projectIds.map(String);
+      }
+    }
+
+    // Load only authorized projects
+    const allWorkspaceProjects = await getUserAuthorizedProjectsForTeam(teamId, req.user._id);
+    let targetProjects = allWorkspaceProjects;
+    if (effectiveProjectIds) {
+      const filterIds = Array.isArray(effectiveProjectIds) ? effectiveProjectIds : effectiveProjectIds.split(",");
+      targetProjects = allWorkspaceProjects.filter((p) => filterIds.includes(p._id.toString()));
+    }
+
+    const authProjectIds = targetProjects.map((p) => p._id);
+
+    // Build task query
+    const taskQuery = { projectId: { $in: authProjectIds } };
+    const dateBounds = validateAndNormalizeDateRange({
+      range: effectiveRange,
+      startDate: effectiveStartDate,
+      endDate: effectiveEndDate,
+    });
+    if (dateBounds) {
+      taskQuery.createdAt = { $gte: dateBounds.start, $lte: dateBounds.end };
+    }
+    if (memberId && memberId !== "all") {
+      taskQuery.assignedTo = memberId;
+    }
+
+    const [tasks, workflows, sprints, milestones] = await Promise.all([
+      Task.find(taskQuery)
+        .populate("assignedTo", "name email avatar")
+        .populate("sprintId", "name status")
+        .populate("milestoneId", "name status dueDate")
+        .limit(5000),
+      Workflow.find({ projectId: { $in: authProjectIds } }),
+      Sprint.find({ projectId: { $in: authProjectIds } }),
+      Milestone.find({ projectId: { $in: authProjectIds } }),
+    ]);
+
+    const fullTeam = await Team.findById(teamId).populate("owner members", "name email avatar");
+    const uniqueMembers = new Map();
+    if (fullTeam.owner) uniqueMembers.set(fullTeam.owner._id.toString(), fullTeam.owner);
+    (fullTeam.members || []).forEach((m) => {
+      if (m && m._id) uniqueMembers.set(m._id.toString(), m);
+    });
+    const teamMembers = Array.from(uniqueMembers.values());
+
+    const result = calculateWorkspaceAnalyticsMetrics({
+      team,
+      projects: targetProjects,
+      workflows,
+      tasks,
+      sprints,
+      milestones,
+      teamMembers,
+      now: new Date(),
+    });
+
+    let dateRangeLabel = "All Time";
+    if (dateBounds) {
+      dateRangeLabel = `${dateBounds.start.toISOString().slice(0, 10)} to ${dateBounds.end.toISOString().slice(0, 10)}`;
+    } else if (effectiveRange && effectiveRange !== "all") {
+      dateRangeLabel = effectiveRange.replace(/_/g, " ").toUpperCase();
+    }
+
+    const metricDefinitions = [
+      `Workspace: ${team.name} (${targetProjects.length} Projects Included).`,
+      "Zero Fabrication Guarantee: Historical metrics and health scores are computed purely from active telemetry without synthetic interpolation.",
+      "Capacity separation: Story Points and Estimated Hours are tracked independently.",
+    ];
+
+    // Groups are the Project Rankings
+    const groups = result.projectRankings.map((p) => ({
+      groupLabel: p.projectName,
+      count: p.totalTasks,
+      completionRate: p.completionRate,
+      totalEstimatedHours: p.totalEstimatedHours,
+      totalStoryPoints: p.totalStoryPoints,
+      overdueCount: p.overdueTasks,
+    }));
+
+    const safeBaseName = (effectiveTitle || "Workspace_Report")
+      .replace(/[^a-zA-Z0-9_-]/g, "_")
+      .replace(/_+/g, "_")
+      .slice(0, 40);
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    const exportFormat = String(format).toLowerCase() === "pdf" ? "pdf" : "csv";
+
+    if (exportFormat === "pdf") {
+      const pdfBuffer = generateReportPdf({
+        reportTitle: effectiveTitle,
+        projectName: `${team.name} (Workspace Overview)`,
+        generatedAt: new Date().toISOString(),
+        dateRange: dateRangeLabel,
+        metricDefinitions,
+        groups,
+        tasks,
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${safeBaseName}_${dateStamp}.pdf"`);
+      res.setHeader("Content-Length", pdfBuffer.length);
+      return res.send(pdfBuffer);
+    }
+
+    const csvContent = generateReportCsv({
+      reportTitle: effectiveTitle,
+      projectName: `${team.name} (Workspace Overview)`,
+      generatedAt: new Date().toISOString(),
+      dateRange: dateRangeLabel,
+      metricDefinitions,
+      groups,
+      tasks,
+    });
+
+    res.setHeader("Content-Type", "text/csv; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${safeBaseName}_${dateStamp}.csv"`);
+    return res.send(csvContent);
+  } catch (err) {
+    console.error("Export Workspace Analytics Error:", err);
+    res.status(500).json({ message: err.message || "Failed to export workspace report." });
   }
 };

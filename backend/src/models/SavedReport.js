@@ -38,7 +38,16 @@ const savedReportSchema = new mongoose.Schema(
     projectId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Project",
-      required: true,
+      required: false,
+    },
+    projectIds: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Project",
+    }],
+    scope: {
+      type: String,
+      enum: ["project", "workspace"],
+      default: "project",
     },
     teamId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -61,7 +70,7 @@ const savedReportSchema = new mongoose.Schema(
     },
     groupBy: {
       type: String,
-      enum: ["none", "status", "priority", "assignee", "sprint", "milestone"],
+      enum: ["none", "status", "priority", "assignee", "sprint", "milestone", "project"],
       default: "status",
     },
     sortBy: {
@@ -89,5 +98,7 @@ const savedReportSchema = new mongoose.Schema(
 
 savedReportSchema.index({ projectId: 1, isShared: 1 });
 savedReportSchema.index({ projectId: 1, createdBy: 1 });
+savedReportSchema.index({ teamId: 1, scope: 1, isShared: 1 });
+savedReportSchema.index({ teamId: 1, scope: 1, createdBy: 1 });
 
 export default mongoose.model("SavedReport", savedReportSchema);

@@ -1655,3 +1655,125 @@ test("FRONTEND ANL-07: Report Export UI Helpers & Payload Serialization", async 
     assert.equal(customPayload.groupBy, "assignee");
   });
 });
+
+test("FRONTEND ANL-08: Workspace Analytics UI Helpers & State Mapping", async (t) => {
+  await t.test("Validates workspace KPI completion percentage and summary calculations", () => {
+    const computeWorkspaceSummary = (projects) => {
+      let totalTasks = 0;
+      let completedTasks = 0;
+      let overdueTasks = 0;
+      let totalHours = 0;
+      let totalPoints = 0;
+
+      projects.forEach((p) => {
+        totalTasks += p.totalTasks || 0;
+        completedTasks += p.completedTasks || 0;
+        overdueTasks += p.overdueTasks || 0;
+        totalHours += p.totalEstimatedHours || 0;
+        totalPoints += p.totalStoryPoints || 0;
+      });
+
+      const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+      const overdueRate = totalTasks > 0 ? Math.round((overdueTasks / totalTasks) * 100) : 0;
+
+      return {
+        totalProjects: projects.length,
+        totalTasks,
+        completedTasks,
+        overdueTasks,
+        completionRate,
+        overdueRate,
+        totalHours,
+        totalPoints,
+      };
+    };
+
+    const summary = computeWorkspaceSummary([
+      { totalTasks: 10, completedTasks: 6, overdueTasks: 1, totalEstimatedHours: 40, totalStoryPoints: 20 },
+      { totalTasks: 15, completedTasks: 9, overdueTasks: 2, totalEstimatedHours: 60, totalStoryPoints: 30 },
+    ]);
+
+    assert.equal(summary.totalProjects, 2);
+    assert.equal(summary.totalTasks, 25);
+    assert.equal(summary.completedTasks, 15);
+    assert.equal(summary.overdueTasks, 3);
+    assert.equal(summary.completionRate, 60);
+    assert.equal(summary.overdueRate, 12);
+    assert.equal(summary.totalHours, 100);
+    assert.equal(summary.totalPoints, 50);
+  });
+
+  await t.test("Validates workspace health status resolution and color mapping", () => {
+    const resolveWorkspaceHealth = (averageScore) => {
+      if (averageScore === null || averageScore === undefined) {
+        return { label: "Insufficient Data", color: "#94a3b8" };
+      }
+      if (averageScore >= 80) return { label: "Healthy", color: "#10B981" };
+      if (averageScore >= 50) return { label: "At Risk", color: "#F59E0B" };
+      return { label: "Critical", color: "#EF4444" };
+    };
+
+    assert.equal(resolveWorkspaceHealth(null).label, "Insufficient Data");
+    assert.equal(resolveWorkspaceHealth(88).label, "Healthy");
+    assert.equal(resolveWorkspaceHealth(88).color, "#10B981");
+    assert.equal(resolveWorkspaceHealth(68).label, "At Risk");
+    assert.equal(resolveWorkspaceHealth(42).label, "Critical");
+  });
+
+  await t.test("Validates project ranking order and tie-breaking by progress", () => {
+    const projects = [
+      { id: "p1", name: "Alpha", healthScore: 70, completionRate: 40 },
+      { id: "p2", name: "Beta", healthScore: 90, completionRate: 80 },
+      { id: "p3", name: "Gamma", healthScore: 70, completionRate: 65 }, // Same health as p1, higher progress
+      { id: "p4", name: "Delta", healthScore: null, completionRate: 10 },
+    ];
+
+    const sortProjects = (list) => {
+      return [...list].sort((a, b) => {
+        if (a.healthScore === null && b.healthScore === null) return b.completionRate - a.completionRate;
+        if (a.healthScore === null) return 1;
+        if (b.healthScore === null) return -1;
+        if (b.healthScore !== a.healthScore) return b.healthScore - a.healthScore;
+        return b.completionRate - a.completionRate;
+      });
+    };
+
+    const sorted = sortProjects(projects);
+    assert.equal(sorted[0].id, "p2"); // 90
+    assert.equal(sorted[1].id, "p3"); // 70, 65%
+    assert.equal(sorted[2].id, "p1"); // 70, 40%
+    assert.equal(sorted[3].id, "p4"); // null
+  });
+
+  await t.test("Validates workspace export payload composition", () => {
+    const buildWorkspaceExportPayload = ({ format, title, range, startDate, endDate, projectFilter }) => {
+      const payload = {
+        format,
+        reportTitle: title,
+        range,
+        projectIds: projectFilter === "all" ? undefined : projectFilter,
+      };
+      if (range === "custom") {
+        if (startDate) payload.startDate = startDate;
+        if (endDate) payload.endDate = endDate;
+      }
+      return payload;
+    };
+
+    const payload = buildWorkspaceExportPayload({
+      format: "pdf",
+      title: "Workspace Executive Summary",
+      range: "custom",
+      startDate: "2026-11-01",
+      endDate: "2026-11-30",
+      projectFilter: "proj_1,proj_2",
+    });
+
+    assert.equal(payload.format, "pdf");
+    assert.equal(payload.reportTitle, "Workspace Executive Summary");
+    assert.equal(payload.range, "custom");
+    assert.equal(payload.startDate, "2026-11-01");
+    assert.equal(payload.endDate, "2026-11-30");
+    assert.equal(payload.projectIds, "proj_1,proj_2");
+  });
+});

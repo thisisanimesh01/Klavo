@@ -76,3 +76,18 @@ export const checkMilestoneAccess = async (milestoneId, userId) => {
   const { hasAccess, isOwner, project, team } = await checkProjectAccess(milestone.projectId, userId);
   return { hasAccess, isOwner, milestone, project, team };
 };
+
+/**
+ * Retrieves all projects within a team/workspace that the user is authorized to access.
+ * If user is not a member of the team, returns an empty array.
+ * @param {string|ObjectId} teamId
+ * @param {string|ObjectId} userId
+ * @returns {Promise<Array<object>>}
+ */
+export const getUserAuthorizedProjectsForTeam = async (teamId, userId) => {
+  const { isMember } = await checkTeamAccess(teamId, userId);
+  if (!isMember) return [];
+
+  const projects = await Project.find({ teamId }).sort({ name: 1 });
+  return projects;
+};

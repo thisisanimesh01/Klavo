@@ -1161,3 +1161,104 @@ test("ANL-07: CSV/PDF Report Export & Formula Injection Prevention Logic", async
     assert.ok(sanitized.includes("\\\\"));
   });
 });
+
+test("ANL-08: Workspace-Wide Analytics & Cross-Project Reporting Logic", async (t) => {
+  const { calculateWorkspaceAnalyticsMetrics } = await import("../src/controllers/analyticsController.js");
+  const fixedNow = new Date("2026-11-18T12:00:00.000Z");
+
+  await t.test("aggregates KPIs across multiple authorized projects correctly without cross-contamination", () => {
+    const team = { _id: "team_1", name: "Engineering Org" };
+    const projects = [
+      { _id: "proj_1", name: "Core API", teamId: "team_1" },
+      { _id: "proj_2", name: "Web Frontend", teamId: "team_1" },
+    ];
+
+    const tasks = [
+      // Project 1: 2 tasks (1 done, 1 in-progress)
+      { _id: "t1", projectId: "proj_1", status: "done", estimatedHours: 10, storyPoints: 5, completedAt: "2026-11-15" },
+      { _id: "t2", projectId: "proj_1", status: "in-progress", estimatedHours: 8, storyPoints: 3, dueDate: "2026-11-20" },
+      // Project 2: 2 tasks (1 done, 1 overdue)
+      { _id: "t3", projectId: "proj_2", status: "done", estimatedHours: 14, storyPoints: 8, completedAt: "2026-11-14" },
+      { _id: "t4", projectId: "proj_2", status: "todo", estimatedHours: 6, storyPoints: 2, dueDate: "2026-11-10" }, // overdue
+    ];
+
+    const workflows = [
+      { projectId: "proj_1", statuses: [{ key: "todo", category: "todo" }, { key: "done", category: "done" }] },
+      { projectId: "proj_2", statuses: [{ key: "todo", category: "todo" }, { key: "done", category: "done" }] },
+    ];
+
+    const result = calculateWorkspaceAnalyticsMetrics({
+      team,
+      projects,
+      workflows,
+      tasks,
+      sprints: [],
+      milestones: [],
+      teamMembers: [],
+      now: fixedNow,
+    });
+
+    assert.equal(result.workspaceName, "Engineering Org");
+    assert.equal(result.summary.totalProjects, 2);
+    assert.equal(result.summary.totalTasks, 4);
+    assert.equal(result.summary.completedTasks, 2);
+    assert.equal(result.summary.overdueTasks, 1);
+    assert.equal(result.summary.completionRate, 50); // 2/4 = 50%
+    assert.equal(result.summary.totalEstimatedHours, 38); // 10+8+14+6
+    assert.equal(result.summary.completedEstimatedHours, 24); // 10+14
+    assert.equal(result.summary.totalStoryPoints, 18); // 5+3+8+2
+    assert.equal(result.summary.completedStoryPoints, 13); // 5+8
+  });
+
+  await t.test("ranks projects transparently based on objective health score and completion rate", () => {
+    const team = { _id: "team_1", name: "Engineering Org" };
+    const projects = [
+      { _id: "proj_critical", name: "Legacy Portal" },
+      { _id: "proj_healthy", name: "New Cloud Service" },
+    ];
+
+    const tasks = [
+      // Healthy project tasks: all completed on time
+      { _id: "t_h1", projectId: "proj_healthy", status: "done", completedAt: "2026-11-10" },
+      { _id: "t_h2", projectId: "proj_healthy", status: "done", completedAt: "2026-11-12" },
+      // Critical project tasks: multiple overdue tasks
+      { _id: "t_c1", projectId: "proj_critical", status: "todo", dueDate: "2026-11-01" }, // overdue
+      { _id: "t_c2", projectId: "proj_critical", status: "todo", dueDate: "2026-11-05" }, // overdue
+    ];
+
+    const result = calculateWorkspaceAnalyticsMetrics({
+      team,
+      projects,
+      tasks,
+      workflows: [],
+      now: fixedNow,
+    });
+
+    assert.equal(result.projectRankings.length, 2);
+    // Healthy project should be ranked first (#1)
+    assert.equal(result.projectRankings[0].projectId, "proj_healthy");
+    assert.equal(result.projectRankings[0].healthState, "Healthy");
+    assert.ok(result.projectRankings[0].healthScore >= 80);
+
+    // Critical project ranked second
+    assert.equal(result.projectRankings[1].projectId, "proj_critical");
+    assert.ok(result.projectRankings[1].overdueTasks > 0);
+  });
+
+  await t.test("returns Insufficient Data for empty workspace without fabricating synthetic metrics", () => {
+    const team = { _id: "empty_team", name: "Brand New Org" };
+    const result = calculateWorkspaceAnalyticsMetrics({
+      team,
+      projects: [],
+      tasks: [],
+      workflows: [],
+      now: fixedNow,
+    });
+
+    assert.equal(result.summary.totalProjects, 0);
+    assert.equal(result.summary.totalTasks, 0);
+    assert.equal(result.summary.averageHealthScore, null);
+    assert.equal(result.summary.healthState, "Insufficient Data");
+    assert.equal(result.projectRankings.length, 0);
+  });
+});
