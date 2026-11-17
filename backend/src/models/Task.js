@@ -86,8 +86,13 @@ const taskSchema = new mongoose.Schema(
       },
     ],
 
-    // Optional estimation / tracking
+    // Optional estimation / tracking (hours and/or story points)
     estimatedHours: {
+      type: Number,
+      default: null,
+    },
+
+    storyPoints: {
       type: Number,
       default: null,
     },
