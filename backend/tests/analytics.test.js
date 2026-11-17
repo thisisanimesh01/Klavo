@@ -4,6 +4,7 @@ import {
   buildDateFilterRange,
   calculateProjectAnalyticsMetrics,
   calculateSprintBurndownMetrics,
+  calculateTeamWorkloadCapacityMetrics,
 } from "../src/controllers/analyticsController.js";
 
 test("ANL-01: Date Range Filtering Bounds", async (t) => {
@@ -350,5 +351,197 @@ test("ANL-02: Sprint Velocity & Burndown Calculations", async (t) => {
     assert.equal(result.completionRate, 0);
     assert.equal(result.taskStats.total, 0);
     assert.ok(result.burndownTimeline.length > 0);
+  });
+});
+
+test("ANL-03: Team Workload & Capacity Analysis Calculations", async (t) => {
+  const fixedNow = new Date("2026-11-18T12:00:00.000Z");
+
+  await t.test("calculates member workload, utilization, and overallocation correctly", () => {
+    const teamMembers = [
+      { _id: "m_alice", name: "Alice", email: "alice@test.com" },
+      { _id: "m_bob", name: "Bob", email: "bob@test.com" },
+      { _id: "m_carol", name: "Carol", email: "carol@test.com" },
+    ];
+
+    const sprint = {
+      _id: "sprint_cap_1",
+      name: "Capacity Sprint",
+      capacity: 80,
+      memberCapacities: [
+        { userId: "m_alice", capacity: 30 },
+        { userId: "m_bob", capacity: 30 },
+        { userId: "m_carol", capacity: 20 },
+      ],
+    };
+
+    const workflow = {
+      statuses: [
+        { key: "todo", category: "todo" },
+        { key: "in-progress", category: "in_progress" },
+        { key: "done", category: "done" },
+      ],
+    };
+
+    const tasks = [
+      // Alice: 20h completed, 15h pending (total 35h > 30h capacity -> over-allocated!)
+      {
+        _id: "t1",
+        status: "done",
+        estimatedHours: 20,
+        assignedTo: [{ _id: "m_alice" }],
+      },
+      {
+        _id: "t2",
+        status: "in-progress",
+        estimatedHours: 15,
+        assignedTo: [{ _id: "m_alice" }],
+        dueDate: new Date("2026-11-15T00:00:00.000Z"), // Overdue!
+      },
+      // Bob: 10h pending (total 10h <= 30h capacity -> 33% utilization)
+      {
+        _id: "t3",
+        status: "todo",
+        estimatedHours: 10,
+        assignedTo: [{ _id: "m_bob" }],
+      },
+      // Carol: 0 tasks (0h <= 20h capacity -> 0% utilization, surfaced cleanly)
+    ];
+
+    const result = calculateTeamWorkloadCapacityMetrics({
+      teamMembers,
+      tasks,
+      sprint,
+      workflow,
+      unit: "estimatedHours",
+      now: fixedNow,
+    });
+
+    assert.equal(result.totalTasks, 3);
+    assert.equal(result.totalCommittedWork, 45); // 35 + 10
+    assert.equal(result.totalCapacity, 80); // 30 + 30 + 20
+    assert.equal(result.teamUtilizationRate, 56); // 45 / 80 * 100
+    assert.equal(result.isTeamOverloaded, false);
+
+    // Members check
+    const alice = result.members.find((m) => m.userId === "m_alice");
+    const bob = result.members.find((m) => m.userId === "m_bob");
+    const carol = result.members.find((m) => m.userId === "m_carol");
+
+    assert.ok(alice);
+    assert.equal(alice.assignedCount, 2);
+    assert.equal(alice.committedWork, 35);
+    assert.equal(alice.capacity, 30);
+    assert.equal(alice.utilizationRate, 117); // 35 / 30 * 100
+    assert.equal(alice.isOverAllocated, true);
+    assert.equal(alice.overdueCount, 1);
+
+    assert.ok(bob);
+    assert.equal(bob.assignedCount, 1);
+    assert.equal(bob.committedWork, 10);
+    assert.equal(bob.capacity, 30);
+    assert.equal(bob.utilizationRate, 33);
+    assert.equal(bob.isOverAllocated, false);
+
+    assert.ok(carol);
+    assert.equal(carol.assignedCount, 0);
+    assert.equal(carol.committedWork, 0);
+    assert.equal(carol.capacity, 20);
+    assert.equal(carol.utilizationRate, 0);
+    assert.equal(carol.isOverAllocated, false);
+
+    // Workload imbalance check
+    assert.equal(result.workloadBalance.isImbalanced, true);
+    assert.equal(result.workloadBalance.overAllocatedCount, 1);
+    assert.equal(result.workloadBalance.zeroWorkCount, 1);
+  });
+
+  await t.test("accurately tracks unassigned work and unestimated tasks", () => {
+    const teamMembers = [{ _id: "m1", name: "Dev 1" }];
+
+    const tasks = [
+      // Assigned task without estimation
+      { _id: "t_unest_1", status: "todo", estimatedHours: null, assignedTo: [{ _id: "m1" }] },
+      // Unassigned estimated task (8h)
+      { _id: "t_unassigned_1", status: "todo", estimatedHours: 8, assignedTo: [] },
+      // Unassigned unestimated task
+      { _id: "t_unassigned_2", status: "todo", estimatedHours: null, assignedTo: [] },
+    ];
+
+    const result = calculateTeamWorkloadCapacityMetrics({
+      teamMembers,
+      tasks,
+      unit: "estimatedHours",
+      defaultCapacityPerMember: 40,
+      now: fixedNow,
+    });
+
+    const dev1 = result.members.find((m) => m.userId === "m1");
+    assert.equal(dev1.unestimatedCount, 1);
+
+    assert.equal(result.unassignedWork.taskCount, 2);
+    assert.equal(result.unassignedWork.estimatedWork, 8);
+    assert.equal(result.unassignedWork.unestimatedTaskCount, 1);
+  });
+
+  await t.test("splits work evenly among multiple assignees without double-counting", () => {
+    const teamMembers = [
+      { _id: "dev_a", name: "Dev A" },
+      { _id: "dev_b", name: "Dev B" },
+    ];
+
+    // Single 20h task co-assigned to both Dev A and Dev B
+    const tasks = [
+      {
+        _id: "pair_task",
+        status: "in-progress",
+        estimatedHours: 20,
+        assignedTo: [{ _id: "dev_a" }, { _id: "dev_b" }],
+      },
+    ];
+
+    const result = calculateTeamWorkloadCapacityMetrics({
+      teamMembers,
+      tasks,
+      unit: "estimatedHours",
+      defaultCapacityPerMember: 40,
+      now: fixedNow,
+    });
+
+    assert.equal(result.totalCommittedWork, 20); // Not 40!
+
+    const devA = result.members.find((m) => m.userId === "dev_a");
+    const devB = result.members.find((m) => m.userId === "dev_b");
+
+    assert.equal(devA.committedWork, 10);
+    assert.equal(devB.committedWork, 10);
+  });
+
+  await t.test("supports storyPoints measurement unit cleanly without mixing units", () => {
+    const teamMembers = [{ _id: "sp_dev", name: "SP Dev" }];
+
+    const tasks = [
+      { _id: "sp_task_1", status: "done", storyPoints: 5, estimatedHours: 40, assignedTo: [{ _id: "sp_dev" }] },
+      { _id: "sp_task_2", status: "todo", storyPoints: 8, estimatedHours: 60, assignedTo: [{ _id: "sp_dev" }] },
+    ];
+
+    const result = calculateTeamWorkloadCapacityMetrics({
+      teamMembers,
+      tasks,
+      unit: "storyPoints",
+      defaultCapacityPerMember: 20,
+      now: fixedNow,
+    });
+
+    assert.equal(result.measurementUnit, "storyPoints");
+    assert.equal(result.totalCommittedWork, 13); // 5 + 8 story points, NOT 100 hours!
+    assert.equal(result.totalCompletedWork, 5);
+    assert.equal(result.totalPendingWork, 8);
+
+    const dev = result.members[0];
+    assert.equal(dev.committedWork, 13);
+    assert.equal(dev.completedWork, 5);
+    assert.equal(dev.pendingWork, 8);
+    assert.equal(dev.utilizationRate, 65); // 13 / 20 * 100
   });
 });

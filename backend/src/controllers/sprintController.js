@@ -11,7 +11,7 @@ import { checkProjectAccess, checkSprintAccess } from "../utils/authHelpers.js";
  */
 export const createSprint = async (req, res) => {
   try {
-    const { name, goal, projectId, startDate, endDate, capacity } = req.body;
+    const { name, goal, projectId, startDate, endDate, capacity, memberCapacities } = req.body;
 
     if (!name || !projectId) {
       return res.status(400).json({ message: "Sprint name and projectId are required" });
@@ -37,6 +37,7 @@ export const createSprint = async (req, res) => {
       startDate: startDate || null,
       endDate: endDate || null,
       capacity: capacity !== undefined && capacity !== "" ? Number(capacity) : null,
+      memberCapacities: Array.isArray(memberCapacities) ? memberCapacities : [],
       status: "planned",
       createdBy: req.user._id,
     });
@@ -180,13 +181,16 @@ export const updateSprint = async (req, res) => {
       return res.status(403).json({ message: "Forbidden: You are not authorized to update this sprint" });
     }
 
-    const { name, goal, startDate, endDate, capacity } = req.body;
+    const { name, goal, startDate, endDate, capacity, memberCapacities } = req.body;
 
     if (name) sprint.name = name.trim();
     if (goal !== undefined) sprint.goal = goal ? goal.trim() : "";
     if (startDate !== undefined) sprint.startDate = startDate || null;
     if (endDate !== undefined) sprint.endDate = endDate || null;
     if (capacity !== undefined) sprint.capacity = capacity !== "" && capacity !== null ? Number(capacity) : null;
+    if (memberCapacities !== undefined && Array.isArray(memberCapacities)) {
+      sprint.memberCapacities = memberCapacities;
+    }
 
     if (sprint.startDate && sprint.endDate && new Date(sprint.startDate) > new Date(sprint.endDate)) {
       return res.status(400).json({ message: "Start date cannot be after end date" });
