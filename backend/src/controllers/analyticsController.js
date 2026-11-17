@@ -5,6 +5,7 @@ import { Team } from "../models/Team.js";
 import Activity from "../models/Activity.js";
 import Workflow from "../models/Workflow.js";
 import Sprint from "../models/Sprint.js";
+import Milestone from "../models/Milestone.js";
 import { checkProjectAccess, checkSprintAccess } from "../utils/authHelpers.js";
 import { isStatusCompleted, getCompletedStatusKeys, getStatusCategory } from "../utils/workflowHelpers.js";
 
@@ -1245,6 +1246,404 @@ export const getTaskCompletionCycleTime = async (req, res) => {
     });
   } catch (err) {
     console.error("Task Completion Cycle Time Error:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Calculates Project Health & Progress Indicators (ANL-05).
+ * Transparent, deterministic score calculation (0–100) with detailed factor attribution.
+ */
+export const calculateProjectHealthMetrics = ({
+  project = {},
+  tasks = [],
+  milestones = [],
+  sprints = [],
+  members = [],
+  workflow = null,
+  now = new Date(),
+}) => {
+  const currentDate = new Date(now);
+  const totalTasks = tasks.length;
+  const completedKeys = new Set(getCompletedStatusKeys(workflow));
+
+  // State 1: Insufficient Data
+  // Triggered when project has 0 tasks or insufficient telemetry to produce a meaningful score
+  if (totalTasks === 0) {
+    return {
+      healthScore: null,
+      healthState: "Insufficient Data",
+      statusColor: "#94a3b8", // Slate
+      summary: "Insufficient data to calculate health score. Add tasks to start tracking project telemetry.",
+      factors: [],
+      metrics: {
+        totalTasks: 0,
+        completedTasks: 0,
+        completionRate: 0,
+        overdueTasksCount: 0,
+        overdueRate: 0,
+        blockedTasksCount: 0,
+        blockedRate: 0,
+        overdueMilestonesCount: 0,
+        milestonesCompletionRate: 0,
+        overAllocatedMembersCount: 0,
+        carryoverTasksCount: 0,
+      },
+      milestoneProgress: [],
+      alerts: [
+        {
+          type: "info",
+          title: "Insufficient Telemetry",
+          message: "No tasks found in project. Add tasks and milestones to initialize health monitoring.",
+        },
+      ],
+      healthHistory: [], // Only reliable snapshots; none fabricated
+    };
+  }
+
+  // Identify task states
+  let completedCount = 0;
+  let overdueCount = 0;
+  let blockedCount = 0;
+  const incompleteTasks = [];
+
+  // Build a lookup map of incomplete task IDs
+  const incompleteTaskIdSet = new Set();
+  tasks.forEach((t) => {
+    const isDone = completedKeys.has(t.status) || Boolean(t.completedAt);
+    if (isDone) {
+      completedCount++;
+    } else {
+      incompleteTasks.push(t);
+      if (t._id) incompleteTaskIdSet.add(t._id.toString());
+    }
+  });
+
+  // Calculate overdue tasks among incomplete items
+  incompleteTasks.forEach((t) => {
+    if (t.dueDate) {
+      const due = new Date(t.dueDate);
+      if (due.getTime() < currentDate.getTime()) {
+        overdueCount++;
+      }
+    }
+
+    // Blocked check: has dependency of type 'blocked-by' where blocker is in incompleteTaskIdSet
+    let isBlocked = false;
+    if (Array.isArray(t.dependencies)) {
+      for (const d of t.dependencies) {
+        if (d.type === "blocked-by" && d.taskId) {
+          const blockerIdStr = (d.taskId._id || d.taskId).toString();
+          if (incompleteTaskIdSet.has(blockerIdStr)) {
+            isBlocked = true;
+            break;
+          }
+        }
+      }
+    }
+    if (isBlocked) {
+      blockedCount++;
+    }
+  });
+
+  // Milestone Progress & Overdue Milestones
+  let completedMilestonesCount = 0;
+  let overdueMilestonesCount = 0;
+  const milestoneProgress = milestones.map((m) => {
+    const isCompleted = m.status === "completed" || Boolean(m.completedAt);
+    if (isCompleted) {
+      completedMilestonesCount++;
+    } else if (m.dueDate && new Date(m.dueDate).getTime() < currentDate.getTime()) {
+      overdueMilestonesCount++;
+    }
+
+    // Tasks associated with this milestone
+    const mTasks = tasks.filter((t) => (t.milestoneId?._id || t.milestoneId)?.toString() === m._id?.toString());
+    const mCompleted = mTasks.filter((t) => completedKeys.has(t.status) || Boolean(t.completedAt)).length;
+    const mRate = mTasks.length > 0 ? Math.round((mCompleted / mTasks.length) * 100) : isCompleted ? 100 : 0;
+
+    return {
+      id: m._id,
+      name: m.name,
+      status: m.status,
+      dueDate: m.dueDate,
+      isOverdue: !isCompleted && Boolean(m.dueDate && new Date(m.dueDate).getTime() < currentDate.getTime()),
+      totalTasks: mTasks.length,
+      completedTasks: mCompleted,
+      completionRate: mRate,
+    };
+  });
+
+  const milestoneCompletionRate = milestones.length > 0 ? Math.round((completedMilestonesCount / milestones.length) * 100) : null;
+
+  // Active Sprint & Carryover Detection
+  const activeSprint = sprints.find((s) => s.status === "active");
+  let carryoverCount = 0;
+  let activeSprintOverdue = 0;
+  if (activeSprint) {
+    const sprintTasks = tasks.filter((t) => (t.sprintId?._id || t.sprintId)?.toString() === activeSprint._id?.toString());
+    sprintTasks.forEach((t) => {
+      const isDone = completedKeys.has(t.status) || Boolean(t.completedAt);
+      if (!isDone) {
+        // If sprint end date has passed, or task is overdue
+        if (activeSprint.endDate && new Date(activeSprint.endDate).getTime() < currentDate.getTime()) {
+          carryoverCount++;
+        }
+        if (t.dueDate && new Date(t.dueDate).getTime() < currentDate.getTime()) {
+          activeSprintOverdue++;
+        }
+      }
+    });
+  }
+
+  // Workload and Member Capacity Risks
+  let overAllocatedMembersCount = 0;
+  if (members && members.length > 0) {
+    const memberWorkload = new Map();
+    members.forEach((m) => {
+      memberWorkload.set(m._id.toString(), {
+        name: m.name,
+        assignedWork: 0,
+        capacity: 40, // default
+      });
+    });
+
+    tasks.forEach((t) => {
+      const isDone = completedKeys.has(t.status) || Boolean(t.completedAt);
+      if (!isDone && Array.isArray(t.assignedTo) && t.assignedTo.length > 0) {
+        const workPerAssignee = (Number(t.estimatedHours) || 8) / t.assignedTo.length;
+        t.assignedTo.forEach((assignee) => {
+          const aId = (assignee._id || assignee).toString();
+          if (memberWorkload.has(aId)) {
+            memberWorkload.get(aId).assignedWork += workPerAssignee;
+          }
+        });
+      }
+    });
+
+    memberWorkload.forEach((val) => {
+      if (val.assignedWork > val.capacity) {
+        overAllocatedMembersCount++;
+      }
+    });
+  }
+
+  // =========================================================================
+  // Health Score Calculation Formula (Base = 100 points)
+  // Transparent penalty attribution:
+  // 1. Overdue Tasks Penalty: up to 30 points (overdueRate * 60, capped at 30)
+  // 2. Blocked Tasks Penalty: up to 25 points (blockedRate * 50, capped at 25)
+  // 3. Milestone Slippage Penalty: up to 20 points (10 pts per overdue milestone, max 20)
+  // 4. Team Workload Over-allocation Penalty: up to 15 points (5 pts per over-allocated member, max 15)
+  // 5. Sprint Delivery / Carryover Penalty: up to 10 points (5 pts if active sprint has carryover/overdue)
+  // =========================================================================
+
+  const overdueRate = totalTasks > 0 ? overdueCount / totalTasks : 0;
+  const blockedRate = totalTasks > 0 ? blockedCount / totalTasks : 0;
+
+  const overduePenalty = Math.min(30, Math.round(overdueRate * 60));
+  const blockedPenalty = Math.min(25, Math.round(blockedRate * 50));
+  const milestonePenalty = Math.min(20, overdueMilestonesCount * 10);
+  const capacityPenalty = Math.min(15, overAllocatedMembersCount * 5);
+  const sprintPenalty = carryoverCount > 0 || activeSprintOverdue > 0 ? 10 : 0;
+
+  const totalDeductions = overduePenalty + blockedPenalty + milestonePenalty + capacityPenalty + sprintPenalty;
+  const rawScore = Math.max(0, 100 - totalDeductions);
+  const healthScore = Math.round(rawScore);
+
+  // Health State Categories
+  let healthState = "Healthy";
+  let statusColor = "#10B981"; // Emerald
+  if (healthScore < 50) {
+    healthState = "Critical";
+    statusColor = "#EF4444"; // Red
+  } else if (healthScore < 80) {
+    healthState = "At Risk";
+    statusColor = "#F59E0B"; // Amber
+  }
+
+  // Factors Attribution Breakdown
+  const factors = [
+    {
+      name: "Task Schedule Compliance",
+      category: "Schedule",
+      impact: overduePenalty > 0 ? "negative" : "positive",
+      deduction: overduePenalty,
+      description:
+        overdueCount > 0
+          ? `${overdueCount} incomplete task(s) are past their due date (${Math.round(overdueRate * 100)}% of project tasks).`
+          : "All active tasks are currently within their scheduled due dates.",
+      metricValue: `${overdueCount} overdue`,
+    },
+    {
+      name: "Dependency & Blocker Gates",
+      category: "Dependencies",
+      impact: blockedPenalty > 0 ? "negative" : "positive",
+      deduction: blockedPenalty,
+      description:
+        blockedCount > 0
+          ? `${blockedCount} task(s) are blocked by unresolved preceding dependencies.`
+          : "Zero tasks are blocked by incomplete dependency gates.",
+      metricValue: `${blockedCount} blocked`,
+    },
+    {
+      name: "Milestone Target Tracking",
+      category: "Milestones",
+      impact: milestonePenalty > 0 ? "negative" : "positive",
+      deduction: milestonePenalty,
+      description:
+        overdueMilestonesCount > 0
+          ? `${overdueMilestonesCount} project milestone(s) have slipped past their target completion dates.`
+          : milestones.length > 0
+          ? "All active milestones are tracking to schedule."
+          : "No milestones configured for this project.",
+      metricValue: `${overdueMilestonesCount} overdue`,
+    },
+    {
+      name: "Team Workload & Allocation",
+      category: "Capacity",
+      impact: capacityPenalty > 0 ? "negative" : "positive",
+      deduction: capacityPenalty,
+      description:
+        overAllocatedMembersCount > 0
+          ? `${overAllocatedMembersCount} team member(s) have committed workload exceeding their capacity.`
+          : "Team workload is balanced with no members over-allocated.",
+      metricValue: `${overAllocatedMembersCount} overloaded`,
+    },
+    {
+      name: "Iteration & Sprint Delivery",
+      category: "Velocity",
+      impact: sprintPenalty > 0 ? "negative" : "positive",
+      deduction: sprintPenalty,
+      description:
+        sprintPenalty > 0
+          ? `Active sprint has ${activeSprintOverdue} overdue item(s) or pending carryover.`
+          : "Active sprint execution is on track without carryover risk.",
+      metricValue: sprintPenalty > 0 ? "Carryover risk" : "On track",
+    },
+  ];
+
+  // Actionable Risk Alerts
+  const alerts = [];
+  if (overdueCount > 0) {
+    alerts.push({
+      type: "critical",
+      title: "Overdue Workload Detected",
+      message: `${overdueCount} active task(s) have exceeded target due dates. Re-prioritize or reassign them to prevent further schedule slippage.`,
+    });
+  }
+  if (blockedCount > 0) {
+    alerts.push({
+      type: "warning",
+      title: "Blocked Tasks Requiring Resolution",
+      message: `${blockedCount} task(s) cannot proceed due to unresolved blocking dependencies. Resolve prerequisites to unblock execution.`,
+    });
+  }
+  if (overdueMilestonesCount > 0) {
+    alerts.push({
+      type: "critical",
+      title: "Milestone Target Date Slipped",
+      message: `${overdueMilestonesCount} key milestone(s) are past due. Review scope commitments and target deliverables.`,
+    });
+  }
+  if (overAllocatedMembersCount > 0) {
+    alerts.push({
+      type: "warning",
+      title: "Team Capacity Imbalance",
+      message: `${overAllocatedMembersCount} team member(s) exceed 100% capacity utilization. Rebalance task assignments to prevent burnout.`,
+    });
+  }
+  if (alerts.length === 0) {
+    alerts.push({
+      type: "success",
+      title: "Project Operating Nominally",
+      message: "No schedule, dependency, milestone, or capacity risks detected. The project is healthy.",
+    });
+  }
+
+  const completionRate = totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 0;
+
+  return {
+    healthScore,
+    healthState,
+    statusColor,
+    summary:
+      healthState === "Healthy"
+        ? "Project is performing well with low operational risk across schedule, dependencies, and capacity."
+        : healthState === "At Risk"
+        ? "Project has moderate risks impacting schedule compliance or workload capacity that require attention."
+        : "Project is in critical condition with significant overdue deliverables, unresolved blockers, or milestone slippage.",
+    factors,
+    metrics: {
+      totalTasks,
+      completedTasks: completedCount,
+      completionRate,
+      overdueTasksCount: overdueCount,
+      overdueRate: Math.round(overdueRate * 100),
+      blockedTasksCount: blockedCount,
+      blockedRate: Math.round(blockedRate * 100),
+      overdueMilestonesCount,
+      milestonesCompletionRate: milestoneCompletionRate,
+      overAllocatedMembersCount,
+      carryoverTasksCount: carryoverCount,
+    },
+    milestoneProgress,
+    alerts,
+    healthHistory: [], // Explicit invariant: only genuine snapshots; never fabricated past scores
+  };
+};
+
+/**
+ * Controller for GET /api/analytics/project/:projectId/health
+ */
+export const getProjectHealth = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+
+    const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not a member of this project's team" });
+    }
+
+    const tasks = await Task.find({ projectId })
+      .populate("assignedTo", "name email")
+      .populate("dependencies.taskId", "title status priority")
+      .select("title status priority dueDate assignedTo dependencies sprintId milestoneId estimatedHours createdAt updatedAt completedAt");
+
+    const milestones = await Milestone.find({ projectId }).select("name status startDate dueDate completedAt");
+    const sprints = await Sprint.find({ projectId }).select("name status startDate endDate capacity");
+    const workflow = await Workflow.findOne({ projectId });
+
+    // Fetch team members
+    let members = [];
+    const team = await Team.findById(project.teamId).populate("members", "name email").populate("owner", "name email");
+    if (team) {
+      const memberMap = new Map();
+      if (team.owner) memberMap.set(team.owner._id.toString(), team.owner);
+      (team.members || []).forEach((m) => {
+        if (m && m._id) memberMap.set(m._id.toString(), m);
+      });
+      members = Array.from(memberMap.values());
+    }
+
+    const healthData = calculateProjectHealthMetrics({
+      project,
+      tasks,
+      milestones,
+      sprints,
+      members,
+      workflow,
+      now: new Date(),
+    });
+
+    res.json({
+      projectId,
+      projectName: project.name,
+      ...healthData,
+    });
+  } catch (err) {
+    console.error("Project Health Analytics Error:", err);
     res.status(500).json({ message: err.message });
   }
 };

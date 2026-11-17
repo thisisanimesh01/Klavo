@@ -30,6 +30,9 @@ import {
   RotateCcw,
   Hourglass,
   Gauge,
+  HeartPulse,
+  Check,
+  XCircle,
 } from "lucide-react";
 import {
   StatusDistributionChart,
@@ -43,13 +46,15 @@ import {
   TaskCompletionTrendsChart,
   CycleLeadTimeComparisonChart,
   StageBottleneckChart,
+  HealthScoreGauge,
+  MilestoneProgressChart,
 } from "../components/AnalyticsCharts";
 
 export default function Analytics() {
   const { projectId: urlProjectId } = useParams();
   const navigate = useNavigate();
 
-  // Navigation tab: 'overview' | 'capacity' | 'cycle_time' | 'sprints'
+  // Navigation tab: 'overview' | 'health' | 'capacity' | 'cycle_time' | 'sprints'
   const [activeTab, setActiveTab] = useState("overview");
 
   // Project selection & multi-project support
@@ -99,6 +104,11 @@ export default function Analytics() {
   const [customCycleStart, setCustomCycleStart] = useState("");
   const [customCycleEnd, setCustomCycleEnd] = useState("");
   const [trendGranularity, setTrendGranularity] = useState("daily"); // 'daily' | 'weekly' | 'monthly'
+
+  // Project Health & Progress Indicators states (ANL-05)
+  const [healthData, setHealthData] = useState(null);
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [healthError, setHealthError] = useState(null);
 
   // Load available projects
   useEffect(() => {
@@ -294,6 +304,24 @@ export default function Analytics() {
     customCycleEnd,
   ]);
 
+  // Fetch project health & progress indicators (ANL-05)
+  const fetchHealthAnalytics = useCallback(async () => {
+    if (!selectedProjectId) return;
+
+    try {
+      setHealthLoading(true);
+      setHealthError(null);
+
+      const res = await axiosClient.get(`/analytics/project/${selectedProjectId}/health`);
+      setHealthData(res.data);
+    } catch (err) {
+      console.error("Failed to load project health:", err);
+      setHealthError(err.response?.data?.message || "Failed to load project health indicators.");
+    } finally {
+      setHealthLoading(false);
+    }
+  }, [selectedProjectId]);
+
   useEffect(() => {
     fetchAnalytics();
     fetchSprints();
@@ -307,8 +335,10 @@ export default function Analytics() {
       fetchCapacityAnalytics();
     } else if (activeTab === "cycle_time") {
       fetchCycleTimeAnalytics();
+    } else if (activeTab === "health") {
+      fetchHealthAnalytics();
     }
-  }, [activeTab, fetchSprintAnalytics, fetchCapacityAnalytics, fetchCycleTimeAnalytics]);
+  }, [activeTab, fetchSprintAnalytics, fetchCapacityAnalytics, fetchCycleTimeAnalytics, fetchHealthAnalytics]);
 
   const handleProjectChange = (e) => {
     const newProjectId = e.target.value;
@@ -396,20 +426,21 @@ export default function Analytics() {
               if (activeTab === "sprints") fetchSprintAnalytics();
               if (activeTab === "capacity") fetchCapacityAnalytics();
               if (activeTab === "cycle_time") fetchCycleTimeAnalytics();
+              if (activeTab === "health") fetchHealthAnalytics();
             }}
-            disabled={loading || sprintLoading || capacityLoading || cycleLoading}
+            disabled={loading || sprintLoading || capacityLoading || cycleLoading || healthLoading}
             className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 transition disabled:opacity-50"
             title="Refresh analytics"
           >
             <RefreshCw
               size={16}
-              className={loading || sprintLoading || capacityLoading || cycleLoading ? "animate-spin" : ""}
+              className={loading || sprintLoading || capacityLoading || cycleLoading || healthLoading ? "animate-spin" : ""}
             />
           </button>
         </div>
       </div>
 
-      {/* Navigation Tabs (Overview vs Team Capacity vs Cycle Time vs Sprints) */}
+      {/* Navigation Tabs (Overview vs Health vs Team Capacity vs Cycle Time vs Sprints) */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-2">
         <div className="flex flex-wrap gap-2">
           <button
@@ -422,6 +453,18 @@ export default function Analytics() {
           >
             <Layers size={16} />
             <span>Project Overview</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("health")}
+            className={`px-4 py-2 text-sm font-medium rounded-xl transition flex items-center gap-2 ${
+              activeTab === "health"
+                ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-semibold"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+            }`}
+          >
+            <HeartPulse size={16} className="text-emerald-400" />
+            <span>Project Health & Progress</span>
           </button>
 
           <button
@@ -654,6 +697,241 @@ export default function Analytics() {
             </>
           )}
         </>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 1.5: PROJECT HEALTH & PROGRESS INDICATORS (ANL-05)                    */}
+      {/* ========================================================================= */}
+      {activeTab === "health" && (
+        <div className="space-y-6">
+          {healthLoading ? (
+            <div className="h-64 flex flex-col items-center justify-center gap-3">
+              <RefreshCw className="animate-spin text-emerald-400" size={24} />
+              <p className="text-sm text-slate-400">Calculating comprehensive project health indicators...</p>
+            </div>
+          ) : healthError ? (
+            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-3 text-sm">
+              <AlertTriangle size={18} />
+              <span>{healthError}</span>
+            </div>
+          ) : !healthData ? (
+            <div className="p-8 text-center text-slate-500 border border-dashed border-slate-800 rounded-2xl">
+              <HeartPulse size={32} className="mx-auto mb-2 opacity-50 text-emerald-400" />
+              <p>No health telemetry available for this project.</p>
+            </div>
+          ) : (
+            <>
+              {/* Top Banner: Health Score Radial Gauge & Executive Summary */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-sm items-center">
+                <div className="flex justify-center border-b md:border-b-0 md:border-r border-slate-800 pb-4 md:pb-0 md:pr-6">
+                  <HealthScoreGauge
+                    score={healthData.healthScore}
+                    state={healthData.healthState}
+                    color={healthData.statusColor}
+                  />
+                </div>
+
+                <div className="md:col-span-2 space-y-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs uppercase font-bold tracking-wider text-slate-400">
+                        Executive Health Assessment
+                      </span>
+                    </div>
+                    <h2 className="text-xl font-bold text-slate-100 mt-1">
+                      {healthData.projectName} is currently{" "}
+                      <span style={{ color: healthData.statusColor }}>
+                        {healthData.healthState}
+                      </span>
+                    </h2>
+                    <p className="text-sm text-slate-300 mt-2 leading-relaxed">
+                      {healthData.summary}
+                    </p>
+                  </div>
+
+                  {/* Summary Metric Badges */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-800">
+                    <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-[10px] text-slate-400 uppercase font-semibold block">Overdue Tasks</span>
+                      <span className={`text-base font-bold ${healthData.metrics.overdueTasksCount > 0 ? "text-red-400" : "text-slate-200"}`}>
+                        {healthData.metrics.overdueTasksCount} ({healthData.metrics.overdueRate}%)
+                      </span>
+                    </div>
+                    <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-[10px] text-slate-400 uppercase font-semibold block">Blocked Tasks</span>
+                      <span className={`text-base font-bold ${healthData.metrics.blockedTasksCount > 0 ? "text-amber-400" : "text-slate-200"}`}>
+                        {healthData.metrics.blockedTasksCount} ({healthData.metrics.blockedRate}%)
+                      </span>
+                    </div>
+                    <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-[10px] text-slate-400 uppercase font-semibold block">Milestones Slipped</span>
+                      <span className={`text-base font-bold ${healthData.metrics.overdueMilestonesCount > 0 ? "text-red-400" : "text-slate-200"}`}>
+                        {healthData.metrics.overdueMilestonesCount}
+                      </span>
+                    </div>
+                    <div className="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+                      <span className="text-[10px] text-slate-400 uppercase font-semibold block">Overloaded Devs</span>
+                      <span className={`text-base font-bold ${healthData.metrics.overAllocatedMembersCount > 0 ? "text-amber-400" : "text-slate-200"}`}>
+                        {healthData.metrics.overAllocatedMembersCount}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Actionable Risk Alerts */}
+              {healthData.alerts && healthData.alerts.length > 0 && (
+                <div className="space-y-2">
+                  <h3 className="text-xs uppercase font-bold tracking-wider text-slate-400 px-1">
+                    Risk Alerts & Recommended Actions
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {healthData.alerts.map((alert, i) => (
+                      <div
+                        key={`alert-${i}`}
+                        className={`p-4 rounded-xl border flex items-start gap-3 text-sm ${
+                          alert.type === "critical"
+                            ? "bg-red-500/10 border-red-500/20 text-red-300"
+                            : alert.type === "warning"
+                            ? "bg-amber-500/10 border-amber-500/20 text-amber-300"
+                            : alert.type === "success"
+                            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-300"
+                            : "bg-slate-800/40 border-slate-700 text-slate-300"
+                        }`}
+                      >
+                        {alert.type === "critical" ? (
+                          <ShieldAlert size={18} className="text-red-400 shrink-0 mt-0.5" />
+                        ) : alert.type === "warning" ? (
+                          <AlertTriangle size={18} className="text-amber-400 shrink-0 mt-0.5" />
+                        ) : alert.type === "success" ? (
+                          <CheckCircle size={18} className="text-emerald-400 shrink-0 mt-0.5" />
+                        ) : (
+                          <HelpCircle size={18} className="text-slate-400 shrink-0 mt-0.5" />
+                        )}
+                        <div>
+                          <strong className="font-semibold block">{alert.title}</strong>
+                          <span className="text-xs opacity-90 block mt-0.5 leading-relaxed">
+                            {alert.message}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Factors Attribution Breakdown Cards */}
+              <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                      <Scale size={18} className="text-indigo-400" />
+                      Score Attribution Factors
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Transparent accounting of positive signals and penalty point deductions (Base = 100)
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {healthData.factors?.map((f, i) => (
+                    <div
+                      key={`factor-${i}`}
+                      className="p-4 rounded-xl border border-slate-800 bg-slate-950/60 flex flex-col justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold text-slate-300">{f.name}</span>
+                          {f.deduction > 0 ? (
+                            <span className="text-xs font-bold px-2 py-0.5 rounded bg-red-500/10 text-red-400 border border-red-500/20">
+                              -{f.deduction} pts
+                            </span>
+                          ) : (
+                            <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              Nominal
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2 leading-relaxed">
+                          {f.description}
+                        </p>
+                      </div>
+                      <div className="mt-3 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-500">
+                        <span>Category: {f.category}</span>
+                        <span className="font-semibold text-slate-300">{f.metricValue}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Milestone Progress against Target Dates */}
+              <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                      <Target size={18} className="text-indigo-400" />
+                      Milestone Progress & Target Dates
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Progress toward milestone delivery targets and slippage tracking
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-2">
+                    <MilestoneProgressChart milestones={healthData.milestoneProgress || []} />
+                  </div>
+
+                  {/* Milestone Detailed Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 font-semibold">
+                          <th className="pb-2">Milestone</th>
+                          <th className="pb-2 text-center">Due Date</th>
+                          <th className="pb-2 text-right">Progress</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {healthData.milestoneProgress && healthData.milestoneProgress.length > 0 ? (
+                          healthData.milestoneProgress.map((m) => (
+                            <tr key={m.id} className="hover:bg-slate-800/20">
+                              <td className="py-2.5">
+                                <span className="font-medium text-slate-200 block truncate max-w-[140px]">
+                                  {m.name}
+                                </span>
+                                {m.isOverdue && (
+                                  <span className="text-[10px] text-red-400 font-semibold uppercase">
+                                    Overdue
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2.5 text-center text-slate-400">
+                                {m.dueDate ? new Date(m.dueDate).toLocaleDateString() : "—"}
+                              </td>
+                              <td className="py-2.5 text-right font-bold text-slate-100">
+                                {m.completionRate}%
+                              </td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={3} className="py-4 text-center text-slate-500">
+                              No milestones defined
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       )}
 
       {/* ========================================================================= */}

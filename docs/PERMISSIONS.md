@@ -914,3 +914,44 @@ Provides real-time task completion throughput trends, cycle time, lead time, sta
 | Endpoint | Method | Required Permission / Role | Description |
 | :--- | :--- | :--- | :--- |
 | `/api/analytics/project/:projectId/completion-cycle-time` | `GET` | Project Team Member / Owner | Task completion trends, cycle/lead times, statistical percentiles, stage bottlenecks, and reopen rates |
+
+---
+
+## 31. Project Health & Progress Indicators (ANL-05)
+
+### Overview & Data Architecture:
+Provides real-time, transparent project health assessment and milestone tracking across projects without fabricated past scores or arbitrary ratings. Automatically calculates an objective 0–100 health score driven by documented penalty deductions across operational risk dimensions.
+
+### Health Score Model & Classification:
+- **Base Score**: 100 points.
+- **Health State Thresholds**:
+  - **Healthy** (80–100): Project is operating nominally with low operational risk. Status color `#10B981` (Emerald).
+  - **At Risk** (50–79): Moderate schedule slippage, blocked items, or capacity over-allocation requiring attention. Status color `#F59E0B` (Amber).
+  - **Critical** (0–49): Significant overdue deliverables, unresolved dependency blockers, or slipped milestones. Status color `#EF4444` (Red).
+  - **Insufficient Data**: Triggered when a project has 0 tasks or insufficient telemetry. Displays `null` score and `#94a3b8` (Slate) state rather than fabricating metrics.
+
+### Factor Attribution Breakdown:
+1. **Task Schedule Compliance (Max 30 pts deduction)**:
+   - Evaluates overdue rate: `(overdueIncompleteTasks / totalTasks) * 60`, capped at 30 points.
+2. **Dependency & Blocker Gates (Max 25 pts deduction)**:
+   - Evaluates blocked task rate: `(blockedTasks / totalTasks) * 50`, capped at 25 points.
+3. **Milestone Target Tracking (Max 20 pts deduction)**:
+   - Deducts 10 points per overdue/slipped milestone, capped at 20 points.
+4. **Team Workload & Capacity (Max 15 pts deduction)**:
+   - Deducts 5 points per over-allocated team member (>100% capacity), capped at 15 points.
+5. **Iteration & Sprint Delivery (Max 10 pts deduction)**:
+   - Deducts 10 points if the active sprint contains incomplete carryover tasks or overdue items.
+
+### Data Reliability Invariants:
+- **No Fabricated Health History**: Health history and trends are recorded strictly when genuine persisted snapshots exist; historical scores are never retroactively simulated or guessed.
+- **Custom Workflow Compliance**: Evaluates task completion dynamically using custom workflow categories (`isStatusCompleted`), ensuring custom done statuses (e.g. `shipped`, `qa_passed`) are recognized without schedule penalties.
+- **Independent Capacity Units**: Prevents mixing story points and hours during member over-allocation evaluations.
+
+### Permissions & Anti-IDOR Enforcement:
+- Access to project health and progress indicators (`GET /api/analytics/project/:projectId/health`) strictly requires verified project team membership via `checkProjectAccess`.
+- Cross-tenant requests or unauthenticated requests are rejected with `401 Unauthorized` or `403 Forbidden`.
+
+### API Endpoints:
+| Endpoint | Method | Required Permission / Role | Description |
+| :--- | :--- | :--- | :--- |
+| `/api/analytics/project/:projectId/health` | `GET` | Project Team Member / Owner | Project health score (0–100), health state, factor attribution breakdown, risk alerts, and milestone progress |
