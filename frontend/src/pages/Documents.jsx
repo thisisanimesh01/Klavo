@@ -8,6 +8,7 @@ import ThemeToggle from "../components/ThemeToggle";
 import DocumentShareModal from "../components/DocumentShareModal";
 import DocumentCommentsPanel from "../components/DocumentCommentsPanel";
 import DocumentVersionHistoryModal from "../components/DocumentVersionHistoryModal";
+import LinkedTasksDrawer from "../components/LinkedTasksDrawer";
 import { CollabSocketProvider } from "../utils/collabSocketProvider";
 import * as Y from "yjs";
 import {
@@ -34,6 +35,7 @@ import {
   History,
   MessageSquare,
   BookOpen,
+  CheckSquare,
 } from "lucide-react";
 
 export default function Documents() {
@@ -67,6 +69,9 @@ export default function Documents() {
 
   // Version History State (DOC-06)
   const [versionModalOpen, setVersionModalOpen] = useState(false);
+
+  // Linked Tasks Drawer (DOC-08)
+  const [linkedTasksOpen, setLinkedTasksOpen] = useState(false);
 
   // Modals State
   const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -780,6 +785,22 @@ export default function Documents() {
               </div>
             )}
 
+            {/* Linked Tasks Button (DOC-08) */}
+            {selectedDoc && (
+              <button
+                onClick={() => setLinkedTasksOpen(!linkedTasksOpen)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl transition border ${
+                  linkedTasksOpen
+                    ? "bg-indigo-600 text-white border-indigo-600"
+                    : "bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
+                }`}
+                title="Linked Tasks"
+              >
+                <CheckSquare className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Tasks</span>
+              </button>
+            )}
+
             {/* Version History Button (DOC-06) */}
             {selectedDoc && (
               <button
@@ -876,6 +897,17 @@ export default function Documents() {
                 onAddComment={handleAddComment}
                 onToggleResolve={handleToggleResolve}
                 onDeleteComment={handleDeleteComment}
+              />
+            )}
+
+            {/* Linked Tasks Drawer (DOC-08) */}
+            {linkedTasksOpen && (
+              <LinkedTasksDrawer
+                documentId={selectedDoc._id}
+                projectId={projectId}
+                canEdit={canEditCurrentDoc}
+                isOpen={linkedTasksOpen}
+                onClose={() => setLinkedTasksOpen(false)}
               />
             )}
           </div>

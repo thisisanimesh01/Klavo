@@ -41,9 +41,20 @@ import {
   deleteWikiPage,
 } from "../controllers/wikiController.js";
 
+import {
+  getDocumentLinkedTasks,
+  getProjectLinkedDocuments,
+} from "../controllers/documentLinkController.js";
+
 const router = express.Router();
 
 router.use(authRequired);
+
+// Project Linked Documents Overview (DOC-08)
+router.get("/project/:projectId/linked-documents", getProjectLinkedDocuments);
+
+// Reverse Document-to-Tasks Association (DOC-08)
+router.get("/:documentId/tasks", getDocumentLinkedTasks);
 
 // Wiki & Knowledge Base (DOC-07)
 router.post("/wiki", createWikiPage);

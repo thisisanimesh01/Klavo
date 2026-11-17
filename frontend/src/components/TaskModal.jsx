@@ -17,6 +17,9 @@ import {
   ShieldAlert,
   CornerDownRight,
   CheckCircle2,
+  FileText,
+  BookOpen,
+  ExternalLink,
 } from "lucide-react";
 
 const PRESET_COLORS = [
@@ -76,6 +79,11 @@ export default function TaskModal({
   // Sprints & Project Tasks for dependency linking
   const [sprints, setSprints] = useState([]);
   const [projectTasks, setProjectTasks] = useState([]);
+  const [availableDocs, setAvailableDocs] = useState([]);
+
+  // Linked Documents (DOC-08)
+  const [linkedDocs, setLinkedDocs] = useState([]);
+  const [selectedDocIdToLink, setSelectedDocIdToLink] = useState("");
 
   // Dependencies
   const [dependencies, setDependencies] = useState([]);
@@ -93,16 +101,28 @@ export default function TaskModal({
   useEffect(() => {
     const fetchDependencies = async () => {
       try {
-        const [membersRes, templatesRes, sprintsRes, tasksRes] = await Promise.all([
+        const [membersRes, templatesRes, sprintsRes, tasksRes, docsRes, wikiRes] = await Promise.all([
           axiosClient.get(`/projects/${projectId}/members`),
           axiosClient.get(`/task-templates?projectId=${projectId}`),
           axiosClient.get(`/sprints/project/${projectId}`),
           axiosClient.get(`/tasks/project/${projectId}`),
+          axiosClient.get(`/documents/project/${projectId}`),
+          axiosClient.get(`/documents/wiki/project/${projectId}`),
         ]);
         setMembers(membersRes.data || []);
         setTemplates(templatesRes.data || []);
         setSprints(sprintsRes.data || []);
         setProjectTasks(tasksRes.data || []);
+
+        // Combine project documents and wiki pages for linking
+        const allDocs = [
+          ...(docsRes.data || []),
+          ...((wikiRes.data?.pages || []).map((w) => ({ ...w, isWiki: true }))),
+        ];
+        // Deduplicate by ID
+        const docMap = new Map();
+        allDocs.forEach((d) => docMap.set(d._id, d));
+        setAvailableDocs(Array.from(docMap.values()));
       } catch (err) {
         console.error("Failed to load project dependencies:", err);
       }
@@ -138,6 +158,14 @@ export default function TaskModal({
           setSelectedTemplateId(t.templateId?._id || t.templateId || "");
           setDependencies(Array.isArray(t.dependencies) ? t.dependencies : []);
           setSubtasks(Array.isArray(t.subtasks) ? t.subtasks : []);
+
+          // Load linked documents
+          try {
+            const linkedRes = await axiosClient.get(`/tasks/${initialTask._id}/documents`);
+            setLinkedDocs(linkedRes.data || []);
+          } catch (e) {
+            console.error("Failed to load linked documents:", e);
+          }
         } catch (err) {
           console.error("Failed to load task details:", err);
         }
@@ -159,6 +187,7 @@ export default function TaskModal({
       setSelectedTemplateId("");
       setDependencies([]);
       setSubtasks([]);
+      setLinkedDocs([]);
     }
     setBlockerError(null);
   }, [open, isEdit, initialTask, defaultStatus, defaultSprintId, defaultParentId]);
@@ -391,6 +420,30 @@ export default function TaskModal({
       onClose();
     } catch (err) {
       alert(err.response?.data?.message || "Failed to force complete task");
+    }
+  };
+
+  // Handle Linking a Document or Wiki Page
+  const handleLinkDocument = async () => {
+    if (!selectedDocIdToLink || !initialTask?._id) return;
+    try {
+      await axiosClient.post(`/tasks/${initialTask._id}/documents/${selectedDocIdToLink}`);
+      setSelectedDocIdToLink("");
+      const updated = await axiosClient.get(`/tasks/${initialTask._id}/documents`);
+      setLinkedDocs(updated.data || []);
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to link document");
+    }
+  };
+
+  // Handle Unlinking a Document
+  const handleUnlinkDocument = async (docId) => {
+    if (!initialTask?._id) return;
+    try {
+      await axiosClient.delete(`/tasks/${initialTask._id}/documents/${docId}`);
+      setLinkedDocs((prev) => prev.filter((d) => d._id !== docId));
+    } catch (err) {
+      alert(err.response?.data?.message || "Failed to unlink document");
     }
   };
 
@@ -680,6 +733,98 @@ export default function TaskModal({
               </button>
             </div>
           </div>
+
+          {/* Linked Documents & Knowledge Base Articles Section (DOC-08) */}
+          {isEdit && initialTask?._id && (
+            <div className="p-3.5 border border-slate-200 dark:border-slate-800 rounded-xl space-y-3 bg-slate-50/30 dark:bg-slate-900/30">
+              <div className="flex items-center justify-between">
+                <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase">
+                  <FileText className="w-3.5 h-3.5 text-indigo-500" />
+                  Linked Documents & Knowledge Base ({linkedDocs.length})
+                </label>
+              </div>
+
+              {linkedDocs.length > 0 ? (
+                <div className="space-y-1.5">
+                  {linkedDocs.map((doc) => (
+                    <div
+                      key={doc._id}
+                      className="flex items-center justify-between text-xs p-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xs"
+                    >
+                      <div className="flex items-center gap-2 flex-1 min-w-0 pr-2">
+                        {doc.isWiki ? (
+                          <span className="p-1 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+                            <BookOpen className="w-3.5 h-3.5" />
+                          </span>
+                        ) : (
+                          <span className="p-1 rounded bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
+                            <FileText className="w-3.5 h-3.5" />
+                          </span>
+                        )}
+                        <span className="font-semibold text-slate-800 dark:text-slate-200 truncate">
+                          {doc.title}
+                        </span>
+                        {doc.isWiki && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 font-semibold uppercase">
+                            Wiki
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <a
+                          href={doc.isWiki ? `/wiki/${projectId}/${doc._id}` : `/documents/${projectId}/${doc._id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline text-xs font-medium"
+                          title="Open document in new tab"
+                        >
+                          Open
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => handleUnlinkDocument(doc._id)}
+                          className="text-slate-400 hover:text-red-500 p-1"
+                          title="Unlink document"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400 italic">No documents currently linked to this task.</p>
+              )}
+
+              {/* Link Document Controls */}
+              <div className="flex gap-2 pt-1">
+                <select
+                  className="flex-1 border border-slate-300 dark:border-slate-700 px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 text-xs"
+                  value={selectedDocIdToLink}
+                  onChange={(e) => setSelectedDocIdToLink(e.target.value)}
+                >
+                  <option value="">Choose document or wiki page to link...</option>
+                  {availableDocs
+                    .filter((d) => !linkedDocs.some((ld) => ld._id === d._id))
+                    .map((d) => (
+                      <option key={d._id} value={d._id}>
+                        {d.isWiki ? "📖 [Wiki] " : "📄 [Doc] "} {d.title}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={handleLinkDocument}
+                  disabled={!selectedDocIdToLink}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold rounded-lg disabled:opacity-50 transition"
+                >
+                  Link Document
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Subtasks Hierarchy Section (available in edit mode) */}
           {isEdit && initialTask?._id && (

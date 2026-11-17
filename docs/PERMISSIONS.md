@@ -743,3 +743,34 @@ All wiki pages inherit granular document access rules (`resolveDocumentAccess`):
 - `GET /api/documents/wiki/:documentId` — Retrieves a specific wiki page with resolved breadcrumbs and child topics (`canRead` required).
 - `PUT /api/documents/wiki/:documentId` — Updates wiki content, title, home status, or parent hierarchy (`canEdit` required).
 - `DELETE /api/documents/wiki/:documentId` — Deletes wiki page and reparents child pages (`canDelete` required).
+
+---
+
+## 26. Document & Task Linking (DOC-08)
+
+### Data Architecture & Storage:
+Establishes bi-directional association between Documents (including Wiki knowledge base articles) and Tasks without data duplication:
+- **`Task.linkedDocuments` (Array of ObjectId referencing `Document`)**: Holds references to documents connected to the task.
+- **`Document.linkedTasks` (Array of ObjectId referencing `Task`)**: Holds reverse references to tasks connected to the document.
+- **Compound Indexes**:
+  - `{ linkedDocuments: 1 }` on `Task`: Fast retrieval of tasks referencing documents.
+  - `{ linkedTasks: 1 }` on `Document`: Instant query resolution for reverse document-to-task navigation.
+
+### Project Boundary & Tenancy Isolation:
+- **Same-Project Invariant**: Both the target `Task` and `Document` must belong to the exact same `projectId`. Any cross-project linking attempt is rejected with `400 Bad Request` to strictly enforce tenant isolation.
+- **Anti-IDOR & Permission Enforcement**:
+  - Linking or unlinking requires authorized project/task write access.
+  - Viewing linked documents on a task requires task access and filters out documents where the user does not possess `canRead` permission.
+  - Reverse navigation (`GET /api/documents/:documentId/tasks`) enforces document-level `canRead` authorization before serving linked tasks.
+
+### Real-Time Synchronization & Events:
+- `taskUpdated`: Broadcast to `project_${projectId}` when task document associations change.
+- `documentUpdated`: Broadcast to `project_${projectId}` when document task links change.
+- `documentTaskLinked`: Broadcast to active collaborative rooms (`doc_collab_${documentId}`) when a link is created.
+
+### API Endpoints:
+- `POST /api/tasks/:taskId/documents/:documentId` — Links a document/wiki page to a task (requires task access & document `canRead`).
+- `DELETE /api/tasks/:taskId/documents/:documentId` — Unlinks a document from a task (requires task access).
+- `GET /api/tasks/:taskId/documents` — Lists all documents linked to a task with permission resolution (requires task access).
+- `GET /api/documents/:documentId/tasks` — Lists all tasks linked to a document for reverse navigation (requires document `canRead`).
+- `GET /api/documents/project/:projectId/linked-documents` — Overview of project documents that possess linked tasks (requires project access).
