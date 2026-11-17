@@ -955,3 +955,53 @@ Provides real-time, transparent project health assessment and milestone tracking
 | Endpoint | Method | Required Permission / Role | Description |
 | :--- | :--- | :--- | :--- |
 | `/api/analytics/project/:projectId/health` | `GET` | Project Team Member / Owner | Project health score (0–100), health state, factor attribution breakdown, risk alerts, and milestone progress |
+
+---
+
+## 32. Custom Reports & Date-Range Filtering (ANL-06)
+
+### Overview & Data Architecture:
+Enables project members to generate, customize, visualize, and persist multi-dimensional analytics reports across task, sprint, workload, and milestone metrics. Supports dynamic grouping, configurable date filtering on task date fields (`createdAt`, `dueDate`, `completedAt`), personal vs shared report configurations, and bounded task aggregation.
+
+### Report Configuration & Dimension Model (`SavedReport`):
+- **Core Schema Attributes**:
+  - `name`: Human-readable title of report configuration (required, max 100 characters).
+  - `description`: Optional report summary or context (max 500 characters).
+  - `projectId`: Scoped target project tenancy (`ObjectId` ref `Project`).
+  - `teamId`: Parent team tenancy for shared authorization (`ObjectId` ref `Team`).
+  - `createdBy`: Author user ID (`ObjectId` ref `User`).
+  - `isShared`: Boolean toggle indicating whether report is accessible to all team members (`true`) or personal to creator (`false`).
+  - `reportType`: Type of report dataset (`tasks`, `sprints`, `velocity`, `workload`, `health`).
+  - `groupBy`: Dynamic grouping dimension (`status`, `priority`, `assignee`, `sprint`, `milestone`, `none`).
+  - `sortBy`: Dimension sorting field (`createdAt`, `dueDate`, `completedAt`, `priority`, `title`, `estimatedHours`).
+  - `sortOrder`: `asc` or `desc`.
+  - `chartType`: Visualization render target (`bar`, `pie`, `table`).
+  - `filters`:
+    - `range`: Relative preset (`all`, `today`, `this_week`, `this_month`, `last_30_days`, `last_quarter`, `custom`).
+    - `startDate` / `endDate`: Normalized UTC day boundary timestamps for date range bounds.
+    - `dateField`: Target timestamp field evaluated by date range filter (`createdAt`, `dueDate`, `completedAt`).
+    - `statuses`: Array of status IDs or status keys to include.
+    - `priorities`: Array of priority values to include (`low`, `medium`, `high`, `urgent`).
+    - `assignees`: Array of user IDs to filter by.
+    - `sprintId`: Optional sprint isolation filter.
+    - `milestoneId`: Optional milestone isolation filter.
+
+### Aggregation & Boundary Invariants:
+- **Zero Fabrication**: Metrics reflect actual persisted documents; non-existent dates, missing estimates, or empty projects display clean zero-states and empty indicators rather than fabricated interpolations.
+- **Date Boundary Normalization**: Date ranges are parsed and expanded to full UTC day boundaries (`00:00:00.000` to `23:59:59.999`) to prevent timezone edge mismatches across client browsers.
+- **Strict Query Bounds**: Custom report task queries cap result rows at a safety limit of 1,000 tasks with default pagination (50 records per page) to prevent unbounded memory consumption or denial-of-service on large projects.
+- **Custom Workflow Harmonization**: Aggregations evaluate task statuses dynamically against project-specific workflow definitions, properly calculating `isDone` and completion metrics across custom status names.
+
+### Permissions & Anti-IDOR Enforcement:
+- **Project Isolation**: All custom report generation and saved report queries verify project tenancy and team membership via `checkProjectAccess`.
+- **Saved Report Privacy**: Personal reports (`isShared === false`) are strictly visible only to their author (`createdBy.toString() === req.user._id.toString()`). Shared reports (`isShared === true`) are visible to all members of the project's parent team.
+- **Deletion Safeguards**: A saved report can only be deleted by its author (`createdBy`) or a team Owner / Admin, preventing unauthorized report tampering across team members.
+- **Cross-Tenant Prevention**: Report generation requests containing foreign project IDs or unauthenticated sessions are immediately rejected with `401 Unauthorized` or `403 Forbidden`.
+
+### API Endpoints:
+| Endpoint | Method | Required Permission / Role | Description |
+| :--- | :--- | :--- | :--- |
+| `/api/analytics/project/:projectId/custom-report` | `POST` | Project Team Member / Owner | Execute dynamic custom report query with metrics aggregation, grouping, and pagination |
+| `/api/analytics/project/:projectId/saved-reports` | `GET` | Project Team Member / Owner | List saved report configurations accessible to the user (personal + shared) |
+| `/api/analytics/project/:projectId/saved-reports` | `POST` | Project Team Member / Owner | Create a new reusable saved report configuration (personal or shared) |
+| `/api/analytics/saved-reports/:reportId` | `DELETE` | Report Creator or Team Owner | Delete a saved report configuration with ownership validation |

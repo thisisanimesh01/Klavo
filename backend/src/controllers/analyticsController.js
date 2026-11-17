@@ -6,6 +6,7 @@ import Activity from "../models/Activity.js";
 import Workflow from "../models/Workflow.js";
 import Sprint from "../models/Sprint.js";
 import Milestone from "../models/Milestone.js";
+import SavedReport from "../models/SavedReport.js";
 import { checkProjectAccess, checkSprintAccess } from "../utils/authHelpers.js";
 import { isStatusCompleted, getCompletedStatusKeys, getStatusCategory } from "../utils/workflowHelpers.js";
 
@@ -1644,6 +1645,407 @@ export const getProjectHealth = async (req, res) => {
     });
   } catch (err) {
     console.error("Project Health Analytics Error:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Normalizes and validates ISO date range boundaries for custom reports.
+ * Returns null if no dates specified, or throws error if startDate > endDate.
+ */
+export const validateAndNormalizeDateRange = ({ range, startDate, endDate, dateField = "createdAt" }, now = new Date()) => {
+  if (range && range !== "custom" && range !== "all") {
+    const preset = buildDateFilterRange({ range }, now);
+    return preset ? { ...preset, dateField } : null;
+  }
+
+  if (range === "custom" || startDate || endDate) {
+    if (!startDate && !endDate) return null;
+
+    const start = startDate ? new Date(startDate) : new Date(0);
+    const end = endDate ? new Date(endDate) : new Date("2099-12-31T23:59:59.999Z");
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      throw new Error("Invalid date format provided for date range filter.");
+    }
+
+    if (start.getTime() > end.getTime()) {
+      throw new Error("Start date cannot be after end date.");
+    }
+
+    // Normalize start to beginning of day if bare date string
+    if (typeof startDate === "string" && startDate.length === 10) {
+      start.setUTCHours(0, 0, 0, 0);
+    }
+    // Normalize end to end of day if bare date string
+    if (typeof endDate === "string" && endDate.length === 10) {
+      end.setUTCHours(23, 59, 59, 999);
+    }
+
+    return { start, end, dateField };
+  }
+
+  return null;
+};
+
+/**
+ * Pure calculation function for custom report generation (ANL-06).
+ * Groups and aggregates filtered tasks by chosen dimension with metrics summary.
+ */
+export const aggregateCustomReportData = ({
+  tasks = [],
+  workflow = null,
+  groupBy = "status",
+  sortBy = "createdAt",
+  sortOrder = "desc",
+  page = 1,
+  limit = 100,
+}) => {
+  const completedKeys = new Set(getCompletedStatusKeys(workflow));
+  const safeLimit = Math.max(1, Math.min(500, Number(limit) || 100));
+  const safePage = Math.max(1, Number(page) || 1);
+
+  let totalEstimatedHours = 0;
+  let totalStoryPoints = 0;
+  let completedCount = 0;
+  let overdueCount = 0;
+  const now = new Date();
+
+  // Grouping accumulator: groupKey -> { key, label, count, estimatedHours, storyPoints, completedCount }
+  const groupsMap = new Map();
+
+  tasks.forEach((t) => {
+    const isCompleted = completedKeys.has(t.status) || Boolean(t.completedAt);
+    if (isCompleted) completedCount++;
+
+    const isOverdue = !isCompleted && t.dueDate && new Date(t.dueDate).getTime() < now.getTime();
+    if (isOverdue) overdueCount++;
+
+    const estHours = Number(t.estimatedHours) || 0;
+    const sp = Number(t.storyPoints) || 0;
+    totalEstimatedHours += estHours;
+    totalStoryPoints += sp;
+
+    // Resolve group key and label
+    let groupKey = "uncategorized";
+    let groupLabel = "Uncategorized";
+
+    if (groupBy === "status") {
+      groupKey = t.status || "todo";
+      const statusObj = workflow?.statuses?.find((s) => s.key === groupKey);
+      groupLabel = statusObj ? statusObj.name : groupKey;
+    } else if (groupBy === "priority") {
+      groupKey = t.priority || "medium";
+      groupLabel = groupKey.charAt(0).toUpperCase() + groupKey.slice(1);
+    } else if (groupBy === "assignee") {
+      if (Array.isArray(t.assignedTo) && t.assignedTo.length > 0) {
+        const firstAssignee = t.assignedTo[0];
+        groupKey = (firstAssignee._id || firstAssignee).toString();
+        groupLabel = firstAssignee.name || "Unknown Member";
+      } else {
+        groupKey = "unassigned";
+        groupLabel = "Unassigned";
+      }
+    } else if (groupBy === "sprint") {
+      if (t.sprintId) {
+        groupKey = (t.sprintId._id || t.sprintId).toString();
+        groupLabel = t.sprintId.name || "Sprint";
+      } else {
+        groupKey = "backlog";
+        groupLabel = "Backlog";
+      }
+    } else if (groupBy === "milestone") {
+      if (t.milestoneId) {
+        groupKey = (t.milestoneId._id || t.milestoneId).toString();
+        groupLabel = t.milestoneId.name || "Milestone";
+      } else {
+        groupKey = "none";
+        groupLabel = "No Milestone";
+      }
+    } else {
+      groupKey = "all";
+      groupLabel = "All Tasks";
+    }
+
+    if (!groupsMap.has(groupKey)) {
+      groupsMap.set(groupKey, {
+        key: groupKey,
+        label: groupLabel,
+        count: 0,
+        completedCount: 0,
+        overdueCount: 0,
+        estimatedHours: 0,
+        storyPoints: 0,
+      });
+    }
+
+    const g = groupsMap.get(groupKey);
+    g.count++;
+    if (isCompleted) g.completedCount++;
+    if (isOverdue) g.overdueCount++;
+    g.estimatedHours += estHours;
+    g.storyPoints += sp;
+  });
+
+  const groups = Array.from(groupsMap.values()).map((g) => ({
+    ...g,
+    estimatedHours: Math.round(g.estimatedHours * 10) / 10,
+    storyPoints: Math.round(g.storyPoints * 10) / 10,
+    completionRate: g.count > 0 ? Math.round((g.completedCount / g.count) * 100) : 0,
+  }));
+
+  // Sort tasks for tabular view
+  const sortedTasks = [...tasks].sort((a, b) => {
+    let aVal = a[sortBy];
+    let bVal = b[sortBy];
+
+    if (sortBy === "createdAt" || sortBy === "dueDate" || sortBy === "completedAt" || sortBy === "updatedAt") {
+      aVal = aVal ? new Date(aVal).getTime() : 0;
+      bVal = bVal ? new Date(bVal).getTime() : 0;
+    } else if (sortBy === "estimatedHours" || sortBy === "storyPoints") {
+      aVal = Number(aVal) || 0;
+      bVal = Number(bVal) || 0;
+    } else if (typeof aVal === "string") {
+      return sortOrder === "asc" ? aVal.localeCompare(bVal || "") : (bVal || "").localeCompare(aVal);
+    }
+
+    return sortOrder === "asc" ? aVal - bVal : bVal - aVal;
+  });
+
+  // Paginate tasks
+  const totalTasks = sortedTasks.length;
+  const startIndex = (safePage - 1) * safeLimit;
+  const paginatedTasks = sortedTasks.slice(startIndex, startIndex + safeLimit);
+
+  return {
+    summary: {
+      totalTasks,
+      completedTasks: completedCount,
+      overdueTasks: overdueCount,
+      completionRate: totalTasks > 0 ? Math.round((completedCount / totalTasks) * 100) : 0,
+      totalEstimatedHours: Math.round(totalEstimatedHours * 10) / 10,
+      totalStoryPoints: Math.round(totalStoryPoints * 10) / 10,
+      groupCount: groups.length,
+    },
+    groups,
+    tasks: paginatedTasks,
+    pagination: {
+      page: safePage,
+      limit: safeLimit,
+      total: totalTasks,
+      pages: Math.ceil(totalTasks / safeLimit) || 1,
+    },
+  };
+};
+
+/**
+ * Controller: Run or generate custom report (POST /api/analytics/project/:projectId/custom-report)
+ */
+export const generateCustomReport = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const {
+      range,
+      startDate,
+      endDate,
+      dateField = "createdAt",
+      statuses,
+      priorities,
+      assignees,
+      sprintId,
+      milestoneId,
+      groupBy = "status",
+      sortBy = "createdAt",
+      sortOrder = "desc",
+      page = 1,
+      limit = 100,
+    } = req.body;
+
+    const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not a member of this project's team" });
+    }
+
+    // Build task query with strict project scope
+    const query = { projectId };
+
+    // Validate and apply date range
+    const normalizedRange = validateAndNormalizeDateRange({
+      range,
+      startDate,
+      endDate,
+      dateField,
+    });
+    if (normalizedRange) {
+      query[normalizedRange.dateField] = {
+        $gte: normalizedRange.start,
+        $lte: normalizedRange.end,
+      };
+    }
+
+    // Multi-attribute filtering
+    if (Array.isArray(statuses) && statuses.length > 0) {
+      query.status = { $in: statuses };
+    }
+    if (Array.isArray(priorities) && priorities.length > 0) {
+      query.priority = { $in: priorities };
+    }
+    if (Array.isArray(assignees) && assignees.length > 0) {
+      if (assignees.includes("unassigned")) {
+        query.$or = [{ assignedTo: { $size: 0 } }, { assignedTo: { $exists: false } }];
+      } else {
+        query.assignedTo = { $in: assignees };
+      }
+    }
+    if (sprintId && sprintId !== "all") {
+      query.sprintId = sprintId === "backlog" ? null : sprintId;
+    }
+    if (milestoneId && milestoneId !== "all") {
+      query.milestoneId = milestoneId === "none" ? null : milestoneId;
+    }
+
+    // Query tasks with a sensible safety limit to prevent unbounded memory usage (max 1000 tasks)
+    const tasks = await Task.find(query)
+      .populate("assignedTo", "name email avatar")
+      .populate("sprintId", "name status")
+      .populate("milestoneId", "name status dueDate")
+      .limit(1000);
+
+    const workflow = await Workflow.findOne({ projectId });
+
+    const reportResult = aggregateCustomReportData({
+      tasks,
+      workflow,
+      groupBy,
+      sortBy,
+      sortOrder,
+      page,
+      limit,
+    });
+
+    res.json({
+      projectId,
+      projectName: project.name,
+      ...reportResult,
+      appliedFilters: {
+        range: range || "all",
+        startDate: startDate || null,
+        endDate: endDate || null,
+        dateField,
+        statuses: statuses || [],
+        priorities: priorities || [],
+        assignees: assignees || [],
+        sprintId: sprintId || "all",
+        milestoneId: milestoneId || "all",
+        groupBy,
+        sortBy,
+        sortOrder,
+      },
+    });
+  } catch (err) {
+    console.error("Custom Report Generation Error:", err);
+    res.status(400).json({ message: err.message || "Failed to generate custom report." });
+  }
+};
+
+/**
+ * Controller: List saved report configurations (GET /api/analytics/project/:projectId/saved-reports)
+ */
+export const getSavedReports = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+
+    const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to view reports for this project" });
+    }
+
+    // Return reports that are either shared with the project team or created by the requester
+    const reports = await SavedReport.find({
+      projectId,
+      $or: [{ isShared: true }, { createdBy: req.user._id }],
+    })
+      .populate("createdBy", "name email avatar")
+      .sort({ updatedAt: -1 });
+
+    res.json(reports);
+  } catch (err) {
+    console.error("Get Saved Reports Error:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Controller: Create saved report configuration (POST /api/analytics/project/:projectId/saved-reports)
+ */
+export const createSavedReport = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { name, description, isShared, reportType, groupBy, sortBy, sortOrder, filters, chartType } = req.body;
+
+    if (!name || !name.trim()) {
+      return res.status(400).json({ message: "Report name is required." });
+    }
+
+    const { hasAccess, project } = await checkProjectAccess(projectId, req.user._id);
+    if (!project) return res.status(404).json({ message: "Project not found" });
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You are not authorized to create reports for this project" });
+    }
+
+    const report = await SavedReport.create({
+      name: name.trim(),
+      description: description ? description.trim() : "",
+      projectId,
+      teamId: project.teamId,
+      createdBy: req.user._id,
+      isShared: Boolean(isShared),
+      reportType: reportType || "task_summary",
+      groupBy: groupBy || "status",
+      sortBy: sortBy || "createdAt",
+      sortOrder: sortOrder || "desc",
+      filters: filters || {},
+      chartType: chartType || "bar",
+    });
+
+    await report.populate("createdBy", "name email avatar");
+    res.status(201).json(report);
+  } catch (err) {
+    console.error("Create Saved Report Error:", err);
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Controller: Delete saved report configuration (DELETE /api/analytics/saved-reports/:reportId)
+ */
+export const deleteSavedReport = async (req, res) => {
+  try {
+    const { reportId } = req.params;
+
+    const report = await SavedReport.findById(reportId);
+    if (!report) return res.status(404).json({ message: "Saved report not found" });
+
+    // IDOR protection: only creator or team owner can delete
+    const { hasAccess, project } = await checkProjectAccess(report.projectId, req.user._id);
+    if (!hasAccess) {
+      return res.status(403).json({ message: "Forbidden: You do not have access to this project" });
+    }
+
+    const isCreator = report.createdBy.toString() === req.user._id.toString();
+    const team = await Team.findById(report.teamId);
+    const isOwner = team && team.owner && team.owner.toString() === req.user._id.toString();
+
+    if (!isCreator && !isOwner) {
+      return res.status(403).json({ message: "Forbidden: Only the report creator or team owner can delete this report" });
+    }
+
+    await SavedReport.findByIdAndDelete(reportId);
+    res.json({ message: "Saved report deleted successfully", reportId });
+  } catch (err) {
+    console.error("Delete Saved Report Error:", err);
     res.status(500).json({ message: err.message });
   }
 };
