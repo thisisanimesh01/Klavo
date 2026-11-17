@@ -1077,3 +1077,12 @@ Enables organization leaders, managers, and team members to review cross-project
 | `/api/analytics/workspace/:teamId/saved-reports` | `GET` | Team Member or Owner | List workspace-level saved reports accessible to requester (shared + private) |
 | `/api/analytics/workspace/:teamId/saved-reports` | `POST` | Team Member or Owner | Create a new workspace-level saved report configuration |
 | `/api/analytics/workspace/:teamId/export` | `POST` | Team Member or Owner | Export workspace metrics and project rankings in CSV or PDF format |
+
+---
+
+## 8. Frontend Design System & RBAC Consistency (UX-01)
+
+- **Component RBAC Enforcement**:
+  - Design system interactive primitives (`Button`, `Select`, `Input`, `Checkbox`) provide standardized `disabled` states and accessibility attributes (`aria-disabled="true"`) for unauthorized actions.
+  - Action buttons triggering mutation endpoints or administrative dialogs are conditionally disabled or hidden based on active user role (`Owner`, `Admin`, `Member`, `Viewer`).
+  - Tooltips or helper text on disabled interactive elements clearly explain permission constraints when actions are restricted.

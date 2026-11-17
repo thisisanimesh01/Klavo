@@ -4,6 +4,8 @@ import ProjectModal from "../components/ProjectModal";
 import { useNavigate } from "react-router-dom";
 import ThemeToggle from "../components/ThemeToggle";
 import socket from "../socket";
+import { Button, Card, EmptyState, LoadingState, Badge } from "../components/ui";
+import { Plus, Kanban, BookOpen, BarChart3, Trash2, FolderKanban } from "lucide-react";
 
 export default function Projects() {
   const [projects, setProjects] = useState([]);
@@ -69,74 +71,106 @@ export default function Projects() {
     }
   };
 
-  if (loading) return <div className="p-6">Loading...</div>;
+  if (loading) return <LoadingState message="Loading projects..." className="min-h-screen app-bg" />;
 
   return (
     <div className="min-h-screen app-bg p-6">
-      <div className="max-w-6xl mx-auto">
-        <header className="flex items-center justify-between mb-6">
-          <h1 className="text-2xl font-bold">Your Projects</h1>
-          <div className="flex items-center gap-4">
+      <div className="max-w-6xl mx-auto space-y-6">
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <FolderKanban className="text-indigo-500" size={26} />
+              <span>Your Projects</span>
+            </h1>
+            <p className="text-xs text-slate-400 mt-0.5">Manage tasks, knowledge base, and team performance metrics</p>
+          </div>
+          <div className="flex items-center gap-3">
             <ThemeToggle />
-            <button
-              className="px-4 py-2 bg-indigo-600 text-white rounded"
+            <Button
+              variant="primary"
+              size="sm"
+              leftIcon={Plus}
               onClick={() => setOpenModal(true)}
             >
-              + Create Project
-            </button>
+              Create Project
+            </Button>
           </div>
         </header>
 
         {projects.length === 0 ? (
-          <p>No projects yet.</p>
+          <EmptyState
+            icon={FolderKanban}
+            title="No projects yet"
+            description="Create your first project to start organizing tasks, documentation, and sprints."
+            action={
+              <Button variant="primary" size="sm" leftIcon={Plus} onClick={() => setOpenModal(true)}>
+                Create Project
+              </Button>
+            }
+          />
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {projects.map((p) => (
-              <div key={p._id} className="app-card p-4 rounded shadow">
-                <h2 className="text-lg font-semibold mb-1">{p.name}</h2>
+              <Card key={p._id} padding="md" hoverable className="flex flex-col justify-between">
+                <div>
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <h2 className="text-base font-semibold text-slate-100">{p.name}</h2>
+                    {p.teamId && (
+                      <Badge variant="neutral" size="xs">
+                        {p.teamId.name}
+                      </Badge>
+                    )}
+                  </div>
 
-                {p.teamId && (
-                  <p className="text-xs text-slate-500 mb-2">
-                    Team: {p.teamId.name}
-                  </p>
-                )}
+                  {p.description && (
+                    <p className="text-xs text-slate-400 mb-4 line-clamp-2">
+                      {p.description}
+                    </p>
+                  )}
+                </div>
 
-                {p.description && (
-                  <p className="text-sm text-slate-600 mb-3">
-                    {p.description}
-                  </p>
-                )}
-
-                <div className="flex flex-wrap justify-between gap-2">
-                  <button
-                    className="flex-1 border py-2 rounded text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+                <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-slate-800/80">
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    leftIcon={Kanban}
+                    className="flex-1"
                     onClick={() => navigate(`/kanban/${p._id}`)}
                   >
-                    Open Board
-                  </button>
+                    Board
+                  </Button>
 
-                  <button
-                    className="flex-1 border py-2 rounded text-sm text-indigo-600 dark:text-indigo-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    leftIcon={BookOpen}
+                    className="flex-1"
                     onClick={() => navigate(`/wiki/${p._id}`)}
                   >
                     Wiki
-                  </button>
+                  </Button>
 
-                  <button
-                    className="flex-1 border py-2 rounded text-sm text-indigo-600 dark:text-indigo-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    leftIcon={BarChart3}
+                    className="flex-1"
                     onClick={() => navigate(`/analytics/${p._id}`)}
                   >
                     Analytics
-                  </button>
+                  </Button>
 
-                  <button
-                    className="border px-3 py-2 rounded text-sm text-red-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition"
+                  <Button
+                    variant="danger"
+                    size="xs"
+                    leftIcon={Trash2}
                     onClick={() => deleteProject(p._id)}
+                    title="Delete project"
                   >
                     Delete
-                  </button>
+                  </Button>
                 </div>
-              </div>
+              </Card>
             ))}
           </div>
         )}
