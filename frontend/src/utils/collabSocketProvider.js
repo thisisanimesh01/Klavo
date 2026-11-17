@@ -4,7 +4,8 @@ import socket from "../socket";
 
 /**
  * Custom lightweight Yjs Provider that uses the application's existing Socket.IO connection.
- * Synchronizes binary CRDT updates and user awareness/cursors.
+ * Synchronizes binary CRDT updates, user awareness/cursors, and handles authoritative
+ * document state resets with restoreEpoch protection.
  */
 export class CollabSocketProvider {
   /**
@@ -18,7 +19,9 @@ export class CollabSocketProvider {
     this.userInfo = userInfo;
     this.awareness = new Awareness(doc);
     this.connected = false;
+    this.epoch = 1;
     this.onCollaboratorsChange = null;
+    this.onDocumentReset = null;
 
     // Set initial awareness state for local user
     this.awareness.setLocalStateField("user", {
@@ -31,6 +34,7 @@ export class CollabSocketProvider {
     // Bound listeners for clean detachment
     this._handleDocSyncInit = this._handleDocSyncInit.bind(this);
     this._handleDocSyncUpdate = this._handleDocSyncUpdate.bind(this);
+    this._handleDocResetState = this._handleDocResetState.bind(this);
     this._handleDocUpdate = this._handleDocUpdate.bind(this);
     this._handleCollabUserJoined = this._handleCollabUserJoined.bind(this);
     this._handleCollabUserLeft = this._handleCollabUserLeft.bind(this);
@@ -47,6 +51,7 @@ export class CollabSocketProvider {
     // Listen for events from backend
     socket.on("docSyncInit", this._handleDocSyncInit);
     socket.on("docSyncUpdate", this._handleDocSyncUpdate);
+    socket.on("docResetState", this._handleDocResetState);
     socket.on("collabUserJoined", this._handleCollabUserJoined);
     socket.on("collabUserLeft", this._handleCollabUserLeft);
     socket.on("collabCursorMoved", this._handleCollabCursorMoved);
@@ -59,8 +64,12 @@ export class CollabSocketProvider {
     this.connected = true;
   }
 
-  _handleDocSyncInit({ documentId, update, collaborators, currentUserColor }) {
+  _handleDocSyncInit({ documentId, update, epoch, collaborators, currentUserColor }) {
     if (documentId !== this.documentId) return;
+
+    if (epoch !== undefined && epoch !== null) {
+      this.epoch = epoch;
+    }
 
     if (currentUserColor && this.awareness) {
       const current = this.awareness.getLocalState()?.user || {};
@@ -84,9 +93,18 @@ export class CollabSocketProvider {
     }
   }
 
-  _handleDocSyncUpdate({ documentId, update, senderSocketId }) {
+  _handleDocSyncUpdate({ documentId, update, epoch, senderSocketId }) {
     if (documentId !== this.documentId) return;
     if (senderSocketId === socket.id) return; // Ignore own echo
+
+    // Discard stale updates from older epochs
+    if (epoch !== undefined && epoch !== null && epoch < this.epoch) {
+      return;
+    }
+
+    if (epoch && epoch > this.epoch) {
+      this.epoch = epoch;
+    }
 
     try {
       const binary = Uint8Array.from(atob(update), (c) => c.charCodeAt(0));
@@ -96,9 +114,25 @@ export class CollabSocketProvider {
     }
   }
 
+  /**
+   * Handles authoritative state reset broadcast (e.g. Version restoration).
+   * Notifies caller to rebind provider and TipTap editor cleanly with new epoch.
+   */
+  _handleDocResetState({ documentId, update, epoch, doc }) {
+    if (documentId !== this.documentId) return;
+
+    if (epoch !== undefined && epoch !== null) {
+      this.epoch = epoch;
+    }
+
+    if (this.onDocumentReset) {
+      this.onDocumentReset({ doc, update, epoch });
+    }
+  }
+
   _handleDocUpdate(update, origin) {
-    // Only send locally initiated transactions (not incoming socket updates)
-    if (origin === "socket-init" || origin === "socket-remote") return;
+    // Only send locally initiated transactions (not incoming socket updates or resets)
+    if (origin === "socket-init" || origin === "socket-remote" || origin === "socket-reset") return;
 
     try {
       let binaryString = "";
@@ -111,6 +145,7 @@ export class CollabSocketProvider {
       socket.emit("docSyncUpdate", {
         documentId: this.documentId,
         update: base64Update,
+        epoch: this.epoch,
       });
     } catch (err) {
       console.error("Failed to broadcast local doc update:", err);
@@ -152,6 +187,7 @@ export class CollabSocketProvider {
     // Detach socket listeners
     socket.off("docSyncInit", this._handleDocSyncInit);
     socket.off("docSyncUpdate", this._handleDocSyncUpdate);
+    socket.off("docResetState", this._handleDocResetState);
     socket.off("collabUserJoined", this._handleCollabUserJoined);
     socket.off("collabUserLeft", this._handleCollabUserLeft);
     socket.off("collabCursorMoved", this._handleCollabCursorMoved);

@@ -636,3 +636,59 @@ Project workflows configure dynamic task stages, status ordering, and categoriza
 - `docCommentResolved`: Broadcast when a thread is marked resolved or reopened.
 - `docCommentDeleted`: Broadcast when a comment or thread is deleted (deleting root threads cascades to all replies).
 - `docCommentUpdated`: Broadcast when an author edits their comment text.
+
+---
+
+## 24. Document Version History & Recovery (DOC-06)
+
+### Data Model Architecture (`DocumentVersion`):
+- `documentId`: Strictly references parent `Document`.
+- `projectId`: Enforces project-level scoping and tenancy boundaries.
+- `revisionNumber`: Sequential positive integer assigned monotonically per document.
+- `title`: Sanitized document title snapshot.
+- `content`: Sanitized ProseMirror/TipTap JSON syntax tree representing structured node hierarchy.
+- `contentHtml`: Sanitized HTML snapshot for preview rendering and visual diff computations.
+- `description`: Excerpt or document subtitle snapshot.
+- `yjsUpdate`: Authoritative Base64-encoded binary CRDT state vector corresponding to this revision.
+- `authorId`: User who authored the change, took the named snapshot, or performed the restoration.
+- `isNamedSnapshot`: Boolean distinguishing manual named checkpoints from background autosaves.
+- `snapshotName`: Optional user-specified descriptive title for the checkpoint (e.g., `"v1.0 Baseline"`).
+- `changeSummary`: Human-readable description of change or restoration event.
+- `contentHash`: SHA-256 hash of normalized `{ title, content, contentHtml }` used for duplicate snapshot prevention.
+- **Compound Indexes**:
+  - `{ documentId: 1, revisionNumber: -1 }` (Unique): Guarantees sequential revision uniqueness and fast chronological retrieval.
+  - `{ documentId: 1, createdAt: -1 }`: Accelerated historical timeline queries.
+
+### Content Hashing & Duplicate Snapshot Prevention:
+- Keystrokes, autosaves, or minor edits that do not alter the content hash (`contentHash`) are automatically deduplicated and skipped during background auto-snapshotting.
+- Manual named snapshots and restoration operations bypass deduplication (`force: true`) to ensure explicit user checkpoints are always recorded.
+- Atomic retry loops prevent revision number allocation race conditions during concurrent snapshot requests.
+
+### Non-Destructive Append-Only Restoration Architecture:
+Restoring a previous document revision **never erases, rewinds, or truncates** revision history:
+1. When a document is restored to Revision `#X`, the document attributes (`title`, `content`, `contentHtml`, `yjsUpdate`) are updated to reflect Revision `#X`.
+2. A **new** revision record `#N+1` is appended to the `DocumentVersion` collection with `changeSummary: "Restored to Revision #X (\"...\")"`.
+3. Document metadata, `folderId`, `projectId` tenancy, `shares` access grants, permissions, and comment threads are preserved intact.
+
+### Yjs Real-Time State Replacement & Concurrency Invariants:
+`Y.applyUpdate()` commutative merging merges concurrent or newer edits rather than rolling them back. To guarantee consistency during version restoration:
+1. The backend cancels any pending debounced disk persist timers on the active room.
+2. The active in-memory room (`activeDocRooms.get(documentId)`) replaces its `doc` instance with a fresh `Y.Doc` initialized cleanly from the restored snapshot bytes.
+3. The authoritative state vector is encoded and broadcast to all connected clients in `doc_collab_${documentId}` via `docResetState`.
+4. Connected clients (TipTap / `CollabSocketProvider`) receive the authoritative reset and update their local document state without disconnecting.
+
+### Role Authorization Matrix for Version History & Recovery:
+| Role | View Revisions | View Previews / Diffs | Create Named Snapshot | Restore Previous Revision |
+| :--- | :---: | :---: | :---: | :---: |
+| **Owner** | Yes | Yes | Yes | Yes |
+| **Editor** | Yes | Yes | Yes | Yes |
+| **Commenter** | Yes | Yes | **No (403 Forbidden)** | **No (403 Forbidden)** |
+| **Viewer** | Yes | Yes | **No (403 Forbidden)** | **No (403 Forbidden)** |
+| **Outsider** | **No (403/404)** | **No (403/404)** | **No (403/404)** | **No (403/404)** |
+
+### API Endpoints:
+- `POST /api/documents/:documentId/versions` — Creates a manual named snapshot checkpoint (`canEdit` required).
+- `GET /api/documents/:documentId/versions` — Lists chronological revision history with pagination (`canRead` required).
+- `GET /api/documents/:documentId/versions/:versionId` — Retrieves full details of a specific revision (`canRead` required).
+- `GET /api/documents/:documentId/versions/compare` — Computes sanitized visual word-level diff between versions or against current document (`canRead` required).
+- `POST /api/documents/:documentId/versions/:versionId/restore` — Restores document content non-destructively and synchronizes collaboration state (`canEdit` required).
