@@ -26,6 +26,10 @@ import {
   CheckSquare,
   HelpCircle,
   Briefcase,
+  Timer,
+  RotateCcw,
+  Hourglass,
+  Gauge,
 } from "lucide-react";
 import {
   StatusDistributionChart,
@@ -36,13 +40,16 @@ import {
   SprintBurndownChart,
   TeamCapacityComparisonChart,
   MemberTaskStatusBreakdownChart,
+  TaskCompletionTrendsChart,
+  CycleLeadTimeComparisonChart,
+  StageBottleneckChart,
 } from "../components/AnalyticsCharts";
 
 export default function Analytics() {
   const { projectId: urlProjectId } = useParams();
   const navigate = useNavigate();
 
-  // Navigation tab: 'overview' | 'capacity' | 'sprints'
+  // Navigation tab: 'overview' | 'capacity' | 'cycle_time' | 'sprints'
   const [activeTab, setActiveTab] = useState("overview");
 
   // Project selection & multi-project support
@@ -80,6 +87,18 @@ export default function Analytics() {
   const [customCapacityStart, setCustomCapacityStart] = useState("");
   const [customCapacityEnd, setCustomCapacityEnd] = useState("");
   const [projectMembersList, setProjectMembersList] = useState([]);
+
+  // Task Completion & Cycle-Time states (ANL-04)
+  const [cycleData, setCycleData] = useState(null);
+  const [cycleLoading, setCycleLoading] = useState(false);
+  const [cycleError, setCycleError] = useState(null);
+  const [cycleSprintFilter, setCycleSprintFilter] = useState("all");
+  const [cycleMemberFilter, setCycleMemberFilter] = useState("all");
+  const [cyclePriorityFilter, setCyclePriorityFilter] = useState("all");
+  const [cycleRangeFilter, setCycleRangeFilter] = useState("all");
+  const [customCycleStart, setCustomCycleStart] = useState("");
+  const [customCycleEnd, setCustomCycleEnd] = useState("");
+  const [trendGranularity, setTrendGranularity] = useState("daily"); // 'daily' | 'weekly' | 'monthly'
 
   // Load available projects
   useEffect(() => {
@@ -235,6 +254,46 @@ export default function Analytics() {
     customCapacityEnd,
   ]);
 
+  // Fetch task completion & cycle time metrics (ANL-04)
+  const fetchCycleTimeAnalytics = useCallback(async () => {
+    if (!selectedProjectId) return;
+
+    try {
+      setCycleLoading(true);
+      setCycleError(null);
+
+      const params = {
+        sprintId: cycleSprintFilter,
+        memberId: cycleMemberFilter,
+        priority: cyclePriorityFilter,
+        range: cycleRangeFilter,
+      };
+
+      if (cycleRangeFilter === "custom") {
+        if (customCycleStart) params.startDate = customCycleStart;
+        if (customCycleEnd) params.endDate = customCycleEnd;
+      }
+
+      const res = await axiosClient.get(`/analytics/project/${selectedProjectId}/completion-cycle-time`, {
+        params,
+      });
+      setCycleData(res.data);
+    } catch (err) {
+      console.error("Failed to load completion cycle-time metrics:", err);
+      setCycleError(err.response?.data?.message || "Failed to load completion & cycle-time analytics.");
+    } finally {
+      setCycleLoading(false);
+    }
+  }, [
+    selectedProjectId,
+    cycleSprintFilter,
+    cycleMemberFilter,
+    cyclePriorityFilter,
+    cycleRangeFilter,
+    customCycleStart,
+    customCycleEnd,
+  ]);
+
   useEffect(() => {
     fetchAnalytics();
     fetchSprints();
@@ -246,8 +305,10 @@ export default function Analytics() {
       fetchSprintAnalytics();
     } else if (activeTab === "capacity") {
       fetchCapacityAnalytics();
+    } else if (activeTab === "cycle_time") {
+      fetchCycleTimeAnalytics();
     }
-  }, [activeTab, fetchSprintAnalytics, fetchCapacityAnalytics]);
+  }, [activeTab, fetchSprintAnalytics, fetchCapacityAnalytics, fetchCycleTimeAnalytics]);
 
   const handleProjectChange = (e) => {
     const newProjectId = e.target.value;
@@ -334,20 +395,21 @@ export default function Analytics() {
               fetchAnalytics();
               if (activeTab === "sprints") fetchSprintAnalytics();
               if (activeTab === "capacity") fetchCapacityAnalytics();
+              if (activeTab === "cycle_time") fetchCycleTimeAnalytics();
             }}
-            disabled={loading || sprintLoading || capacityLoading}
+            disabled={loading || sprintLoading || capacityLoading || cycleLoading}
             className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 transition disabled:opacity-50"
             title="Refresh analytics"
           >
             <RefreshCw
               size={16}
-              className={loading || sprintLoading || capacityLoading ? "animate-spin" : ""}
+              className={loading || sprintLoading || capacityLoading || cycleLoading ? "animate-spin" : ""}
             />
           </button>
         </div>
       </div>
 
-      {/* Navigation Tabs (Overview vs Team Capacity vs Sprints) */}
+      {/* Navigation Tabs (Overview vs Team Capacity vs Cycle Time vs Sprints) */}
       <div className="flex items-center justify-between border-b border-slate-800 pb-2">
         <div className="flex flex-wrap gap-2">
           <button
@@ -372,6 +434,18 @@ export default function Analytics() {
           >
             <Users size={16} className="text-blue-400" />
             <span>Team Workload & Capacity</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab("cycle_time")}
+            className={`px-4 py-2 text-sm font-medium rounded-xl transition flex items-center gap-2 ${
+              activeTab === "cycle_time"
+                ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-semibold"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
+            }`}
+          >
+            <Timer size={16} className="text-purple-400" />
+            <span>Completion & Cycle Time</span>
           </button>
 
           <button
@@ -914,6 +988,365 @@ export default function Analytics() {
       )}
 
       {/* ========================================================================= */}
+      {/* TAB 3: TASK COMPLETION & CYCLE-TIME METRICS (ANL-04)                       */}
+      {/* ========================================================================= */}
+      {activeTab === "cycle_time" && (
+        <div className="space-y-6">
+          {/* Cycle Time Filter Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Timer size={18} className="text-purple-400" />
+              <h2 className="text-sm font-semibold text-slate-200">
+                Task Completion, Cycle & Lead Time Analysis
+              </h2>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Sprint Filter */}
+              <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs">
+                <span className="text-slate-400">Sprint:</span>
+                <select
+                  value={cycleSprintFilter}
+                  onChange={(e) => setCycleSprintFilter(e.target.value)}
+                  className="bg-transparent text-slate-200 focus:outline-none cursor-pointer"
+                >
+                  <option value="all" className="bg-slate-900">All Sprints</option>
+                  {projectSprints.map((s) => (
+                    <option key={s._id} value={s._id} className="bg-slate-900">
+                      {s.name} ({s.status})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Member Filter */}
+              <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs">
+                <span className="text-slate-400">Assignee:</span>
+                <select
+                  value={cycleMemberFilter}
+                  onChange={(e) => setCycleMemberFilter(e.target.value)}
+                  className="bg-transparent text-slate-200 focus:outline-none cursor-pointer"
+                >
+                  <option value="all" className="bg-slate-900">All Members</option>
+                  {projectMembersList.map((m) => (
+                    <option key={m._id} value={m._id} className="bg-slate-900">
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Priority Filter */}
+              <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs">
+                <span className="text-slate-400">Priority:</span>
+                <select
+                  value={cyclePriorityFilter}
+                  onChange={(e) => setCyclePriorityFilter(e.target.value)}
+                  className="bg-transparent text-slate-200 focus:outline-none cursor-pointer"
+                >
+                  <option value="all" className="bg-slate-900">All Priorities</option>
+                  <option value="urgent" className="bg-slate-900">Urgent</option>
+                  <option value="critical" className="bg-slate-900">Critical</option>
+                  <option value="high" className="bg-slate-900">High</option>
+                  <option value="medium" className="bg-slate-900">Medium</option>
+                  <option value="low" className="bg-slate-900">Low</option>
+                </select>
+              </div>
+
+              {/* Date Range Filter */}
+              <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs">
+                <span className="text-slate-400">Period:</span>
+                <select
+                  value={cycleRangeFilter}
+                  onChange={(e) => setCycleRangeFilter(e.target.value)}
+                  className="bg-transparent text-slate-200 focus:outline-none cursor-pointer"
+                >
+                  <option value="all" className="bg-slate-900">All Time</option>
+                  <option value="today" className="bg-slate-900">Today</option>
+                  <option value="this_week" className="bg-slate-900">This Week</option>
+                  <option value="this_month" className="bg-slate-900">This Month</option>
+                  <option value="last_30_days" className="bg-slate-900">Last 30 Days</option>
+                  <option value="custom" className="bg-slate-900">Custom</option>
+                </select>
+              </div>
+
+              {/* Custom Date Pickers */}
+              {cycleRangeFilter === "custom" && (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="date"
+                    value={customCycleStart}
+                    onChange={(e) => setCustomCycleStart(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-2 py-0.5 text-xs text-slate-200 focus:outline-none"
+                  />
+                  <span className="text-slate-500 text-xs">to</span>
+                  <input
+                    type="date"
+                    value={customCycleEnd}
+                    onChange={(e) => setCustomCycleEnd(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-2 py-0.5 text-xs text-slate-200 focus:outline-none"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Loading / Error states */}
+          {cycleLoading ? (
+            <div className="h-64 flex flex-col items-center justify-center gap-3">
+              <RefreshCw className="animate-spin text-purple-400" size={24} />
+              <p className="text-sm text-slate-400">Computing task completion & cycle-time metrics...</p>
+            </div>
+          ) : cycleError ? (
+            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-3 text-sm">
+              <AlertTriangle size={18} />
+              <span>{cycleError}</span>
+            </div>
+          ) : !cycleData ? (
+            <div className="p-8 text-center text-slate-500 border border-dashed border-slate-800 rounded-2xl">
+              <Timer size={32} className="mx-auto mb-2 opacity-50 text-purple-400" />
+              <p>No completion or cycle time metrics found for this filter combination.</p>
+            </div>
+          ) : (
+            <>
+              {/* Statistical KPI Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4">
+                {/* Avg Cycle Time */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-400">Avg Cycle Time</span>
+                    <Hourglass size={16} className="text-purple-400" />
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-xl sm:text-2xl font-bold text-slate-100">
+                      {cycleData.cycleTime.average !== null ? `${cycleData.cycleTime.average}h` : "—"}
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">Start → Completion</span>
+                  </div>
+                </div>
+
+                {/* Avg Lead Time */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-400">Avg Lead Time</span>
+                    <Timer size={16} className="text-pink-400" />
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-xl sm:text-2xl font-bold text-slate-100">
+                      {cycleData.leadTime.average !== null ? `${cycleData.leadTime.average}h` : "—"}
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">Created → Completion</span>
+                  </div>
+                </div>
+
+                {/* 85th Percentile Lead Time */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-400">85th %ile Lead</span>
+                    <Gauge size={16} className="text-indigo-400" />
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-xl sm:text-2xl font-bold text-slate-100">
+                      {cycleData.leadTime.p85 !== null ? `${cycleData.leadTime.p85}h` : "—"}
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">Service level (85% tasks)</span>
+                  </div>
+                </div>
+
+                {/* Completion Rate */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-400">Completion Rate</span>
+                    <CheckCircle size={16} className="text-emerald-400" />
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-xl sm:text-2xl font-bold text-emerald-400">
+                      {cycleData.summary.completionRate}%
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">
+                      {cycleData.summary.completedTasks} / {cycleData.summary.totalTasks} tasks
+                    </span>
+                  </div>
+                </div>
+
+                {/* On-Time Completion */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-400">On-Time Rate</span>
+                    <Clock size={16} className="text-blue-400" />
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-xl sm:text-2xl font-bold text-slate-100">
+                      {cycleData.summary.onTimeCompletionRate !== null
+                        ? `${cycleData.summary.onTimeCompletionRate}%`
+                        : "—"}
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">
+                      {cycleData.summary.onTimeCompletedCount} on time, {cycleData.summary.overdueCompletedCount} overdue
+                    </span>
+                  </div>
+                </div>
+
+                {/* Reopened Tasks */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-400">Reopened Tasks</span>
+                    <RotateCcw size={16} className={cycleData.summary.reopenedCount > 0 ? "text-amber-400" : "text-slate-400"} />
+                  </div>
+                  <div className="mt-2">
+                    <div className={`text-xl sm:text-2xl font-bold ${cycleData.summary.reopenedCount > 0 ? "text-amber-400" : "text-slate-100"}`}>
+                      {cycleData.summary.reopenedCount}
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">
+                      {cycleData.summary.reopenedRate}% reopen rate
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Data Limitation Notice when legacy tasks lack timestamps */}
+              {!cycleData.summary.hasHistoricalCycleData && (
+                <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center gap-3 text-xs text-slate-400">
+                  <HelpCircle size={18} className="text-indigo-400 shrink-0" />
+                  <span>
+                    <strong>Notice:</strong> Completed tasks without explicit start timestamps are omitted from cycle time averages rather than inferred from updated times, preventing fabricated velocity data.
+                  </span>
+                </div>
+              )}
+
+              {/* Completion Trends & Distribution Charts */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Completion Trends Chart */}
+                <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                        <TrendingUp size={18} className="text-emerald-400" />
+                        Task Completion Trends
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Volume of completed tasks over time based on actual completion dates
+                      </p>
+                    </div>
+
+                    {/* Granularity Toggle */}
+                    <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs">
+                      <button
+                        onClick={() => setTrendGranularity("daily")}
+                        className={`px-2 py-0.5 rounded transition ${
+                          trendGranularity === "daily" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        Day
+                      </button>
+                      <button
+                        onClick={() => setTrendGranularity("weekly")}
+                        className={`px-2 py-0.5 rounded transition ${
+                          trendGranularity === "weekly" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        Week
+                      </button>
+                      <button
+                        onClick={() => setTrendGranularity("monthly")}
+                        className={`px-2 py-0.5 rounded transition ${
+                          trendGranularity === "monthly" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        Month
+                      </button>
+                    </div>
+                  </div>
+
+                  <TaskCompletionTrendsChart
+                    data={
+                      trendGranularity === "weekly"
+                        ? cycleData.trends.weekly
+                        : trendGranularity === "monthly"
+                        ? cycleData.trends.monthly
+                        : cycleData.trends.daily
+                    }
+                    granularity={trendGranularity}
+                  />
+                </div>
+
+                {/* Cycle Time vs Lead Time Percentile Comparison */}
+                <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                        <BarChart3 size={18} className="text-purple-400" />
+                        Cycle vs Lead Time Distribution
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Statistical percentiles (Avg, Median, 85th %ile, 95th %ile in hours)
+                      </p>
+                    </div>
+                  </div>
+
+                  <CycleLeadTimeComparisonChart
+                    cycleStats={cycleData.cycleTime}
+                    leadStats={cycleData.leadTime}
+                  />
+                </div>
+              </div>
+
+              {/* Stage Bottlenecks & Transition History */}
+              <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                      <Hourglass size={18} className="text-amber-400" />
+                      Workflow Stage Bottleneck Analysis
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Average dwell time spent in each lifecycle status before progression
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-2">
+                    <StageBottleneckChart stageBottlenecks={cycleData.stageBottlenecks || []} />
+                  </div>
+
+                  {/* Stage Metrics Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 font-semibold">
+                          <th className="pb-2">Stage</th>
+                          <th className="pb-2 text-center">Tasks</th>
+                          <th className="pb-2 text-right">Avg Dwell</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {cycleData.stageBottlenecks?.map((stage) => (
+                          <tr key={stage.key} className="hover:bg-slate-800/20">
+                            <td className="py-2.5 flex items-center gap-2">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full shrink-0"
+                                style={{ backgroundColor: stage.color }}
+                              />
+                              <span className="font-medium text-slate-200">{stage.name}</span>
+                            </td>
+                            <td className="py-2.5 text-center text-slate-300">{stage.taskCount}</td>
+                            <td className="py-2.5 text-right font-bold text-slate-100">
+                              {stage.averageHours}h
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
       {/* TAB 3: SPRINT VELOCITY & BURNDOWN (ANL-02) */}
       {/* ========================================================================= */}
       {activeTab === "sprints" && (
@@ -1133,6 +1566,365 @@ export default function Analytics() {
                         {velocityData?.averageVelocity || 0} {unitLabel}
                       </strong>
                     </span>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 3: TASK COMPLETION & CYCLE-TIME METRICS (ANL-04)                       */}
+      {/* ========================================================================= */}
+      {activeTab === "cycle_time" && (
+        <div className="space-y-6">
+          {/* Cycle Time Filter Bar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm">
+            <div className="flex items-center gap-2">
+              <Timer size={18} className="text-purple-400" />
+              <h2 className="text-sm font-semibold text-slate-200">
+                Task Completion, Cycle & Lead Time Analysis
+              </h2>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Sprint Filter */}
+              <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs">
+                <span className="text-slate-400">Sprint:</span>
+                <select
+                  value={cycleSprintFilter}
+                  onChange={(e) => setCycleSprintFilter(e.target.value)}
+                  className="bg-transparent text-slate-200 focus:outline-none cursor-pointer"
+                >
+                  <option value="all" className="bg-slate-900">All Sprints</option>
+                  {projectSprints.map((s) => (
+                    <option key={s._id} value={s._id} className="bg-slate-900">
+                      {s.name} ({s.status})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Member Filter */}
+              <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs">
+                <span className="text-slate-400">Assignee:</span>
+                <select
+                  value={cycleMemberFilter}
+                  onChange={(e) => setCycleMemberFilter(e.target.value)}
+                  className="bg-transparent text-slate-200 focus:outline-none cursor-pointer"
+                >
+                  <option value="all" className="bg-slate-900">All Members</option>
+                  {projectMembersList.map((m) => (
+                    <option key={m._id} value={m._id} className="bg-slate-900">
+                      {m.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Priority Filter */}
+              <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs">
+                <span className="text-slate-400">Priority:</span>
+                <select
+                  value={cyclePriorityFilter}
+                  onChange={(e) => setCyclePriorityFilter(e.target.value)}
+                  className="bg-transparent text-slate-200 focus:outline-none cursor-pointer"
+                >
+                  <option value="all" className="bg-slate-900">All Priorities</option>
+                  <option value="urgent" className="bg-slate-900">Urgent</option>
+                  <option value="critical" className="bg-slate-900">Critical</option>
+                  <option value="high" className="bg-slate-900">High</option>
+                  <option value="medium" className="bg-slate-900">Medium</option>
+                  <option value="low" className="bg-slate-900">Low</option>
+                </select>
+              </div>
+
+              {/* Date Range Filter */}
+              <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-1 text-xs">
+                <span className="text-slate-400">Period:</span>
+                <select
+                  value={cycleRangeFilter}
+                  onChange={(e) => setCycleRangeFilter(e.target.value)}
+                  className="bg-transparent text-slate-200 focus:outline-none cursor-pointer"
+                >
+                  <option value="all" className="bg-slate-900">All Time</option>
+                  <option value="today" className="bg-slate-900">Today</option>
+                  <option value="this_week" className="bg-slate-900">This Week</option>
+                  <option value="this_month" className="bg-slate-900">This Month</option>
+                  <option value="last_30_days" className="bg-slate-900">Last 30 Days</option>
+                  <option value="custom" className="bg-slate-900">Custom</option>
+                </select>
+              </div>
+
+              {/* Custom Date Pickers */}
+              {cycleRangeFilter === "custom" && (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="date"
+                    value={customCycleStart}
+                    onChange={(e) => setCustomCycleStart(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-2 py-0.5 text-xs text-slate-200 focus:outline-none"
+                  />
+                  <span className="text-slate-500 text-xs">to</span>
+                  <input
+                    type="date"
+                    value={customCycleEnd}
+                    onChange={(e) => setCustomCycleEnd(e.target.value)}
+                    className="bg-slate-950 border border-slate-800 rounded-xl px-2 py-0.5 text-xs text-slate-200 focus:outline-none"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Loading / Error states */}
+          {cycleLoading ? (
+            <div className="h-64 flex flex-col items-center justify-center gap-3">
+              <RefreshCw className="animate-spin text-purple-400" size={24} />
+              <p className="text-sm text-slate-400">Computing task completion & cycle-time metrics...</p>
+            </div>
+          ) : cycleError ? (
+            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 flex items-center gap-3 text-sm">
+              <AlertTriangle size={18} />
+              <span>{cycleError}</span>
+            </div>
+          ) : !cycleData ? (
+            <div className="p-8 text-center text-slate-500 border border-dashed border-slate-800 rounded-2xl">
+              <Timer size={32} className="mx-auto mb-2 opacity-50 text-purple-400" />
+              <p>No completion or cycle time metrics found for this filter combination.</p>
+            </div>
+          ) : (
+            <>
+              {/* Statistical KPI Summary Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4">
+                {/* Avg Cycle Time */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-400">Avg Cycle Time</span>
+                    <Hourglass size={16} className="text-purple-400" />
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-xl sm:text-2xl font-bold text-slate-100">
+                      {cycleData.cycleTime.average !== null ? `${cycleData.cycleTime.average}h` : "—"}
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">Start → Completion</span>
+                  </div>
+                </div>
+
+                {/* Avg Lead Time */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-400">Avg Lead Time</span>
+                    <Timer size={16} className="text-pink-400" />
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-xl sm:text-2xl font-bold text-slate-100">
+                      {cycleData.leadTime.average !== null ? `${cycleData.leadTime.average}h` : "—"}
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">Created → Completion</span>
+                  </div>
+                </div>
+
+                {/* 85th Percentile Lead Time */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-400">85th %ile Lead</span>
+                    <Gauge size={16} className="text-indigo-400" />
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-xl sm:text-2xl font-bold text-slate-100">
+                      {cycleData.leadTime.p85 !== null ? `${cycleData.leadTime.p85}h` : "—"}
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">Service level (85% tasks)</span>
+                  </div>
+                </div>
+
+                {/* Completion Rate */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-400">Completion Rate</span>
+                    <CheckCircle size={16} className="text-emerald-400" />
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-xl sm:text-2xl font-bold text-emerald-400">
+                      {cycleData.summary.completionRate}%
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">
+                      {cycleData.summary.completedTasks} / {cycleData.summary.totalTasks} tasks
+                    </span>
+                  </div>
+                </div>
+
+                {/* On-Time Completion */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-400">On-Time Rate</span>
+                    <Clock size={16} className="text-blue-400" />
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-xl sm:text-2xl font-bold text-slate-100">
+                      {cycleData.summary.onTimeCompletionRate !== null
+                        ? `${cycleData.summary.onTimeCompletionRate}%`
+                        : "—"}
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">
+                      {cycleData.summary.onTimeCompletedCount} on time, {cycleData.summary.overdueCompletedCount} overdue
+                    </span>
+                  </div>
+                </div>
+
+                {/* Reopened Tasks */}
+                <div className="p-4 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-400">Reopened Tasks</span>
+                    <RotateCcw size={16} className={cycleData.summary.reopenedCount > 0 ? "text-amber-400" : "text-slate-400"} />
+                  </div>
+                  <div className="mt-2">
+                    <div className={`text-xl sm:text-2xl font-bold ${cycleData.summary.reopenedCount > 0 ? "text-amber-400" : "text-slate-100"}`}>
+                      {cycleData.summary.reopenedCount}
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">
+                      {cycleData.summary.reopenedRate}% reopen rate
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Data Limitation Notice when legacy tasks lack timestamps */}
+              {!cycleData.summary.hasHistoricalCycleData && (
+                <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 flex items-center gap-3 text-xs text-slate-400">
+                  <HelpCircle size={18} className="text-indigo-400 shrink-0" />
+                  <span>
+                    <strong>Notice:</strong> Completed tasks without explicit start timestamps are omitted from cycle time averages rather than inferred from updated times, preventing fabricated velocity data.
+                  </span>
+                </div>
+              )}
+
+              {/* Completion Trends & Distribution Charts */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Completion Trends Chart */}
+                <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                        <TrendingUp size={18} className="text-emerald-400" />
+                        Task Completion Trends
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Volume of completed tasks over time based on actual completion dates
+                      </p>
+                    </div>
+
+                    {/* Granularity Toggle */}
+                    <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-lg p-0.5 text-xs">
+                      <button
+                        onClick={() => setTrendGranularity("daily")}
+                        className={`px-2 py-0.5 rounded transition ${
+                          trendGranularity === "daily" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        Day
+                      </button>
+                      <button
+                        onClick={() => setTrendGranularity("weekly")}
+                        className={`px-2 py-0.5 rounded transition ${
+                          trendGranularity === "weekly" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        Week
+                      </button>
+                      <button
+                        onClick={() => setTrendGranularity("monthly")}
+                        className={`px-2 py-0.5 rounded transition ${
+                          trendGranularity === "monthly" ? "bg-indigo-600 text-white" : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        Month
+                      </button>
+                    </div>
+                  </div>
+
+                  <TaskCompletionTrendsChart
+                    data={
+                      trendGranularity === "weekly"
+                        ? cycleData.trends.weekly
+                        : trendGranularity === "monthly"
+                        ? cycleData.trends.monthly
+                        : cycleData.trends.daily
+                    }
+                    granularity={trendGranularity}
+                  />
+                </div>
+
+                {/* Cycle Time vs Lead Time Percentile Comparison */}
+                <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                        <BarChart3 size={18} className="text-purple-400" />
+                        Cycle vs Lead Time Distribution
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Statistical percentiles (Avg, Median, 85th %ile, 95th %ile in hours)
+                      </p>
+                    </div>
+                  </div>
+
+                  <CycleLeadTimeComparisonChart
+                    cycleStats={cycleData.cycleTime}
+                    leadStats={cycleData.leadTime}
+                  />
+                </div>
+              </div>
+
+              {/* Stage Bottlenecks & Transition History */}
+              <div className="p-5 rounded-2xl border border-slate-800 bg-slate-900/50 shadow-sm">
+                <div className="flex items-center justify-between mb-4">
+                  <div>
+                    <h3 className="font-semibold text-slate-200 flex items-center gap-2">
+                      <Hourglass size={18} className="text-amber-400" />
+                      Workflow Stage Bottleneck Analysis
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Average dwell time spent in each lifecycle status before progression
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="lg:col-span-2">
+                    <StageBottleneckChart stageBottlenecks={cycleData.stageBottlenecks || []} />
+                  </div>
+
+                  {/* Stage Metrics Table */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-slate-400 font-semibold">
+                          <th className="pb-2">Stage</th>
+                          <th className="pb-2 text-center">Tasks</th>
+                          <th className="pb-2 text-right">Avg Dwell</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {cycleData.stageBottlenecks?.map((stage) => (
+                          <tr key={stage.key} className="hover:bg-slate-800/20">
+                            <td className="py-2.5 flex items-center gap-2">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full shrink-0"
+                                style={{ backgroundColor: stage.color }}
+                              />
+                              <span className="font-medium text-slate-200">{stage.name}</span>
+                            </td>
+                            <td className="py-2.5 text-center text-slate-300">{stage.taskCount}</td>
+                            <td className="py-2.5 text-right font-bold text-slate-100">
+                              {stage.averageHours}h
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               </div>

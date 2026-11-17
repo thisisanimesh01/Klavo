@@ -879,3 +879,38 @@ Provides real-time team workload distribution and capacity analysis across proje
 | `/api/analytics/project/:projectId/workload-capacity` | `GET` | Project Team Member / Owner | Team workload distribution, member capacity, utilization rates, unassigned tasks, and imbalance analysis |
 | `/api/sprints` | `POST` | Project Team Member / Owner | Create sprint with optional `capacity` and `memberCapacities` |
 | `/api/sprints/:sprintId` | `PUT` | Project Team Member / Owner | Update sprint capacity and `memberCapacities` |
+
+---
+
+## 30. Task Completion & Cycle-Time Metrics (ANL-04)
+
+### Overview & Data Architecture:
+Provides real-time task completion throughput trends, cycle time, lead time, statistical percentiles, and workflow stage bottleneck analysis using actual persisted timestamps and transition histories. Does not infer historical status changes from `updatedAt` or fabricate missing start dates.
+
+### Metrics & Aggregation Engine:
+- **Cycle Time & Lead Time**:
+  - `Lead Time`: Exact elapsed duration from task creation (`createdAt`) to completion (`completedAt`).
+  - `Cycle Time`: Exact elapsed duration from active task start (`startedAt`) to completion (`completedAt`).
+  - `Data Reliability Invariant`: Tasks without actual persisted start dates omit cycle time rather than fabricating start times or defaulting to zero.
+- **Statistical Percentiles & Distribution**:
+  - Computes `average`, `median (p50)`, `85th percentile (p85)`, `90th percentile (p90)`, `95th percentile (p95)`, `min`, and `max` for cycle and lead time durations.
+  - Clearly distinguishes unavailable historical metrics from 0 hours (`null` values returned when insufficient data exists).
+- **Completion Throughput Trends**:
+  - Aggregates completed task counts across flexible temporal intervals: `daily` (by date), `weekly` (by week start), and `monthly` (by year-month).
+- **Workflow Stage Bottleneck Analysis**:
+  - Accurately computes dwell time spent in each workflow status stage using persisted `statusHistory` entries (`enteredAt`, `exitedAt`, `durationMs`).
+  - Dynamically integrates with custom project workflows, displaying custom stage names, categories, and theme colors.
+- **Completion Rates & Reopened Task Tracking**:
+  - Identifies reopened tasks by detecting tasks that transitioned out of a `done` category status back into an active status.
+  - Measures on-time vs overdue completion rates by comparing task `completedAt` timestamps against configured `dueDate` values.
+- **Multi-Attribute Filtering**:
+  - Supports filtering completion analytics by `sprintId`, `memberId` (assignee), `priority`, and date `range` (including custom start and end dates).
+
+### Permissions & Anti-IDOR Enforcement:
+- Access to task completion and cycle time analytics (`GET /api/analytics/project/:projectId/completion-cycle-time`) strictly requires verified project team membership via `checkProjectAccess`.
+- Cross-tenant requests or unauthenticated requests are rejected with `401 Unauthorized` or `403 Forbidden`.
+
+### API Endpoints:
+| Endpoint | Method | Required Permission / Role | Description |
+| :--- | :--- | :--- | :--- |
+| `/api/analytics/project/:projectId/completion-cycle-time` | `GET` | Project Team Member / Owner | Task completion trends, cycle/lead times, statistical percentiles, stage bottlenecks, and reopen rates |

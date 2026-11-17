@@ -5,6 +5,7 @@ import {
   getProjectSprintVelocity,
   getSprintBurndown,
   getTeamWorkloadCapacity,
+  getTaskCompletionCycleTime,
 } from "../controllers/analyticsController.js";
 
 const router = express.Router();
@@ -22,5 +23,8 @@ router.get("/sprint/:sprintId/burndown", getSprintBurndown);
 
 // Team Workload & Capacity Analysis (ANL-03)
 router.get("/project/:projectId/workload-capacity", getTeamWorkloadCapacity);
+
+// Task Completion & Cycle-Time Metrics (ANL-04)
+router.get("/project/:projectId/completion-cycle-time", getTaskCompletionCycleTime);
 
 export default router;
