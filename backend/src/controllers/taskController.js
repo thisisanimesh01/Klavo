@@ -59,6 +59,7 @@ export const createTask = async (req, res) => {
     let finalCustomFields = Array.isArray(customFields) ? customFields : [];
     let finalChecklist = Array.isArray(checklist) ? checklist : [];
     let finalEstimatedHours = estimatedHours !== undefined ? estimatedHours : null;
+    let finalStoryPoints = storyPoints !== undefined ? storyPoints : null;
 
     // If templateId provided, apply template defaults if fields not explicitly provided
     if (templateId) {
@@ -112,6 +113,7 @@ export const createTask = async (req, res) => {
       customFields: finalCustomFields,
       checklist: finalChecklist,
       estimatedHours: finalEstimatedHours,
+      storyPoints: finalStoryPoints,
       templateId: templateId || null,
       dueDate: dueDate || null,
       assignedTo: assignedTo || [],
@@ -366,6 +368,7 @@ export const updateTask = async (req, res) => {
       "customFields",
       "checklist",
       "estimatedHours",
+      "storyPoints",
       "templateId",
       "dependencies",
     ];

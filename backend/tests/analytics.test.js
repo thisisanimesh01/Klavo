@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   buildDateFilterRange,
   calculateProjectAnalyticsMetrics,
+  calculateSprintBurndownMetrics,
 } from "../src/controllers/analyticsController.js";
 
 test("ANL-01: Date Range Filtering Bounds", async (t) => {
@@ -218,5 +219,136 @@ test("ANL-01: Project Isolation & Authorization Invariants", async (t) => {
   await t.test("requires project team membership to access analytics", async () => {
     const { checkProjectAccess } = await import("../src/utils/authHelpers.js");
     assert.equal(typeof checkProjectAccess, "function");
+  });
+});
+
+test("ANL-02: Sprint Velocity & Burndown Calculations", async (t) => {
+  const fixedNow = new Date("2026-11-18T12:00:00.000Z");
+
+  await t.test("calculates sprint burndown metrics accurately with estimatedHours", () => {
+    const sprint = {
+      _id: "sprint_1",
+      name: "Sprint 1",
+      status: "active",
+      startDate: new Date("2026-11-10T00:00:00.000Z"),
+      endDate: new Date("2026-11-20T00:00:00.000Z"),
+      capacity: 40,
+    };
+
+    const workflow = {
+      statuses: [
+        { key: "todo", name: "Todo", category: "todo" },
+        { key: "in-progress", name: "In Progress", category: "in_progress" },
+        { key: "done", name: "Done", category: "done" },
+      ],
+    };
+
+    const tasks = [
+      // 10h done early on Nov 12
+      {
+        _id: "task_1",
+        status: "done",
+        estimatedHours: 10,
+        createdAt: new Date("2026-11-10T00:00:00.000Z"),
+        updatedAt: new Date("2026-11-12T15:00:00.000Z"),
+      },
+      // 15h in-progress (carryover)
+      {
+        _id: "task_2",
+        status: "in-progress",
+        estimatedHours: 15,
+        createdAt: new Date("2026-11-10T00:00:00.000Z"),
+        updatedAt: new Date("2026-11-14T10:00:00.000Z"),
+      },
+      // 5h added on Nov 15 (scope addition)
+      {
+        _id: "task_3",
+        status: "todo",
+        estimatedHours: 5,
+        createdAt: new Date("2026-11-15T09:00:00.000Z"),
+        updatedAt: new Date("2026-11-15T09:00:00.000Z"),
+      },
+    ];
+
+    const result = calculateSprintBurndownMetrics({
+      sprint,
+      tasks,
+      workflow,
+      unit: "estimatedHours",
+      now: fixedNow,
+    });
+
+    assert.equal(result.sprintName, "Sprint 1");
+    assert.equal(result.totalCommittedWork, 30); // 10 + 15 + 5
+    assert.equal(result.totalCompletedWork, 10);
+    assert.equal(result.totalRemainingWork, 20);
+    assert.equal(result.completionRate, 33);
+    assert.equal(result.taskStats.total, 3);
+    assert.equal(result.taskStats.completed, 1);
+    assert.equal(result.taskStats.carryover, 2);
+    assert.equal(result.taskStats.scopeAdded, 1);
+    assert.equal(result.scopeChanges.addedWork, 5);
+    assert.equal(result.scopeChanges.carryoverWork, 20);
+
+    // Burndown timeline check
+    assert.ok(Array.isArray(result.burndownTimeline));
+    assert.ok(result.burndownTimeline.length > 5);
+
+    // Initial point (day 0) ideal equals totalCommittedWork
+    assert.equal(result.burndownTimeline[0].ideal, 30);
+    assert.equal(result.burndownTimeline[0].actual, 30);
+  });
+
+  await t.test("calculates sprint burndown metrics using storyPoints", () => {
+    const sprint = {
+      _id: "sprint_sp",
+      name: "SP Sprint",
+      status: "completed",
+      startDate: new Date("2026-11-01T00:00:00.000Z"),
+      endDate: new Date("2026-11-10T00:00:00.000Z"),
+    };
+
+    const tasks = [
+      { _id: "t1", status: "done", storyPoints: 5, updatedAt: new Date("2026-11-04") },
+      { _id: "t2", status: "done", storyPoints: 8, updatedAt: new Date("2026-11-08") },
+      { _id: "t3", status: "todo", storyPoints: 3, updatedAt: new Date("2026-11-02") },
+    ];
+
+    const result = calculateSprintBurndownMetrics({
+      sprint,
+      tasks,
+      unit: "storyPoints",
+      now: fixedNow,
+    });
+
+    assert.equal(result.measurementUnit, "storyPoints");
+    assert.equal(result.totalCommittedWork, 16); // 5 + 8 + 3
+    assert.equal(result.totalCompletedWork, 13); // 5 + 8
+    assert.equal(result.totalRemainingWork, 3);
+    assert.equal(result.completionRate, 81); // 13 / 16 * 100
+  });
+
+  await t.test("handles completely empty sprint without division by zero or errors", () => {
+    const sprint = {
+      _id: "sprint_empty",
+      name: "Empty Sprint",
+      status: "planned",
+      startDate: new Date("2026-11-01T00:00:00.000Z"),
+      endDate: new Date("2026-11-10T00:00:00.000Z"),
+    };
+
+    const result = calculateSprintBurndownMetrics({
+      sprint,
+      tasks: [],
+      unit: "estimatedHours",
+      now: fixedNow,
+    });
+
+    assert.equal(result.totalCommittedWork, 0);
+    assert.equal(result.totalCompletedWork, 0);
+    assert.equal(result.totalRemainingWork, 0);
+    assert.equal(result.completionRate, 0);
+    assert.equal(result.taskStats.total, 0);
+    assert.ok(result.burndownTimeline.length > 0);
   });
 });

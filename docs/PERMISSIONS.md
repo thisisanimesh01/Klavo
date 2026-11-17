@@ -800,3 +800,38 @@ Provides real-time, comprehensive project-level analytics, key performance indic
 | Endpoint | Method | Required Permission / Role | Description |
 | :--- | :--- | :--- | :--- |
 | `/api/analytics/project/:projectId` | `GET` | Project Team Member / Owner | Retrieves comprehensive project metrics, workload, status & priority distributions, and KPIs |
+
+---
+
+## 28. Sprint Velocity & Burndown Analytics (ANL-02)
+
+### Overview & Data Architecture:
+Provides real-time sprint iteration analytics including historical velocity trends, committed vs completed work, scope changes, carryover task analysis, and sprint burndown tracking without fabricating historical daily snapshots.
+
+### Metrics & Aggregation Engine:
+- **Measurement Units**: Supports velocity tracking using either `estimatedHours` or `storyPoints` (with 1 unit fallback if unestimated), clearly displayed in the UI.
+- **Sprint Burndown Timeline**:
+  - Computes linear ideal burn rate guideline across sprint date boundaries (`startDate` to `endDate` / `completedAt`).
+  - Computes actual remaining work up to the current wall-clock date based on task `updatedAt` completion timestamps. Future sprint dates cleanly leave `actual` as `null` so charts stop plotting at today.
+- **Scope Change & Carryover Detection**:
+  - `scopeAdded`: Identifies tasks added to the sprint after iteration start (`createdAt > sprintStart + 24h`).
+  - `carryover`: Identifies incomplete tasks (`status != 'done'`) remaining at sprint conclusion or current date.
+- **Historical Sprint Velocity**:
+  - Compares committed vs completed work across all project sprints in chronological order.
+  - Computes dynamic team average velocity across completed and active iterations.
+- **Custom Workflow & Rollover Invariants**:
+  - Uses category-aware completion (`isStatusCompleted`, `getCompletedStatusKeys`) against custom project workflows.
+- **Empty State & Timezone Boundaries**:
+  - Safely handles sprints with 0 tasks or single-day ranges without dividing by zero.
+  - Normalizes day boundary intervals using UTC day start/end timestamps.
+
+### Permissions & Anti-IDOR Enforcement:
+- Access to sprint velocity (`GET /api/analytics/project/:projectId/velocity`) requires verified project team membership via `checkProjectAccess`.
+- Access to sprint burndown (`GET /api/analytics/sprint/:sprintId/burndown`) requires verified sprint/project access via `checkSprintAccess`.
+- Cross-tenant requests are rejected with `403 Forbidden`.
+
+### API Endpoints:
+| Endpoint | Method | Required Permission / Role | Description |
+| :--- | :--- | :--- | :--- |
+| `/api/analytics/project/:projectId/velocity` | `GET` | Project Team Member / Owner | Historical sprint velocity comparison and average velocity |
+| `/api/analytics/sprint/:sprintId/burndown` | `GET` | Project Team Member / Owner | Sprint burndown chart timeline, scope changes, and carryover |

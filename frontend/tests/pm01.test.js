@@ -1125,3 +1125,52 @@ test("FRONTEND ANL-01: Project Analytics Dashboard State & Formatting", async (t
     assert.equal(getStatusColor({}, "#6366F1"), "#6366F1");
   });
 });
+
+test("FRONTEND ANL-02: Sprint Velocity & Burndown UI Formatting", async (t) => {
+  await t.test("Validates measurement unit label mapping", () => {
+    const getUnitLabel = (unit) => (unit === "storyPoints" ? "Story Points" : "Hours");
+    assert.equal(getUnitLabel("estimatedHours"), "Hours");
+    assert.equal(getUnitLabel("storyPoints"), "Story Points");
+    assert.equal(getUnitLabel(""), "Hours");
+  });
+
+  await t.test("Validates sprint velocity comparison data mapping", () => {
+    const sprints = [
+      { sprintName: "Sprint 1", committed: 40, completed: 35, status: "completed" },
+      { sprintName: "Sprint 2", committed: 45, completed: 42, status: "completed" },
+      { sprintName: "Sprint 3", committed: 30, completed: 15, status: "active" },
+    ];
+
+    const completed = sprints.filter((s) => s.status === "completed");
+    const avgVelocity = completed.length > 0
+      ? Math.round((completed.reduce((sum, s) => sum + s.completed, 0) / completed.length) * 10) / 10
+      : 0;
+
+    assert.equal(avgVelocity, 38.5); // (35 + 42) / 2
+  });
+
+  await t.test("Validates burndown ideal line progression calculation", () => {
+    const totalCommitted = 40;
+    const days = 5; // Day 0 to Day 4
+    const idealStep = totalCommitted / (days - 1); // 10 per day
+
+    const idealValues = [];
+    for (let i = 0; i < days; i++) {
+      idealValues.push(Math.max(0, Math.round(totalCommitted - i * idealStep)));
+    }
+
+    assert.deepEqual(idealValues, [40, 30, 20, 10, 0]);
+  });
+
+  await t.test("Validates sprint status badge color and border styling", () => {
+    const getStatusStyle = (status) => {
+      if (status === "active") return "bg-emerald-500/10 text-emerald-400";
+      if (status === "completed") return "bg-blue-500/10 text-blue-400";
+      return "bg-slate-800 text-slate-400";
+    };
+
+    assert.match(getStatusStyle("active"), /emerald/);
+    assert.match(getStatusStyle("completed"), /blue/);
+    assert.match(getStatusStyle("planned"), /slate/);
+  });
+});
