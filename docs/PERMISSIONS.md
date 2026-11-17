@@ -1005,3 +1005,37 @@ Enables project members to generate, customize, visualize, and persist multi-dim
 | `/api/analytics/project/:projectId/saved-reports` | `GET` | Project Team Member / Owner | List saved report configurations accessible to the user (personal + shared) |
 | `/api/analytics/project/:projectId/saved-reports` | `POST` | Project Team Member / Owner | Create a new reusable saved report configuration (personal or shared) |
 | `/api/analytics/saved-reports/:reportId` | `DELETE` | Report Creator or Team Owner | Delete a saved report configuration with ownership validation |
+
+---
+
+## 33. CSV/PDF Report Export (ANL-07)
+
+### Overview & Data Architecture:
+Enables project members to export project analytics and custom reports directly to RFC 4180 compliant CSV spreadsheets and formatted multi-page PDF documents. The export system respects active dimension groupings, multi-attribute filters, date ranges, and sorting rules, embedding comprehensive metadata banners, project tenancy headers, generation timestamps, and metric disclosure notes.
+
+### Security & Sanitization Protections:
+- **CSV Formula Injection (CWE-1236) Neutralization**:
+  - Spreadsheet applications (Microsoft Excel, Google Sheets, LibreOffice Calc) execute cells starting with `=`, `+`, `-`, `@`, `\t`, or `\r` as dynamic executable formulas (e.g. `=cmd|' /C calc'!A0` or `@IMPORTXML`).
+  - The Klavo export engine neutralizes all formula trigger characters by prefixing vulnerable cells with a single quote (`'`), rendering them safely as literal text in spreadsheet software.
+- **RFC 4180 CSV Standard Compliance**:
+  - Properly escapes quotes (doubled `""`), commas, carriage returns, and newlines.
+- **Pure PDF Generator Architecture**:
+  - Implements a self-contained, dependency-free PDF 1.4 document builder (`generateReportPdf`) generating standards-compliant binary buffers without reliance on fragile headless browsers or bulky native dependencies.
+  - Generates clear headers, structured tables, group summaries, detail task records, and dynamic page numbering ("Page X of Y").
+  - Escapes PDF special characters and parentheses safely (`\`, `(`, `)`).
+- **Zero Fabrication & Unit Separation Guarantee**:
+  - Estimated hours and story points are maintained strictly in distinct columns and never combined or conflated.
+  - Missing estimates display as empty cells rather than synthetic zero values.
+
+### Authorization & Tenancy Invariants:
+- **Project Access Verification**:
+  - All report export requests (`POST /api/analytics/project/:projectId/export`) enforce verified project team membership via `checkProjectAccess`.
+  - Unauthenticated or cross-project export requests are rejected immediately with `401 Unauthorized` or `403 Forbidden`.
+- **Saved Report Privacy Enforcement**:
+  - When exporting an existing saved report via `savedReportId`, the system validates that the report belongs to the specified `projectId`.
+  - Private reports (`isShared === false`) can strictly only be exported by their author (`createdBy.toString() === req.user._id.toString()`).
+
+### API Endpoints:
+| Endpoint | Method | Required Permission / Role | Description |
+| :--- | :--- | :--- | :--- |
+| `/api/analytics/project/:projectId/export` | `POST` | Project Team Member / Owner | Export analytics or custom reports in RFC 4180 CSV or styled PDF format |

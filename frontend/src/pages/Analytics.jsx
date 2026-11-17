@@ -41,6 +41,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Share2,
+  Download,
+  FileSpreadsheet,
 } from "lucide-react";
 import {
   StatusDistributionChart,
@@ -143,6 +145,11 @@ export default function Analytics() {
   const [reportChartType, setReportChartType] = useState("bar"); // 'bar' | 'pie' | 'table'
   const [reportMetric, setReportMetric] = useState("count"); // 'count' | 'estimatedHours' | 'storyPoints'
   const [reportPage, setReportPage] = useState(1);
+
+  // Export states (ANL-07)
+  const [exportLoading, setExportLoading] = useState(false);
+  const [exportError, setExportError] = useState(null);
+  const [exportSuccess, setExportSuccess] = useState(null);
 
   // Load available projects
   useEffect(() => {
@@ -489,6 +496,89 @@ export default function Analytics() {
     }
   };
 
+  // Export report in CSV or PDF format (ANL-07)
+  const handleExportReport = async (format = "csv") => {
+    if (!selectedProjectId) return;
+    try {
+      setExportLoading(true);
+      setExportError(null);
+      setExportSuccess(null);
+
+      const activeProjectObj = projects.find((p) => p._id === selectedProjectId);
+      const projName = activeProjectObj ? activeProjectObj.name : "Project";
+
+      let title = `${projName} Analytics Report`;
+      if (activeTab === "sprints") {
+        title = `${projName} Sprint Velocity & Burndown Report`;
+      } else if (activeTab === "capacity") {
+        title = `${projName} Team Workload & Capacity Report`;
+      } else if (activeTab === "cycle_time") {
+        title = `${projName} Cycle & Lead Time Report`;
+      } else if (activeTab === "health") {
+        title = `${projName} Project Health & Progress Report`;
+      } else if (activeTab === "custom_reports") {
+        const savedMatch = savedReports.find((r) => r._id === selectedSavedReportId);
+        title = savedMatch ? savedMatch.name : `${projName} Custom Report`;
+      }
+
+      const payload = {
+        format,
+        reportTitle: title,
+        savedReportId: activeTab === "custom_reports" && selectedSavedReportId ? selectedSavedReportId : undefined,
+        range: activeTab === "custom_reports" ? reportRange : dateRange,
+        dateField: activeTab === "custom_reports" ? reportDateField : "createdAt",
+        groupBy: activeTab === "custom_reports" ? reportGroupBy : "status",
+        sortBy: activeTab === "custom_reports" ? reportSortBy : "createdAt",
+        sortOrder: activeTab === "custom_reports" ? reportSortOrder : "desc",
+      };
+
+      if (payload.range === "custom") {
+        if (activeTab === "custom_reports") {
+          if (reportStartDate) payload.startDate = reportStartDate;
+          if (reportEndDate) payload.endDate = reportEndDate;
+        } else {
+          if (customStartDate) payload.startDate = customStartDate;
+          if (customEndDate) payload.endDate = customEndDate;
+        }
+      }
+
+      const res = await axiosClient.post(
+        `/analytics/project/${selectedProjectId}/export`,
+        payload,
+        { responseType: "blob" }
+      );
+
+      // Extract filename from Content-Disposition header if available
+      const contentDisposition = res.headers["content-disposition"] || "";
+      let filename = `${title.replace(/[^a-zA-Z0-9_-]/g, "_")}_${new Date().toISOString().slice(0, 10)}.${format}`;
+      const match = contentDisposition.match(/filename="?([^"]+)"?/);
+      if (match && match[1]) {
+        filename = match[1];
+      }
+
+      // Trigger client-side browser download
+      const mimeType = format === "pdf" ? "application/pdf" : "text/csv;charset=utf-8;";
+      const blob = new Blob([res.data], { type: mimeType });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+
+      setExportSuccess(`Successfully generated ${format.toUpperCase()} export (${filename}).`);
+      setTimeout(() => setExportSuccess(null), 5000);
+    } catch (err) {
+      console.error(`Failed to export report as ${format}:`, err);
+      setExportError(err.response?.data?.message || `Failed to export report as ${format.toUpperCase()}. Please try again.`);
+      setTimeout(() => setExportError(null), 6000);
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchAnalytics();
     fetchSprints();
@@ -606,7 +696,7 @@ export default function Analytics() {
               if (activeTab === "health") fetchHealthAnalytics();
               if (activeTab === "custom_reports") runCustomReport();
             }}
-            disabled={loading || sprintLoading || capacityLoading || cycleLoading || healthLoading || reportLoading}
+            disabled={loading || sprintLoading || capacityLoading || cycleLoading || healthLoading || reportLoading || exportLoading}
             className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 transition disabled:opacity-50"
             title="Refresh analytics"
           >
@@ -615,6 +705,28 @@ export default function Analytics() {
               className={loading || sprintLoading || capacityLoading || cycleLoading || healthLoading || reportLoading ? "animate-spin" : ""}
             />
           </button>
+
+          {/* Export Actions (CSV & PDF) */}
+          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-xl p-1 text-xs">
+            <button
+              onClick={() => handleExportReport("csv")}
+              disabled={exportLoading}
+              className="px-2.5 py-1 rounded-lg bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 font-medium transition flex items-center gap-1 disabled:opacity-50"
+              title="Export report as RFC 4180 CSV"
+            >
+              <FileSpreadsheet size={13} />
+              <span>CSV</span>
+            </button>
+            <button
+              onClick={() => handleExportReport("pdf")}
+              disabled={exportLoading}
+              className="px-2.5 py-1 rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 font-medium transition flex items-center gap-1 disabled:opacity-50"
+              title="Export report as formatted PDF document"
+            >
+              <Download size={13} />
+              <span>PDF</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -713,6 +825,26 @@ export default function Analytics() {
           </div>
         )}
       </div>
+
+      {/* Export Notifications (Success / Error / Loading Banner) */}
+      {exportLoading && (
+        <div className="p-3 bg-indigo-500/10 border border-indigo-500/30 rounded-xl text-xs text-indigo-300 flex items-center gap-2">
+          <RefreshCw size={14} className="animate-spin" />
+          <span>Generating and downloading export document... Please wait.</span>
+        </div>
+      )}
+      {exportSuccess && (
+        <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-300 flex items-center gap-2">
+          <Check size={14} className="text-emerald-400" />
+          <span>{exportSuccess}</span>
+        </div>
+      )}
+      {exportError && (
+        <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-xs text-red-300 flex items-center gap-2">
+          <AlertTriangle size={14} className="text-red-400" />
+          <span>{exportError}</span>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* TAB 1: PROJECT OVERVIEW (ANL-01) */}
@@ -2456,6 +2588,28 @@ export default function Analytics() {
                 <Save size={14} />
                 <span>Save Report</span>
               </button>
+
+              {/* Export Custom Report (CSV & PDF) */}
+              <div className="flex items-center gap-1 bg-slate-950 border border-slate-800 rounded-xl p-1 text-xs">
+                <button
+                  onClick={() => handleExportReport("csv")}
+                  disabled={exportLoading}
+                  className="px-2 py-1 rounded-lg bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600/30 font-medium transition flex items-center gap-1 disabled:opacity-50"
+                  title="Export custom report as CSV"
+                >
+                  <FileSpreadsheet size={13} />
+                  <span>CSV</span>
+                </button>
+                <button
+                  onClick={() => handleExportReport("pdf")}
+                  disabled={exportLoading}
+                  className="px-2 py-1 rounded-lg bg-red-600/20 text-red-400 hover:bg-red-600/30 font-medium transition flex items-center gap-1 disabled:opacity-50"
+                  title="Export custom report as PDF"
+                >
+                  <Download size={13} />
+                  <span>PDF</span>
+                </button>
+              </div>
 
               {/* Run / Apply Filters Button */}
               <button

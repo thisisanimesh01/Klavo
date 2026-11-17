@@ -11,6 +11,7 @@ import {
   getSavedReports,
   createSavedReport,
   deleteSavedReport,
+  exportAnalyticsReport,
 } from "../controllers/analyticsController.js";
 
 const router = express.Router();
@@ -40,5 +41,8 @@ router.post("/project/:projectId/custom-report", generateCustomReport);
 router.get("/project/:projectId/saved-reports", getSavedReports);
 router.post("/project/:projectId/saved-reports", createSavedReport);
 router.delete("/saved-reports/:reportId", deleteSavedReport);
+
+// CSV & PDF Report Export (ANL-07)
+router.post("/project/:projectId/export", exportAnalyticsReport);
 
 export default router;

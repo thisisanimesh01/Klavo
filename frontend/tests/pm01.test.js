@@ -1534,3 +1534,124 @@ test("FRONTEND ANL-06: Custom Reports & Date-Range Filtering UI Helpers", async 
     assert.equal(payload.filters.dateField, "dueDate");
   });
 });
+
+test("FRONTEND ANL-07: Report Export UI Helpers & Payload Serialization", async (t) => {
+  await t.test("Validates export filename generation and sanitization", () => {
+    const sanitizeExportFilename = (title, format) => {
+      const safe = (title || "Analytics_Report")
+        .replace(/[^a-zA-Z0-9_-]/g, "_")
+        .replace(/_+/g, "_")
+        .slice(0, 40);
+      const dateStamp = "2026-11-18";
+      return `${safe}_${dateStamp}.${format}`;
+    };
+
+    assert.equal(
+      sanitizeExportFilename("Project Alpha & Beta: Sprint 1 (Overdue)", "csv"),
+      "Project_Alpha_Beta_Sprint_1_Overdue__2026-11-18.csv"
+    );
+    assert.equal(
+      sanitizeExportFilename("Health / Executive Summary #2", "pdf"),
+      "Health_Executive_Summary_2_2026-11-18.pdf"
+    );
+  });
+
+  await t.test("Validates export MIME type resolution", () => {
+    const getMimeType = (format) => {
+      return format === "pdf" ? "application/pdf" : "text/csv;charset=utf-8;";
+    };
+
+    assert.equal(getMimeType("csv"), "text/csv;charset=utf-8;");
+    assert.equal(getMimeType("pdf"), "application/pdf");
+    assert.equal(getMimeType("unknown"), "text/csv;charset=utf-8;");
+  });
+
+  await t.test("Validates export request payload composition across tabs", () => {
+    const composeExportPayload = ({
+      activeTab,
+      projectName,
+      format,
+      selectedSavedReportId,
+      savedReports = [],
+      reportRange,
+      dateRange,
+      reportDateField,
+      reportGroupBy,
+      reportSortBy,
+      reportSortOrder,
+      reportStartDate,
+      reportEndDate,
+      customStartDate,
+      customEndDate,
+    }) => {
+      let title = `${projectName} Analytics Report`;
+      if (activeTab === "sprints") title = `${projectName} Sprint Velocity & Burndown Report`;
+      else if (activeTab === "capacity") title = `${projectName} Team Workload & Capacity Report`;
+      else if (activeTab === "cycle_time") title = `${projectName} Cycle & Lead Time Report`;
+      else if (activeTab === "health") title = `${projectName} Project Health & Progress Report`;
+      else if (activeTab === "custom_reports") {
+        const match = savedReports.find((r) => r._id === selectedSavedReportId);
+        title = match ? match.name : `${projectName} Custom Report`;
+      }
+
+      const payload = {
+        format,
+        reportTitle: title,
+        savedReportId: activeTab === "custom_reports" && selectedSavedReportId ? selectedSavedReportId : undefined,
+        range: activeTab === "custom_reports" ? reportRange : dateRange,
+        dateField: activeTab === "custom_reports" ? reportDateField : "createdAt",
+        groupBy: activeTab === "custom_reports" ? reportGroupBy : "status",
+        sortBy: activeTab === "custom_reports" ? reportSortBy : "createdAt",
+        sortOrder: activeTab === "custom_reports" ? reportSortOrder : "desc",
+      };
+
+      if (payload.range === "custom") {
+        if (activeTab === "custom_reports") {
+          if (reportStartDate) payload.startDate = reportStartDate;
+          if (reportEndDate) payload.endDate = reportEndDate;
+        } else {
+          if (customStartDate) payload.startDate = customStartDate;
+          if (customEndDate) payload.endDate = customEndDate;
+        }
+      }
+
+      return payload;
+    };
+
+    // Test Overview Tab Export
+    const overviewPayload = composeExportPayload({
+      activeTab: "overview",
+      projectName: "Omega",
+      format: "pdf",
+      dateRange: "last_30_days",
+    });
+    assert.equal(overviewPayload.reportTitle, "Omega Analytics Report");
+    assert.equal(overviewPayload.format, "pdf");
+    assert.equal(overviewPayload.range, "last_30_days");
+    assert.equal(overviewPayload.savedReportId, undefined);
+
+    // Test Custom Reports Tab Export with Saved Report
+    const customPayload = composeExportPayload({
+      activeTab: "custom_reports",
+      projectName: "Omega",
+      format: "csv",
+      selectedSavedReportId: "rep_123",
+      savedReports: [{ _id: "rep_123", name: "Executive Velocity Q4" }],
+      reportRange: "custom",
+      reportStartDate: "2026-11-01",
+      reportEndDate: "2026-11-30",
+      reportDateField: "completedAt",
+      reportGroupBy: "assignee",
+      reportSortBy: "completedAt",
+      reportSortOrder: "asc",
+    });
+    assert.equal(customPayload.reportTitle, "Executive Velocity Q4");
+    assert.equal(customPayload.format, "csv");
+    assert.equal(customPayload.savedReportId, "rep_123");
+    assert.equal(customPayload.range, "custom");
+    assert.equal(customPayload.startDate, "2026-11-01");
+    assert.equal(customPayload.endDate, "2026-11-30");
+    assert.equal(customPayload.dateField, "completedAt");
+    assert.equal(customPayload.groupBy, "assignee");
+  });
+});
