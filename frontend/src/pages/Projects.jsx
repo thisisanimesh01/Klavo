@@ -107,16 +107,23 @@ export default function Projects() {
                   </p>
                 )}
 
-                <div className="flex justify-between gap-2">
+                <div className="flex flex-wrap justify-between gap-2">
                   <button
-                    className="flex-1 border py-2 rounded text-sm"
+                    className="flex-1 border py-2 rounded text-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition"
                     onClick={() => navigate(`/kanban/${p._id}`)}
                   >
                     Open Board
                   </button>
 
                   <button
-                    className="flex-1 border py-2 rounded text-sm text-red-600"
+                    className="flex-1 border py-2 rounded text-sm text-indigo-600 dark:text-indigo-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition"
+                    onClick={() => navigate(`/wiki/${p._id}`)}
+                  >
+                    Wiki
+                  </button>
+
+                  <button
+                    className="border px-3 py-2 rounded text-sm text-red-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition"
                     onClick={() => deleteProject(p._id)}
                   >
                     Delete

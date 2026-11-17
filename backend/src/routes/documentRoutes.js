@@ -31,10 +31,28 @@ import {
   compareDocumentVersions,
   restoreDocumentVersion,
 } from "../controllers/documentVersionController.js";
+import {
+  createWikiPage,
+  getWikiPagesByProject,
+  getWikiHome,
+  getWikiPageById,
+  updateWikiPage,
+  reorderWikiPages,
+  deleteWikiPage,
+} from "../controllers/wikiController.js";
 
 const router = express.Router();
 
 router.use(authRequired);
+
+// Wiki & Knowledge Base (DOC-07)
+router.post("/wiki", createWikiPage);
+router.get("/wiki/project/:projectId", getWikiPagesByProject);
+router.get("/wiki/project/:projectId/home", getWikiHome);
+router.post("/wiki/project/:projectId/reorder", reorderWikiPages);
+router.get("/wiki/:documentId", getWikiPageById);
+router.put("/wiki/:documentId", updateWikiPage);
+router.delete("/wiki/:documentId", deleteWikiPage);
 
 // Document CRUD & Sharing
 router.post("/", createDocument);

@@ -103,6 +103,29 @@ const documentSchema = new mongoose.Schema(
       type: [documentShareSchema],
       default: [],
     },
+    // Wiki / Knowledge Base extension (DOC-07)
+    isWiki: {
+      type: Boolean,
+      default: false,
+    },
+    isWikiHome: {
+      type: Boolean,
+      default: false,
+    },
+    parentWikiId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Document",
+      default: null,
+    },
+    wikiOrder: {
+      type: Number,
+      default: 0,
+    },
+    wikiSlug: {
+      type: String,
+      default: null,
+      trim: true,
+    },
   },
   { timestamps: true }
 );
@@ -114,5 +137,8 @@ documentSchema.index({ teamId: 1 });
 documentSchema.index({ createdBy: 1 });
 documentSchema.index({ projectId: 1, title: 1 });
 documentSchema.index({ "shares.userId": 1 });
+documentSchema.index({ projectId: 1, isWiki: 1, isArchived: 1 });
+documentSchema.index({ projectId: 1, parentWikiId: 1, wikiOrder: 1 });
+documentSchema.index({ projectId: 1, isWikiHome: 1 });
 
 export default mongoose.model("Document", documentSchema);

@@ -5,6 +5,7 @@ import {
   getProjects,
   deleteProject,
   getProjectMembers,
+  getProjectById,
 } from "../controllers/projectController.js";
 
 const router = express.Router();
@@ -13,6 +14,7 @@ router.use(authRequired);
 
 router.post("/", createProject);
 router.get("/", getProjects);
+router.get("/:projectId", getProjectById);
 router.delete("/:projectId", deleteProject);
 
 //get members of the project's team

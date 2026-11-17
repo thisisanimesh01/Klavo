@@ -692,3 +692,54 @@ Restoring a previous document revision **never erases, rewinds, or truncates** r
 - `GET /api/documents/:documentId/versions/:versionId` — Retrieves full details of a specific revision (`canRead` required).
 - `GET /api/documents/:documentId/versions/compare` — Computes sanitized visual word-level diff between versions or against current document (`canRead` required).
 - `POST /api/documents/:documentId/versions/:versionId/restore` — Restores document content non-destructively and synchronizes collaboration state (`canEdit` required).
+
+---
+
+## 25. Project Wiki & Knowledge Base (DOC-07)
+
+### Data Architecture & Tenancy:
+The Wiki Knowledge Base builds directly on Klavo's unified document storage model while introducing project-scoped hierarchy and landing features:
+- **`isWiki` (Boolean)**: Identifies knowledge base articles and partitions them cleanly from arbitrary unfiled files/documents.
+- **`isWikiHome` (Boolean)**: Designates the primary Project Wiki Landing Page. At most one document per project is marked as `isWikiHome: true`. If none exists or a project wiki is first accessed, a default landing page is automatically created or designated.
+- **`parentWikiId` (ObjectId referencing `Document`)**: Establishes infinite hierarchical page nesting. Must strictly belong to the same `projectId`.
+- **`wikiOrder` (Number)**: Monotonic sibling ordering within a parent topic.
+- **`wikiSlug` (String)**: URL-friendly identifier derived from page title.
+- **Compound Indexes**:
+  - `{ projectId: 1, isWiki: 1, isArchived: 1 }`: Fast retrieval of project-scoped knowledge bases.
+  - `{ projectId: 1, parentWikiId: 1, wikiOrder: 1 }`: Accelerated hierarchical tree queries.
+  - `{ projectId: 1, isWikiHome: 1 }`: Instant home page resolution.
+
+### Anti-Circular Nesting & Safe Reparenting:
+- **Cycle Prevention (`checkCircularWikiNesting`)**: Moving or reparenting a wiki page checks transitive ancestors. Any operation where a page attempts to become a child of itself or one of its descendants is rejected with `400 Bad Request`.
+- **Safe Cascade Reparenting on Deletion**: When a parent wiki page is deleted, its immediate child pages are non-destructively reparented to the deleted page's `parentWikiId` (or `null`/root) to eliminate orphaned nodes.
+- **Project Isolation**: Setting `parentWikiId` or moving pages across different projects is rejected, ensuring strict tenant isolation.
+
+### Permissions & Security Matrix:
+All wiki pages inherit granular document access rules (`resolveDocumentAccess`):
+| Action | Required Permission / Role |
+| :--- | :--- |
+| **View Wiki Tree & Pages** | Project Member with `canRead` (Viewer, Commenter, Editor, Owner) |
+| **Search Knowledge Base** | Project Member with `canRead` |
+| **Create New Wiki Page** | Project Member (`canEdit`) |
+| **Edit Wiki Content / Auto-save** | `canEdit` (Editor or Owner) |
+| **Reparent / Reorder Pages** | `canEdit` (Editor or Owner) |
+| **Designate Wiki Home** | `canManagePermissions` (Owner) |
+| **Manage Direct Shares** | `canManagePermissions` (Owner) |
+| **Delete Wiki Page** | `canDelete` (Owner or Team Owner) |
+| **Restore Previous Revision** | `canEdit` (Editor or Owner) |
+
+### Real-Time Synchronization & Events:
+- `wikiPageCreated`: Broadcast to `project_${projectId}` when a page is added.
+- `wikiPageUpdated`: Broadcast to `project_${projectId}` when content, title, or parent topic changes.
+- `wikiPageDeleted`: Broadcast to `project_${projectId}` and active collaboration room.
+- `wikiTreeReordered`: Broadcast when sibling ordering is updated in bulk.
+- Seamless real-time collaborative editing via Yjs (`doc_collab_${documentId}`) and discussions/comments (DOC-05).
+
+### API Endpoints:
+- `POST /api/documents/wiki` — Creates a new wiki page (`canEdit` required).
+- `GET /api/documents/wiki/project/:projectId` — Retrieves all wiki pages and nested tree hierarchy for a project (`canRead` required).
+- `GET /api/documents/wiki/project/:projectId/home` — Retrieves or lazily creates the project wiki landing page (`canRead` required).
+- `POST /api/documents/wiki/project/:projectId/reorder` — Reorders sibling wiki pages in bulk (`canEdit` required).
+- `GET /api/documents/wiki/:documentId` — Retrieves a specific wiki page with resolved breadcrumbs and child topics (`canRead` required).
+- `PUT /api/documents/wiki/:documentId` — Updates wiki content, title, home status, or parent hierarchy (`canEdit` required).
+- `DELETE /api/documents/wiki/:documentId` — Deletes wiki page and reparents child pages (`canDelete` required).

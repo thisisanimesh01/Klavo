@@ -11,6 +11,7 @@ import Calendar from "./pages/Calendar";
 import Files from "./pages/Files";
 import Analytics from "./pages/Analytics";
 import Documents from "./pages/Documents";
+import Wiki from "./pages/Wiki";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./layout/Layout";
 
@@ -78,6 +79,24 @@ export default function App() {
             element={
               <Layout>
                 <Documents />
+              </Layout>
+            }
+          />
+
+          {/* Project Wiki & Knowledge Base (DOC-07) */}
+          <Route
+            path="/wiki/:projectId"
+            element={
+              <Layout>
+                <Wiki />
+              </Layout>
+            }
+          />
+          <Route
+            path="/wiki/:projectId/:documentId"
+            element={
+              <Layout>
+                <Wiki />
               </Layout>
             }
           />
