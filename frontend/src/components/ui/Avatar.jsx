@@ -63,6 +63,8 @@ export const Avatar = ({
         <img
           src={src}
           alt={name}
+          loading="lazy"
+          decoding="async"
           className={`${sizeMap[size] || sizeMap.md} rounded-full object-cover border border-slate-700/60 shadow-sm`}
         />
       ) : (
