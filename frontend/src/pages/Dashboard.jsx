@@ -83,7 +83,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-6" style={{ color: "var(--text-main)" }}>
       {/* Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
         <StatCard label="Projects" value={stats.projectCount} />
         <StatCard label="Tasks" value={stats.taskCount} />
         <StatCard label="Completed" value={stats.completedCount} color="text-green-500" />
@@ -223,16 +223,16 @@ export default function Dashboard() {
       </div>
 
       {/* Action Buttons */}
-      <div className="flex gap-4 pt-2">
+      <div className="flex flex-wrap gap-3 sm:gap-4 pt-2">
         <Link
-          className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl text-sm font-semibold transition shadow-sm"
+          className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 sm:px-6 py-2.5 rounded-xl text-sm font-semibold transition shadow-sm text-center flex-1 sm:flex-none min-h-[44px] flex items-center justify-center"
           to="/teams"
         >
           Manage Teams
         </Link>
 
         <Link
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-xl text-sm font-semibold transition shadow-sm"
+          className="bg-blue-600 hover:bg-blue-700 text-white px-5 sm:px-6 py-2.5 rounded-xl text-sm font-semibold transition shadow-sm text-center flex-1 sm:flex-none min-h-[44px] flex items-center justify-center"
           to="/projects"
         >
           Manage Projects

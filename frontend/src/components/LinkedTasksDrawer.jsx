@@ -72,7 +72,7 @@ export default function LinkedTasksDrawer({
   if (!isOpen) return null;
 
   return (
-    <aside className="w-80 border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 flex flex-col shadow-lg z-10 h-full">
+    <aside className="fixed md:static inset-y-0 right-0 z-40 md:z-auto w-full sm:w-80 border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0 flex flex-col shadow-2xl md:shadow-lg h-full">
       {/* Header */}
       <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-2">

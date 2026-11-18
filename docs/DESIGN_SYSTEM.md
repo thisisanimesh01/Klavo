@@ -194,3 +194,24 @@ Located under [`frontend/src/components/ui/`](file:///Users/animeshyadav/Desktop
 4. Replace raw badge spans with `Badge`.
 5. Replace loading spinners and zero-item notices with `LoadingState` and `EmptyState`.
 6. Replace custom modal overlays with `Modal`.
+
+---
+
+## 5. Responsive Mobile & Tablet Experience (UX-02)
+
+### Breakpoint Strategy
+Standardized responsive viewport breakpoints configured in `tokens.js` and `tailwind.config.js`:
+- `xs: 360px` — Small mobile viewports (portrait phones, iPhone SE, compact Androids).
+- `sm: 640px` — Standard mobile & phablet screens.
+- `md: 768px` — Tablet portrait & split-screen desktop views.
+- `lg: 1024px` — Tablet landscape & standard laptop views.
+- `xl: 1280px` — Full desktop monitors.
+- `2xl: 1536px` — Large ultrawide displays.
+
+### Mobile Navigation & Layout Rules
+- **Sidebar Drawer**: On mobile/tablet (`< md`), the primary sidebar transforms into an off-canvas drawer with backdrop overlay, smoothly opening via the `Topbar` hamburger button and closing automatically upon link selection or backdrop click.
+- **Kanban Board**: Provides quick column tabs (`All Columns`, `Todo`, `In Progress`, `Review`, `Done`) on small screens, allowing focused single-column interactions without losing drag-and-drop or card actions.
+- **Documents & Wiki Tree**: Document tree navigation operates as an off-canvas slide-out drawer on `< md` screens with a quick toggle button in the header, keeping the editor distraction-free.
+- **Tables & Gantt Timelines**: Enclosed in horizontal scroll wrappers (`overflow-x-auto`) to guarantee zero page-level layout shifts or body overflow.
+- **Modals & Dialogs**: Constrained to viewport-safe bounds (`max-h-[92vh]`, `p-2 sm:p-4`), with interior scrolling and safe-touch close buttons.
+- **Touch Target Standard**: Primary interactive controls adhere to minimum 40px–44px touch targets on coarse pointer devices.

@@ -36,6 +36,7 @@ import {
   MessageSquare,
   BookOpen,
   CheckSquare,
+  Menu,
 } from "lucide-react";
 
 export default function Documents() {
@@ -61,6 +62,7 @@ export default function Documents() {
   const [collabProvider, setCollabProvider] = useState(null);
   // Session key to force clean provider & TipTap unmount/remount on authoritative restoration
   const [collabSessionEpoch, setCollabSessionEpoch] = useState(1);
+  const [mobileDocsNavOpen, setMobileDocsNavOpen] = useState(false);
 
   // Comments & Discussions State (DOC-05)
   const [comments, setComments] = useState([]);
@@ -543,9 +545,19 @@ export default function Documents() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 overflow-hidden font-sans">
+    <div className="flex h-screen bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 overflow-hidden font-sans relative">
+      {/* Mobile Drawer Backdrop */}
+      {mobileDocsNavOpen && (
+        <div
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-30 md:hidden animate-fade-in"
+          onClick={() => setMobileDocsNavOpen(false)}
+        />
+      )}
+
       {/* Sidebar: Navigation, Folders & Documents Tree */}
-      <div className="w-80 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col h-full shadow-xs">
+      <div className={`fixed md:static inset-y-0 left-0 z-40 md:z-auto w-80 shrink-0 border-r border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col h-full shadow-xs transition-transform duration-300 ease-in-out ${
+        mobileDocsNavOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+      }`}>
         {/* Sidebar Header */}
         <div className="p-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2 font-bold text-slate-900 dark:text-white">
@@ -679,6 +691,7 @@ export default function Documents() {
                   setSelectedDoc(doc);
                   setTitle(doc.title);
                   contentRef.current = doc.content;
+                  setMobileDocsNavOpen(false);
                 }}
                 className={`group flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition border ${
                   isSelected
@@ -720,8 +733,17 @@ export default function Documents() {
       {/* Main Document Content Area */}
       <div className="flex-1 flex flex-col h-full overflow-hidden bg-white dark:bg-slate-900">
         {/* Top Navbar */}
-        <div className="h-14 border-b border-slate-200 dark:border-slate-800 px-6 flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-3">
+        <div className="h-14 border-b border-slate-200 dark:border-slate-800 px-3 sm:px-6 flex items-center justify-between shrink-0 gap-2">
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* Mobile Document Drawer Trigger */}
+            <button
+              onClick={() => setMobileDocsNavOpen(true)}
+              className="md:hidden p-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition min-w-[36px] min-h-[36px] flex items-center justify-center"
+              aria-label="Open document tree"
+            >
+              <Menu size={20} />
+            </button>
+
             {/* Status indicator */}
             <div className="flex items-center gap-1.5 text-xs text-slate-500">
               {saveStatus === "saving" && (
@@ -848,7 +870,7 @@ export default function Documents() {
         {/* Editor & Content Canvas Container */}
         {selectedDoc ? (
           <div className="flex-1 flex overflow-hidden">
-            <div className="flex-1 overflow-y-auto p-8 max-w-4xl mx-auto w-full space-y-4">
+            <div className="flex-1 overflow-y-auto p-3 sm:p-6 md:p-8 max-w-4xl mx-auto w-full space-y-4">
               {/* Document Title Input */}
               <input
                 type="text"
@@ -856,7 +878,7 @@ export default function Documents() {
                 onChange={handleTitleChange}
                 disabled={!canEditCurrentDoc}
                 placeholder="Untitled Document"
-                className={`w-full text-3xl font-extrabold bg-transparent border-b border-transparent focus:border-slate-300 dark:focus:border-slate-700 focus:outline-hidden pb-2 tracking-tight transition ${
+                className={`w-full text-xl sm:text-2xl md:text-3xl font-extrabold bg-transparent border-b border-transparent focus:border-slate-300 dark:focus:border-slate-700 focus:outline-hidden pb-2 tracking-tight transition ${
                   canEditCurrentDoc
                     ? "text-slate-900 dark:text-white"
                     : "cursor-default"

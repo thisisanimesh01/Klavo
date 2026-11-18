@@ -95,6 +95,7 @@ export default function Kanban() {
   const [sortBy, setSortBy] = useState("order");
   const [sortOrder, setSortOrder] = useState("asc");
   const [groupBy, setGroupBy] = useState("none");
+  const [mobileColumnId, setMobileColumnId] = useState("all");
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -731,8 +732,8 @@ export default function Kanban() {
         </header>
 
         {/* Tab switcher */}
-        <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-800">
-          <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-1 sm:pb-0">
+          <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar py-1">
             {[
               { id: "board", label: "Kanban Board" },
               { id: "backlog", label: "Product Backlog" },
@@ -742,7 +743,7 @@ export default function Kanban() {
             ].map((tab) => (
               <button
                 key={tab.id}
-                className={`px-4 py-2 text-sm font-medium transition ${
+                className={`px-3 sm:px-4 py-2 text-xs sm:text-sm font-medium transition whitespace-nowrap min-h-[40px] flex items-center ${
                   activeTab === tab.id
                     ? "border-b-2 border-indigo-600 text-indigo-600 font-semibold"
                     : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
@@ -756,7 +757,7 @@ export default function Kanban() {
 
           <button
             onClick={() => navigate(`/analytics/${projectId}`)}
-            className="flex items-center gap-1.5 px-3 py-1.5 mb-1 text-xs font-medium rounded-lg text-indigo-500 hover:text-indigo-400 hover:bg-indigo-500/10 border border-indigo-500/20 transition"
+            className="self-end sm:self-auto flex items-center gap-1.5 px-3 py-1.5 mb-1 text-xs font-medium rounded-lg text-indigo-500 hover:text-indigo-400 hover:bg-indigo-500/10 border border-indigo-500/20 transition min-h-[36px]"
             title="Open Project Analytics Dashboard"
           >
             <BarChart2 size={14} />
@@ -963,23 +964,68 @@ export default function Kanban() {
 
             {/* Standard DragDrop Board Columns when groupBy === 'none' */}
             {groupBy === "none" && (
-              <DragDropContext onDragEnd={handleDragEnd}>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="space-y-3">
+                {/* Mobile Column Quick Selector / Tabs (< md) */}
+                <div className="flex md:hidden items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
+                  <button
+                    onClick={() => setMobileColumnId("all")}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition min-h-[36px] flex items-center gap-1.5 border ${
+                      mobileColumnId === "all"
+                        ? "bg-indigo-600 text-white border-indigo-500 shadow-xs"
+                        : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800"
+                    }`}
+                  >
+                    <span>All Columns</span>
+                    <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/10 dark:bg-white/10 font-bold">
+                      {tasks.length}
+                    </span>
+                  </button>
                   {boardColumns.map((col) => {
-                    const columnTasks = tasksByStatus(col.id);
-
+                    const colCount = tasksByStatus(col.id).length;
+                    const isSelected = mobileColumnId === col.id;
                     return (
-                      <Droppable key={col.id} droppableId={col.id}>
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.droppableProps}
-                            className={`flex flex-col bg-slate-50/70 dark:bg-slate-900/50 rounded-2xl p-3 border border-slate-200/60 dark:border-slate-800/80 min-h-[600px] transition-colors ${
-                              snapshot.isDraggingOver
-                                ? "bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-300"
-                                : ""
-                            }`}
-                          >
+                      <button
+                        key={col.id}
+                        onClick={() => setMobileColumnId(col.id)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition min-h-[36px] flex items-center gap-1.5 border ${
+                          isSelected
+                            ? "bg-indigo-600 text-white border-indigo-500 shadow-xs"
+                            : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800"
+                        }`}
+                      >
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: col.color || "#6366f1" }}
+                        />
+                        <span>{col.title}</span>
+                        <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/10 dark:bg-white/10 font-bold">
+                          {colCount}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <DragDropContext onDragEnd={handleDragEnd}>
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    {boardColumns.map((col) => {
+                      const columnTasks = tasksByStatus(col.id);
+                      const isHiddenOnMobile = mobileColumnId !== "all" && mobileColumnId !== col.id;
+
+                      return (
+                        <Droppable key={col.id} droppableId={col.id}>
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.droppableProps}
+                              className={`flex flex-col bg-slate-50/70 dark:bg-slate-900/50 rounded-2xl p-3 border border-slate-200/60 dark:border-slate-800/80 min-h-[400px] md:min-h-[600px] transition-colors ${
+                                isHiddenOnMobile ? "hidden md:flex" : "flex"
+                              } ${
+                                snapshot.isDraggingOver
+                                  ? "bg-indigo-50/50 dark:bg-indigo-950/20 border-indigo-300"
+                                  : ""
+                              }`}
+                            >
                             {/* Column Header */}
                             <div
                               className="flex items-center justify-between pb-3 px-1 border-t-2"
@@ -1154,6 +1200,7 @@ export default function Kanban() {
                   })}
                 </div>
               </DragDropContext>
+            </div>
             )}
           </div>
         )}

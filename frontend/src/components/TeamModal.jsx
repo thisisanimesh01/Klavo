@@ -20,8 +20,8 @@ export default function TeamModal({ open, onClose, onSuccess }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="app-card p-6 rounded-lg w-96 shadow">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-xs flex items-center justify-center z-50 p-3 overflow-y-auto">
+      <div className="app-card p-5 sm:p-6 rounded-2xl w-full max-w-sm shadow-xl my-auto">
         <h2 className="text-xl font-semibold mb-4">Create New Team</h2>
         <form onSubmit={handleSubmit}>
           <input

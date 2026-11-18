@@ -84,7 +84,7 @@ export default function DocumentCommentsPanel({
   };
 
   return (
-    <div className="w-88 border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col h-full shadow-lg shrink-0">
+    <div className="fixed md:static inset-y-0 right-0 z-40 md:z-auto w-full sm:w-88 border-l border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col h-full shadow-2xl md:shadow-lg shrink-0">
       {/* Panel Header */}
       <div className="p-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
         <div className="flex items-center gap-2">

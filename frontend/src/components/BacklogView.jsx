@@ -324,145 +324,147 @@ export default function BacklogView({
         </div>
 
         {/* Backlog List with Drag & Drop */}
-        <div className="app-card border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-sm">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 text-xs font-semibold text-slate-400">
-            <div className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                className="rounded text-indigo-600 cursor-pointer"
-                checked={
-                  filteredBacklogTasks.length > 0 &&
-                  selectedTaskIds.length === filteredBacklogTasks.length
-                }
-                onChange={handleSelectAllBacklog}
-              />
-              <span>RANK & TITLE</span>
+        <div className="app-card border border-slate-200 dark:border-slate-800 rounded-2xl p-3 sm:p-4 shadow-sm overflow-x-auto">
+          <div className="min-w-[640px] md:min-w-0">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800 text-xs font-semibold text-slate-400">
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  className="rounded text-indigo-600 cursor-pointer min-w-[16px] min-h-[16px]"
+                  checked={
+                    filteredBacklogTasks.length > 0 &&
+                    selectedTaskIds.length === filteredBacklogTasks.length
+                  }
+                  onChange={handleSelectAllBacklog}
+                />
+                <span>RANK & TITLE</span>
+              </div>
+              <div className="flex items-center gap-8">
+                <span>PRIORITY</span>
+                <span>ESTIMATE</span>
+                <span>DUE DATE</span>
+              </div>
             </div>
-            <div className="flex items-center gap-8">
-              <span>PRIORITY</span>
-              <span>ESTIMATE</span>
-              <span>DUE DATE</span>
-            </div>
-          </div>
 
-          {filteredBacklogTasks.length === 0 ? (
-            <div className="py-12 text-center text-xs text-slate-400">
-              No items in the backlog. Click "Add Backlog Item" to create tasks.
-            </div>
-          ) : (
-            <DragDropContext onDragEnd={handleDragEnd}>
-              <Droppable droppableId="backlog-items">
-                {(provided) => (
-                  <div
-                    ref={provided.innerRef}
-                    {...provided.droppableProps}
-                    className="divide-y divide-slate-100 dark:divide-slate-800/80"
-                  >
-                    {filteredBacklogTasks.map((task, index) => {
-                      const isSelected = selectedTaskIds.includes(task._id);
+            {filteredBacklogTasks.length === 0 ? (
+              <div className="py-12 text-center text-xs text-slate-400">
+                No items in the backlog. Click "Add Backlog Item" to create tasks.
+              </div>
+            ) : (
+              <DragDropContext onDragEnd={handleDragEnd}>
+                <Droppable droppableId="backlog-items">
+                  {(provided) => (
+                    <div
+                      ref={provided.innerRef}
+                      {...provided.droppableProps}
+                      className="divide-y divide-slate-100 dark:divide-slate-800/80"
+                    >
+                      {filteredBacklogTasks.map((task, index) => {
+                        const isSelected = selectedTaskIds.includes(task._id);
 
-                      return (
-                        <Draggable
-                          key={task._id}
-                          draggableId={task._id}
-                          index={index}
-                        >
-                          {(prov, snapshot) => (
-                            <div
-                              ref={prov.innerRef}
-                              {...prov.draggableProps}
-                              className={`py-3 px-2 flex items-center justify-between gap-4 text-xs transition rounded-xl ${
-                                snapshot.isDragging
-                                  ? "bg-indigo-50 dark:bg-indigo-950/80 shadow-md ring-1 ring-indigo-500"
-                                  : isSelected
-                                  ? "bg-indigo-50/40 dark:bg-indigo-950/30"
-                                  : "hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                              }`}
-                            >
-                              {/* Left: Drag Handle, Select, Title */}
-                              <div className="flex items-center gap-3 flex-1 min-w-0">
-                                <div
-                                  {...prov.dragHandleProps}
-                                  className="text-slate-400 hover:text-slate-600 cursor-grab active:cursor-grabbing p-1"
-                                >
-                                  <GripVertical className="w-4 h-4" />
-                                </div>
-
-                                <input
-                                  type="checkbox"
-                                  className="rounded text-indigo-600 cursor-pointer"
-                                  checked={isSelected}
-                                  onChange={() => handleToggleSelectTask(task._id)}
-                                />
-
-                                <span className="font-mono text-slate-400 text-[11px] w-6 text-right">
-                                  #{index + 1}
-                                </span>
-
-                                <div
-                                  onClick={() => onOpenEditTask(task)}
-                                  className="cursor-pointer font-semibold text-slate-800 dark:text-slate-100 truncate hover:text-indigo-600"
-                                >
-                                  {task.title}
-                                </div>
-
-                                {task.labels?.map((lbl, idx) => (
-                                  <span
-                                    key={idx}
-                                    className="px-2 py-0.5 rounded text-[10px] font-medium text-white shadow-xs shrink-0"
-                                    style={{ backgroundColor: lbl.color || "#6366f1" }}
+                        return (
+                          <Draggable
+                            key={task._id}
+                            draggableId={task._id}
+                            index={index}
+                          >
+                            {(prov, snapshot) => (
+                              <div
+                                ref={prov.innerRef}
+                                {...prov.draggableProps}
+                                className={`py-3 px-2 flex items-center justify-between gap-4 text-xs transition rounded-xl ${
+                                  snapshot.isDragging
+                                    ? "bg-indigo-50 dark:bg-indigo-950/80 shadow-md ring-1 ring-indigo-500"
+                                    : isSelected
+                                    ? "bg-indigo-50/40 dark:bg-indigo-950/30"
+                                    : "hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                                }`}
+                              >
+                                {/* Left: Drag Handle, Select, Title */}
+                                <div className="flex items-center gap-3 flex-1 min-w-0">
+                                  <div
+                                    {...prov.dragHandleProps}
+                                    className="text-slate-400 hover:text-slate-600 cursor-grab active:cursor-grabbing p-1.5"
                                   >
-                                    {lbl.name}
+                                    <GripVertical className="w-4 h-4" />
+                                  </div>
+
+                                  <input
+                                    type="checkbox"
+                                    className="rounded text-indigo-600 cursor-pointer min-w-[16px] min-h-[16px]"
+                                    checked={isSelected}
+                                    onChange={() => handleToggleSelectTask(task._id)}
+                                  />
+
+                                  <span className="font-mono text-slate-400 text-[11px] w-6 text-right shrink-0">
+                                    #{index + 1}
                                   </span>
-                                ))}
-                              </div>
 
-                              {/* Right: Priority, Estimate, Due Date */}
-                              <div className="flex items-center gap-6 shrink-0">
-                                <div className="flex items-center gap-1.5">
-                                  <PriorityBadge priority={task.priority} />
-                                  {task.isBlocked && task.status !== "done" && (
+                                  <div
+                                    onClick={() => onOpenEditTask(task)}
+                                    className="cursor-pointer font-semibold text-slate-800 dark:text-slate-100 truncate hover:text-indigo-600"
+                                  >
+                                    {task.title}
+                                  </div>
+
+                                  {task.labels?.map((lbl, idx) => (
                                     <span
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 dark:bg-red-950/80 dark:text-red-300"
-                                      title="Blocked by incomplete dependency"
+                                      key={idx}
+                                      className="px-2 py-0.5 rounded text-[10px] font-medium text-white shadow-xs shrink-0 hidden sm:inline-block"
+                                      style={{ backgroundColor: lbl.color || "#6366f1" }}
                                     >
-                                      <ShieldAlert className="w-3 h-3" /> BLOCKED
+                                      {lbl.name}
                                     </span>
-                                  )}
-                                  {task.totalSubtasks > 0 && (
-                                    <span
-                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400"
-                                      title="Subtask progress"
-                                    >
-                                      <CornerDownRight className="w-3 h-3" /> {task.completedSubtasks}/{task.totalSubtasks}
-                                    </span>
-                                  )}
+                                  ))}
                                 </div>
 
-                                <div className="w-16 text-right font-medium text-slate-600 dark:text-slate-300">
-                                  {task.estimatedHours ? `${task.estimatedHours}h` : "—"}
-                                </div>
+                                {/* Right: Priority, Estimate, Due Date */}
+                                <div className="flex items-center gap-4 sm:gap-6 shrink-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <PriorityBadge priority={task.priority} />
+                                    {task.isBlocked && task.status !== "done" && (
+                                      <span
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 dark:bg-red-950/80 dark:text-red-300"
+                                        title="Blocked by incomplete dependency"
+                                      >
+                                        <ShieldAlert className="w-3 h-3" /> BLOCKED
+                                      </span>
+                                    )}
+                                    {task.totalSubtasks > 0 && (
+                                      <span
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-600 dark:bg-indigo-950/60 dark:text-indigo-400"
+                                        title="Subtask progress"
+                                      >
+                                        <CornerDownRight className="w-3 h-3" /> {task.completedSubtasks}/{task.totalSubtasks}
+                                      </span>
+                                    )}
+                                  </div>
 
-                                <div className="w-24 text-right text-slate-400">
-                                  {task.dueDate
-                                    ? new Date(task.dueDate).toLocaleDateString(undefined, {
-                                        month: "short",
-                                        day: "numeric",
-                                      })
-                                    : "—"}
+                                  <div className="w-14 sm:w-16 text-right font-medium text-slate-600 dark:text-slate-300">
+                                    {task.estimatedHours ? `${task.estimatedHours}h` : "—"}
+                                  </div>
+
+                                  <div className="w-20 sm:w-24 text-right text-slate-400">
+                                    {task.dueDate
+                                      ? new Date(task.dueDate).toLocaleDateString(undefined, {
+                                          month: "short",
+                                          day: "numeric",
+                                        })
+                                      : "—"}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          )}
-                        </Draggable>
-                      );
-                    })}
-                    {provided.placeholder}
-                  </div>
-                )}
-              </Droppable>
-            </DragDropContext>
-          )}
+                            )}
+                          </Draggable>
+                        );
+                      })}
+                      {provided.placeholder}
+                    </div>
+                  )}
+                </Droppable>
+              </DragDropContext>
+            )}
+          </div>
         </div>
       </div>
     </div>
