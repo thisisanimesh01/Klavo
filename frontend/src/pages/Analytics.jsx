@@ -827,11 +827,11 @@ export default function Analytics() {
       </div>
 
       {/* Navigation Tabs (Overview vs Health vs Capacity vs Cycle Time vs Sprints vs Custom Reports) */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-        <div className="flex flex-wrap gap-2">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-800 pb-2">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-1">
           <button
             onClick={() => setActiveTab("overview")}
-            className={`px-4 py-2 text-sm font-medium rounded-xl transition flex items-center gap-2 ${
+            className={`px-3 py-2 text-xs sm:text-sm font-medium rounded-xl transition flex items-center gap-1.5 shrink-0 whitespace-nowrap min-h-[40px] ${
               activeTab === "overview"
                 ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-semibold"
                 : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
@@ -843,31 +843,31 @@ export default function Analytics() {
 
           <button
             onClick={() => setActiveTab("health")}
-            className={`px-4 py-2 text-sm font-medium rounded-xl transition flex items-center gap-2 ${
+            className={`px-3 py-2 text-xs sm:text-sm font-medium rounded-xl transition flex items-center gap-1.5 shrink-0 whitespace-nowrap min-h-[40px] ${
               activeTab === "health"
                 ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-semibold"
                 : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
             }`}
           >
             <HeartPulse size={16} className="text-emerald-400" />
-            <span>Project Health & Progress</span>
+            <span>Health & Progress</span>
           </button>
 
           <button
             onClick={() => setActiveTab("capacity")}
-            className={`px-4 py-2 text-sm font-medium rounded-xl transition flex items-center gap-2 ${
+            className={`px-3 py-2 text-xs sm:text-sm font-medium rounded-xl transition flex items-center gap-1.5 shrink-0 whitespace-nowrap min-h-[40px] ${
               activeTab === "capacity"
                 ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-semibold"
                 : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
             }`}
           >
             <Users size={16} className="text-blue-400" />
-            <span>Team Workload & Capacity</span>
+            <span>Workload & Capacity</span>
           </button>
 
           <button
             onClick={() => setActiveTab("cycle_time")}
-            className={`px-4 py-2 text-sm font-medium rounded-xl transition flex items-center gap-2 ${
+            className={`px-3 py-2 text-xs sm:text-sm font-medium rounded-xl transition flex items-center gap-1.5 shrink-0 whitespace-nowrap min-h-[40px] ${
               activeTab === "cycle_time"
                 ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-semibold"
                 : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
@@ -879,7 +879,7 @@ export default function Analytics() {
 
           <button
             onClick={() => setActiveTab("sprints")}
-            className={`px-4 py-2 text-sm font-medium rounded-xl transition flex items-center gap-2 ${
+            className={`px-3 py-2 text-xs sm:text-sm font-medium rounded-xl transition flex items-center gap-1.5 shrink-0 whitespace-nowrap min-h-[40px] ${
               activeTab === "sprints"
                 ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-semibold"
                 : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
@@ -891,19 +891,19 @@ export default function Analytics() {
 
           <button
             onClick={() => setActiveTab("custom_reports")}
-            className={`px-4 py-2 text-sm font-medium rounded-xl transition flex items-center gap-2 ${
+            className={`px-3 py-2 text-xs sm:text-sm font-medium rounded-xl transition flex items-center gap-1.5 shrink-0 whitespace-nowrap min-h-[40px] ${
               activeTab === "custom_reports"
                 ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-semibold"
                 : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
             }`}
           >
             <FileText size={16} className="text-cyan-400" />
-            <span>Custom Reports & Filters</span>
+            <span>Custom Reports</span>
           </button>
 
           <button
             onClick={() => setActiveTab("workspace")}
-            className={`px-4 py-2 text-sm font-medium rounded-xl transition flex items-center gap-2 ${
+            className={`px-3 py-2 text-xs sm:text-sm font-medium rounded-xl transition flex items-center gap-1.5 shrink-0 whitespace-nowrap min-h-[40px] ${
               activeTab === "workspace"
                 ? "bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-semibold"
                 : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"

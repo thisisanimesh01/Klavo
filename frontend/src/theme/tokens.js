@@ -123,12 +123,22 @@ export const transitions = {
   smooth: "all 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
 };
 
+export const breakpoints = {
+  xs: "360px",
+  sm: "640px",
+  md: "768px",
+  lg: "1024px",
+  xl: "1280px",
+  "2xl": "1536px",
+};
+
 const designTokens = {
   colors,
   typography,
   radii,
   shadows,
   transitions,
+  breakpoints,
 };
 
 export default designTokens;

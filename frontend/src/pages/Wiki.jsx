@@ -37,6 +37,7 @@ import {
   ArrowDown,
   Lock,
   CheckSquare,
+  Menu,
 } from "lucide-react";
 
 export default function Wiki() {
@@ -68,6 +69,7 @@ export default function Wiki() {
 
   // Linked Tasks Drawer (DOC-08)
   const [linkedTasksOpen, setLinkedTasksOpen] = useState(false);
+  const [mobileWikiNavOpen, setMobileWikiNavOpen] = useState(false);
 
   // Modals & Organization State
   const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -413,7 +415,10 @@ export default function Wiki() {
     return (
       <div key={node._id} className="select-none">
         <div
-          onClick={() => navigate(`/wiki/${projectId}/${node._id}`)}
+          onClick={() => {
+            navigate(`/wiki/${projectId}/${node._id}`);
+            setMobileWikiNavOpen(false);
+          }}
           style={{ paddingLeft: `${depth * 14 + 10}px` }}
           className={`flex items-center justify-between py-1.5 pr-2 rounded-lg text-xs font-medium cursor-pointer transition group ${
             isSelected
@@ -471,27 +476,36 @@ export default function Wiki() {
   };
 
   return (
-    <div className="min-h-screen app-bg flex flex-col">
+    <div className="min-h-screen app-bg flex flex-col relative">
       {/* Top Navbar */}
-      <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-4 py-3 flex items-center justify-between shadow-xs sticky top-0 z-20">
-        <div className="flex items-center gap-3">
+      <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 px-3 sm:px-4 py-3 flex items-center justify-between shadow-xs sticky top-0 z-20">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          {/* Mobile Wiki Drawer Button */}
+          <button
+            onClick={() => setMobileWikiNavOpen(true)}
+            className="md:hidden p-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition min-w-[36px] min-h-[36px] flex items-center justify-center shrink-0"
+            aria-label="Open wiki pages tree"
+          >
+            <Menu size={20} />
+          </button>
+
           <Link
             to={projectId ? `/kanban/${projectId}` : "/projects"}
-            className="flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-indigo-600 transition"
+            className="hidden sm:flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-indigo-600 transition shrink-0"
           >
             <ChevronRight className="rotate-180 w-4 h-4" />
-            Back to Project
+            Back
           </Link>
-          <span className="text-slate-300 dark:text-slate-700">|</span>
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+          <span className="hidden sm:inline text-slate-300 dark:text-slate-700">|</span>
+          <div className="flex items-center gap-2 min-w-0 truncate">
+            <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs shrink-0">
               <BookOpen size={16} />
             </div>
-            <div>
-              <h1 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">
-                {project?.name || "Project"} Wiki & Knowledge Base
+            <div className="min-w-0 truncate">
+              <h1 className="text-xs sm:text-sm font-bold text-slate-900 dark:text-white leading-tight truncate">
+                {project?.name || "Project"} Wiki
               </h1>
-              <p className="text-[11px] text-slate-500">
+              <p className="text-[10px] sm:text-[11px] text-slate-500 truncate hidden sm:block">
                 Hierarchical team documentation, architecture guides, and specs
               </p>
             </div>
@@ -604,9 +618,19 @@ export default function Wiki() {
       </header>
 
       {/* Main Content Workspace */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden relative">
+        {/* Mobile Drawer Backdrop */}
+        {mobileWikiNavOpen && (
+          <div
+            className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-30 md:hidden animate-fade-in"
+            onClick={() => setMobileWikiNavOpen(false)}
+          />
+        )}
+
         {/* Wiki Hierarchy Sidebar */}
-        <aside className="w-72 border-r border-slate-200 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 backdrop-blur-md flex flex-col shrink-0">
+        <aside className={`fixed md:static inset-y-0 left-0 z-40 md:z-auto w-72 border-r border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md flex flex-col shrink-0 h-full shadow-2xl md:shadow-none transition-transform duration-300 ease-in-out ${
+          mobileWikiNavOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
+        }`}>
           {/* Sidebar Top: Search & Create */}
           <div className="p-3 border-b border-slate-200 dark:border-slate-800 space-y-2">
             <div className="flex items-center justify-between">
@@ -679,7 +703,7 @@ export default function Wiki() {
         {/* Wiki Article Viewer / Editor Workspace */}
         <main className="flex-1 flex flex-col min-w-0 bg-white dark:bg-slate-950 overflow-y-auto">
           {selectedPage ? (
-            <div className="max-w-4xl w-full mx-auto p-6 sm:p-10 space-y-6">
+            <div className="max-w-4xl w-full mx-auto p-3 sm:p-6 md:p-10 space-y-4 sm:space-y-6">
               {/* Breadcrumb Path */}
               <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 pb-2 border-b border-slate-100 dark:border-slate-900">
                 <Link
@@ -718,7 +742,7 @@ export default function Wiki() {
                         value={title}
                         onChange={handleTitleChange}
                         placeholder="Untitled Wiki Page"
-                        className="w-full text-3xl font-extrabold text-slate-900 dark:text-white bg-transparent border-none focus:outline-none focus:ring-0 placeholder-slate-300 dark:placeholder-slate-700 tracking-tight"
+                        className="w-full text-xl sm:text-2xl md:text-3xl font-extrabold text-slate-900 dark:text-white bg-transparent border-none focus:outline-none focus:ring-0 placeholder-slate-300 dark:placeholder-slate-700 tracking-tight"
                       />
                     ) : (
                       <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">

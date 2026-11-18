@@ -195,22 +195,23 @@ export default function GanttTimelineView({
       </div>
 
       {/* Main Gantt Grid Chart */}
-      <div className="app-card border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-hidden">
-        {/* Timeline Header Date Bar */}
-        <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 text-[11px] font-semibold text-slate-500">
-          <div className="w-72 shrink-0 p-3 border-r border-slate-200 dark:border-slate-800">
-            Milestone / Task Name
-          </div>
-          <div className="flex-1 relative p-3 overflow-hidden">
-            <div className="flex justify-between items-center text-slate-400">
-              <span>{timelineStart.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>
-              <span className="font-mono text-indigo-600 dark:text-indigo-400">
-                Today: {now.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-              </span>
-              <span>{timelineEnd.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>
+      <div className="app-card border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xs overflow-x-auto">
+        <div className="min-w-[700px] md:min-w-0">
+          {/* Timeline Header Date Bar */}
+          <div className="flex border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50 text-[11px] font-semibold text-slate-500">
+            <div className="w-56 sm:w-72 shrink-0 p-3 border-r border-slate-200 dark:border-slate-800">
+              Milestone / Task Name
+            </div>
+            <div className="flex-1 relative p-3 overflow-hidden">
+              <div className="flex justify-between items-center text-slate-400">
+                <span>{timelineStart.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>
+                <span className="font-mono text-indigo-600 dark:text-indigo-400">
+                  Today: {now.toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                </span>
+                <span>{timelineEnd.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })}</span>
+              </div>
             </div>
           </div>
-        </div>
 
         {/* Milestone Rows & Nested Tasks */}
         <div className="divide-y divide-slate-100 dark:divide-slate-800/80">
@@ -357,6 +358,7 @@ export default function GanttTimelineView({
               );
             })
           )}
+        </div>
         </div>
       </div>
     </div>

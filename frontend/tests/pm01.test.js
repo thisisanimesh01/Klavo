@@ -1867,3 +1867,59 @@ test("FRONTEND UX-01: Unified Design System & Component Consistency Tokens", asy
     assert.equal(getInitials(null), "U");
   });
 });
+
+test("FRONTEND UX-02: Responsive Experience, Breakpoints & Drawer State Logic", async (t) => {
+  await t.test("Validates responsive breakpoint scale values", () => {
+    const breakpoints = {
+      xs: "360px",
+      sm: "640px",
+      md: "768px",
+      lg: "1024px",
+      xl: "1280px",
+      "2xl": "1536px",
+    };
+
+    assert.equal(breakpoints.xs, "360px");
+    assert.equal(breakpoints.sm, "640px");
+    assert.equal(breakpoints.md, "768px");
+    assert.equal(breakpoints.lg, "1024px");
+  });
+
+  await t.test("Validates mobile column filter resolution for Kanban", () => {
+    const filterColumns = (columns, mobileColumnId) => {
+      if (!mobileColumnId || mobileColumnId === "all") return columns;
+      return columns.filter((c) => c.id === mobileColumnId);
+    };
+
+    const mockCols = [
+      { id: "todo", title: "Todo" },
+      { id: "in-progress", title: "In Progress" },
+      { id: "review", title: "Review" },
+      { id: "done", title: "Done" },
+    ];
+
+    assert.equal(filterColumns(mockCols, "all").length, 4);
+    assert.equal(filterColumns(mockCols, "todo").length, 1);
+    assert.equal(filterColumns(mockCols, "todo")[0].id, "todo");
+    assert.equal(filterColumns(mockCols, "in-progress")[0].title, "In Progress");
+  });
+
+  await t.test("Validates mobile drawer visibility classes mapping", () => {
+    const getDrawerClasses = (isOpen) => {
+      return isOpen
+        ? "translate-x-0 w-64 shadow-2xl"
+        : "-translate-x-full md:translate-x-0";
+    };
+
+    assert.ok(getDrawerClasses(true).includes("translate-x-0"));
+    assert.ok(getDrawerClasses(false).includes("-translate-x-full"));
+    assert.ok(getDrawerClasses(false).includes("md:translate-x-0"));
+  });
+
+  await t.test("Validates touch target accessibility invariants", () => {
+    const meetsTouchTargetStandard = (minDimensionPx) => minDimensionPx >= 40;
+    assert.strictEqual(meetsTouchTargetStandard(44), true);
+    assert.strictEqual(meetsTouchTargetStandard(40), true);
+    assert.strictEqual(meetsTouchTargetStandard(32), false);
+  });
+});

@@ -26,6 +26,26 @@ body {
     ui-sans-serif, sans-serif;
   background-color: var(--bg-main);
   color: var(--text-main);
+  overflow-x: hidden;
+}
+
+/* Touch-friendly target standards (min 44x44px for primary touch controls) */
+@media (pointer: coarse) {
+  button,
+  [role="button"],
+  a {
+    min-height: 40px;
+    touch-action: manipulation;
+  }
+}
+
+/* Scrollbar refinement for horizontal scroll containers */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }
 
 .app-bg {

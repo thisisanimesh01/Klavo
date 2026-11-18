@@ -120,7 +120,7 @@ export default function TipTapEditor({
     <div className="w-full bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden flex flex-col">
       {/* Editor Toolbar */}
       {!readOnly && (
-        <div className="flex flex-wrap items-center gap-1 p-2 bg-slate-50/80 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs">
+        <div className="flex flex-wrap items-center gap-1 p-2 bg-slate-50/80 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 text-xs overflow-x-auto no-scrollbar">
           {/* Headings */}
           <button
             type="button"
