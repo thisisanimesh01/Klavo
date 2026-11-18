@@ -12,6 +12,8 @@ import {
   AlertCircle,
   Trash2,
   UserPlus,
+  ArrowRightLeft,
+  KeyRound,
 } from "lucide-react";
 import {
   Button,
@@ -36,6 +38,9 @@ import {
   uploadWorkspaceLogo,
   addWorkspaceMember,
   removeWorkspaceMember,
+  updateMemberRole,
+  transferWorkspaceOwnership,
+  deleteWorkspace,
 } from "../api/settingsApi";
 
 export default function Settings() {
@@ -76,9 +81,21 @@ export default function Settings() {
   const [wsDescription, setWsDescription] = useState("");
   const [wsLogo, setWsLogo] = useState("");
 
+  // Ownership Transfer State (UX-06)
+  const [transferModalOpen, setTransferModalOpen] = useState(false);
+  const [selectedNewOwnerId, setSelectedNewOwnerId] = useState("");
+  const [transferring, setTransferring] = useState(false);
+  const [transferError, setTransferError] = useState("");
+
+  // Delete Workspace State (UX-06)
+  const [deleteConfirmName, setDeleteConfirmName] = useState("");
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [deletingWorkspace, setDeletingWorkspace] = useState(false);
+
   // Member Directory State
   const [directorySearch, setDirectorySearch] = useState("");
   const [addMemberEmail, setAddMemberEmail] = useState("");
+  const [addMemberRole, setAddMemberRole] = useState("member");
   const [addMemberLoading, setAddMemberLoading] = useState(false);
   const [memberActionError, setMemberActionError] = useState("");
   const [profilePreviewUser, setProfilePreviewUser] = useState(null);
@@ -120,9 +137,24 @@ export default function Settings() {
     loadWorkspaces();
   }, [selectedWorkspaceId]);
 
-  // Synchronize selected workspace form
+  // Synchronize selected workspace form & resolved permissions
   const activeWorkspace = workspaces.find((w) => w._id === selectedWorkspaceId) || null;
-  const isWorkspaceOwner = activeWorkspace?.owner?._id === authUser?._id || activeWorkspace?.owner === authUser?._id;
+  const isWorkspaceOwner =
+    activeWorkspace?.owner?._id === authUser?._id || activeWorkspace?.owner === authUser?._id;
+
+  // Resolve current user's role in active workspace
+  const getCurrentUserRole = () => {
+    if (!activeWorkspace || !authUser) return "member";
+    if (isWorkspaceOwner) return "owner";
+    const roleEntry = (activeWorkspace.memberRoles || []).find(
+      (mr) => (mr.userId?._id || mr.userId)?.toString() === authUser._id.toString()
+    );
+    return roleEntry?.role || "member";
+  };
+
+  const currentUserRole = getCurrentUserRole();
+  const isWorkspaceAdmin = currentUserRole === "admin" || isWorkspaceOwner;
+  const isGuest = currentUserRole === "guest";
 
   useEffect(() => {
     if (activeWorkspace) {
@@ -260,6 +292,63 @@ export default function Settings() {
     }
   };
 
+  // Handle Ownership Transfer (UX-06)
+  const handleTransferOwnership = async (e) => {
+    e.preventDefault();
+    if (!selectedWorkspaceId || !selectedNewOwnerId) return;
+
+    setTransferring(true);
+    setTransferError("");
+
+    try {
+      const res = await transferWorkspaceOwnership(selectedWorkspaceId, selectedNewOwnerId);
+      setWorkspaces((prev) =>
+        prev.map((w) => (w._id === res.team._id ? res.team : w))
+      );
+      setTransferModalOpen(false);
+      setWorkspaceSuccess("Workspace ownership transferred successfully!");
+      setTimeout(() => setWorkspaceSuccess(""), 4000);
+    } catch (err) {
+      setTransferError(err.response?.data?.message || "Failed to transfer ownership");
+    } finally {
+      setTransferring(false);
+    }
+  };
+
+  // Handle Workspace Deletion (UX-06)
+  const handleDeleteWorkspace = async () => {
+    if (deleteConfirmName !== activeWorkspace?.name) {
+      return;
+    }
+
+    setDeletingWorkspace(true);
+    try {
+      await deleteWorkspace(selectedWorkspaceId);
+      const remaining = workspaces.filter((w) => w._id !== selectedWorkspaceId);
+      setWorkspaces(remaining);
+      setSelectedWorkspaceId(remaining.length > 0 ? remaining[0]._id : "");
+      setDeleteModalOpen(false);
+      setDeleteConfirmName("");
+    } catch (err) {
+      setWorkspaceError(err.response?.data?.message || "Failed to delete workspace");
+    } finally {
+      setDeletingWorkspace(false);
+    }
+  };
+
+  // Handle Member Role Update (UX-06)
+  const handleRoleChange = async (memberId, newRole) => {
+    setMemberActionError("");
+    try {
+      const updated = await updateMemberRole(selectedWorkspaceId, memberId, newRole);
+      setWorkspaces((prev) =>
+        prev.map((w) => (w._id === updated._id ? updated : w))
+      );
+    } catch (err) {
+      setMemberActionError(err.response?.data?.message || "Failed to update member role");
+    }
+  };
+
   // Handle Add Member to Workspace
   const handleAddMember = async (e) => {
     e.preventDefault();
@@ -269,11 +358,16 @@ export default function Settings() {
     setMemberActionError("");
 
     try {
-      const updated = await addWorkspaceMember(selectedWorkspaceId, addMemberEmail);
+      const updated = await addWorkspaceMember(
+        selectedWorkspaceId,
+        addMemberEmail,
+        addMemberRole
+      );
       setWorkspaces((prev) =>
         prev.map((w) => (w._id === updated._id ? updated : w))
       );
       setAddMemberEmail("");
+      setAddMemberRole("member");
     } catch (err) {
       setMemberActionError(err.response?.data?.message || "Failed to add member");
     } finally {
@@ -298,14 +392,30 @@ export default function Settings() {
     }
   };
 
+  // Helper to resolve any member's role in the active workspace
+  const getMemberRole = (memberId) => {
+    if (!activeWorkspace) return "member";
+    const isOwner =
+      activeWorkspace.owner?._id?.toString() === memberId.toString() ||
+      activeWorkspace.owner?.toString() === memberId.toString();
+    if (isOwner) return "owner";
+
+    const entry = (activeWorkspace.memberRoles || []).find(
+      (mr) => (mr.userId?._id || mr.userId)?.toString() === memberId.toString()
+    );
+    return entry?.role || "member";
+  };
+
   // Filter Directory Members
   const directoryMembers = (activeWorkspace?.members || []).filter((m) => {
     if (!directorySearch.trim()) return true;
     const term = directorySearch.toLowerCase();
+    const role = getMemberRole(m._id);
     return (
       m.name?.toLowerCase().includes(term) ||
       m.email?.toLowerCase().includes(term) ||
-      m.roleTitle?.toLowerCase().includes(term)
+      m.roleTitle?.toLowerCase().includes(term) ||
+      role.toLowerCase().includes(term)
     );
   });
 
@@ -317,7 +427,7 @@ export default function Settings() {
           Settings & Workspace
         </h1>
         <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-          Manage your personal profile, account security, and workspace preferences.
+          Manage your personal profile, security credentials, workspace configuration, and access controls.
         </p>
       </div>
 
@@ -385,7 +495,7 @@ export default function Settings() {
           }`}
         >
           <Users size={16} />
-          Member Directory
+          Members & Roles
         </button>
       </div>
 
@@ -680,7 +790,7 @@ export default function Settings() {
                     </div>
                   )}
 
-                  {isWorkspaceOwner && (
+                  {isWorkspaceAdmin && (
                     <label
                       htmlFor="ws-logo-upload"
                       className="absolute inset-0 rounded-2xl bg-black/50 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center text-white text-xs cursor-pointer transition"
@@ -694,7 +804,7 @@ export default function Settings() {
                     id="ws-logo-upload"
                     type="file"
                     accept="image/*"
-                    disabled={!isWorkspaceOwner}
+                    disabled={!isWorkspaceAdmin}
                     onChange={handleWorkspaceLogoChange}
                     className="hidden"
                   />
@@ -703,12 +813,40 @@ export default function Settings() {
                 <h3 className="font-bold text-lg text-slate-900 dark:text-slate-100">
                   {wsName}
                 </h3>
-                <Badge variant={isWorkspaceOwner ? "primary" : "neutral"} className="mt-1">
-                  {isWorkspaceOwner ? "Owner" : "Member"}
+                <Badge
+                  variant={isWorkspaceOwner ? "primary" : isWorkspaceAdmin ? "info" : "neutral"}
+                  className="mt-1 capitalize"
+                >
+                  {currentUserRole}
                 </Badge>
                 <p className="text-xs text-slate-400 mt-2">
                   {activeWorkspace.members?.length || 1} team members
                 </p>
+
+                {/* Owner Administrative Actions (UX-06) */}
+                {isWorkspaceOwner && (
+                  <div className="mt-4 pt-4 border-t border-slate-100 dark:border-slate-800 w-full space-y-2">
+                    <Button
+                      variant="secondary"
+                      size="xs"
+                      className="w-full flex items-center justify-center gap-1.5"
+                      onClick={() => setTransferModalOpen(true)}
+                    >
+                      <ArrowRightLeft size={13} />
+                      Transfer Ownership
+                    </Button>
+
+                    <Button
+                      variant="danger"
+                      size="xs"
+                      className="w-full flex items-center justify-center gap-1.5"
+                      onClick={() => setDeleteModalOpen(true)}
+                    >
+                      <Trash2 size={13} />
+                      Delete Workspace
+                    </Button>
+                  </div>
+                )}
               </Card>
 
               {/* Workspace Edit Form */}
@@ -737,7 +875,7 @@ export default function Settings() {
                     label="Workspace Name"
                     value={wsName}
                     onChange={(e) => setWsName(e.target.value)}
-                    disabled={!isWorkspaceOwner}
+                    disabled={!isWorkspaceAdmin}
                     placeholder="Engineering Team"
                     required
                   />
@@ -749,7 +887,7 @@ export default function Settings() {
                     <textarea
                       value={wsDescription}
                       onChange={(e) => setWsDescription(e.target.value)}
-                      disabled={!isWorkspaceOwner}
+                      disabled={!isWorkspaceAdmin}
                       maxLength={500}
                       rows={3}
                       placeholder="Workspace purpose, mission, or projects overview..."
@@ -760,13 +898,13 @@ export default function Settings() {
                     </span>
                   </div>
 
-                  {!isWorkspaceOwner && (
+                  {!isWorkspaceAdmin && (
                     <p className="text-xs text-amber-600 dark:text-amber-400 italic">
-                      Only the workspace owner can modify workspace name and settings.
+                      Only workspace owners and administrators can modify workspace details.
                     </p>
                   )}
 
-                  {isWorkspaceOwner && (
+                  {isWorkspaceAdmin && (
                     <div className="pt-2 flex justify-end">
                       <Button
                         type="submit"
@@ -790,10 +928,10 @@ export default function Settings() {
         </div>
       )}
 
-      {/* TAB 5: Member Directory */}
+      {/* TAB 5: Members & Roles (UX-06) */}
       {activeTab === "directory" && (
         <div className="space-y-6">
-          {/* Header & Search */}
+          {/* Header, Search & Add Member */}
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div className="relative w-full sm:w-72">
               <Search size={15} className="absolute left-3 top-2.5 text-slate-400" />
@@ -801,32 +939,49 @@ export default function Settings() {
                 type="text"
                 value={directorySearch}
                 onChange={(e) => setDirectorySearch(e.target.value)}
-                placeholder="Search members by name, role, email..."
+                placeholder="Search by name, role, email..."
                 className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               />
             </div>
 
-            {/* Add Member Form */}
-            <form onSubmit={handleAddMember} className="flex items-center gap-2 w-full sm:w-auto">
-              <input
-                type="email"
-                value={addMemberEmail}
-                onChange={(e) => setAddMemberEmail(e.target.value)}
-                placeholder="member@company.com"
-                required
-                className="px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 w-full sm:w-60"
-              />
-              <Button
-                type="submit"
-                variant="primary"
-                size="sm"
-                disabled={addMemberLoading}
-                className="shrink-0"
-              >
-                <UserPlus size={14} className="mr-1" />
-                {addMemberLoading ? "Adding..." : "Add Member"}
-              </Button>
-            </form>
+            {/* Add Member Form (Admin/Owner only) */}
+            {isWorkspaceAdmin ? (
+              <form onSubmit={handleAddMember} className="flex items-center gap-2 w-full sm:w-auto">
+                <input
+                  type="email"
+                  value={addMemberEmail}
+                  onChange={(e) => setAddMemberEmail(e.target.value)}
+                  placeholder="member@company.com"
+                  required
+                  className="px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 w-full sm:w-48"
+                />
+
+                <select
+                  value={addMemberRole}
+                  onChange={(e) => setAddMemberRole(e.target.value)}
+                  className="px-2.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 capitalize"
+                >
+                  <option value="member">Member</option>
+                  <option value="admin">Admin</option>
+                  <option value="guest">Guest</option>
+                </select>
+
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  disabled={addMemberLoading}
+                  className="shrink-0"
+                >
+                  <UserPlus size={14} className="mr-1" />
+                  {addMemberLoading ? "Adding..." : "Add"}
+                </Button>
+              </form>
+            ) : (
+              <span className="text-xs text-slate-400 italic">
+                Only workspace administrators can invite new members.
+              </span>
+            )}
           </div>
 
           {memberActionError && (
@@ -836,17 +991,24 @@ export default function Settings() {
             </div>
           )}
 
-          {/* Members Grid */}
+          {/* Members Grid with Role Management */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {directoryMembers.map((member) => {
-              const isOwner = member._id === activeWorkspace?.owner?._id || member._id === activeWorkspace?.owner;
+              const role = getMemberRole(member._id);
+              const isOwner = role === "owner";
               const isMe = member._id === authUser?._id;
+              const canEditThisRole =
+                isWorkspaceOwner
+                  ? !isOwner
+                  : isWorkspaceAdmin
+                  ? role !== "owner" && role !== "admin"
+                  : false;
 
               return (
                 <Card
                   key={member._id}
                   className="p-4 flex flex-col justify-between hover:border-indigo-500/40 transition group cursor-pointer"
-                  onClick={() => setProfilePreviewUser(member)}
+                  onClick={() => setProfilePreviewUser({ ...member, role })}
                 >
                   <div className="flex items-start gap-3">
                     <Avatar
@@ -856,19 +1018,49 @@ export default function Settings() {
                       className="shrink-0"
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-semibold text-xs text-slate-900 dark:text-slate-100 truncate">
                           {member.name}
                         </span>
-                        {isOwner && <Badge variant="primary" size="xs">Owner</Badge>}
                         {isMe && <Badge variant="neutral" size="xs">You</Badge>}
                       </div>
-                      <span className="text-[11px] text-indigo-600 dark:text-indigo-400 font-medium block truncate">
-                        {member.roleTitle || "Team Member"}
-                      </span>
                       <span className="text-[11px] text-slate-400 block truncate mt-0.5">
                         {member.email}
                       </span>
+
+                      {/* Role Selector or Badge */}
+                      <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+                        {canEditThisRole ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[10px] text-slate-400 font-medium">Role:</span>
+                            <select
+                              value={role}
+                              onChange={(e) => handleRoleChange(member._id, e.target.value)}
+                              className="px-2 py-0.5 text-[11px] font-semibold rounded-md border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 capitalize focus:ring-1 focus:ring-indigo-500"
+                            >
+                              <option value="admin">Admin</option>
+                              <option value="member">Member</option>
+                              <option value="guest">Guest</option>
+                            </select>
+                          </div>
+                        ) : (
+                          <Badge
+                            variant={
+                              role === "owner"
+                                ? "primary"
+                                : role === "admin"
+                                ? "info"
+                                : role === "guest"
+                                ? "warning"
+                                : "neutral"
+                            }
+                            size="xs"
+                            className="capitalize"
+                          >
+                            {role}
+                          </Badge>
+                        )}
+                      </div>
                     </div>
                   </div>
 
@@ -884,7 +1076,10 @@ export default function Settings() {
                       View profile preview →
                     </span>
 
-                    {(isWorkspaceOwner && !isOwner) || (!isWorkspaceOwner && isMe) ? (
+                    {/* Remove Member: Owner can remove any non-owner; Admin can remove non-admin/non-owner; Member can self-leave */}
+                    {((isWorkspaceOwner && !isOwner) ||
+                      (isWorkspaceAdmin && role !== "owner" && role !== "admin") ||
+                      (!isWorkspaceAdmin && isMe && !isOwner)) && (
                       <button
                         type="button"
                         onClick={(e) => {
@@ -896,7 +1091,7 @@ export default function Settings() {
                       >
                         <Trash2 size={14} />
                       </button>
-                    ) : null}
+                    )}
                   </div>
                 </Card>
               );
@@ -928,10 +1123,17 @@ export default function Settings() {
               className="w-20 h-20 text-xl border-2 border-indigo-500/20 shadow-md"
             />
             <div>
-              <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">
-                {profilePreviewUser.name}
-              </h3>
-              <p className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">
+              <div className="flex items-center justify-center gap-2">
+                <h3 className="font-bold text-base text-slate-900 dark:text-slate-100">
+                  {profilePreviewUser.name}
+                </h3>
+                {profilePreviewUser.role && (
+                  <Badge variant="primary" size="xs" className="capitalize">
+                    {profilePreviewUser.role}
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-indigo-600 dark:text-indigo-400 font-medium mt-0.5">
                 {profilePreviewUser.roleTitle || "Team Member"}
               </p>
               <p className="text-xs text-slate-400 mt-1">{profilePreviewUser.email}</p>
@@ -947,6 +1149,110 @@ export default function Settings() {
                 </p>
               </div>
             )}
+          </div>
+        </Modal>
+      )}
+
+      {/* Ownership Transfer Modal (UX-06) */}
+      {transferModalOpen && (
+        <Modal
+          isOpen={transferModalOpen}
+          onClose={() => setTransferModalOpen(false)}
+          title="Transfer Workspace Ownership"
+          size="sm"
+          footer={
+            <div className="flex items-center justify-end gap-2 w-full">
+              <Button variant="ghost" size="sm" onClick={() => setTransferModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={handleTransferOwnership}
+                disabled={!selectedNewOwnerId || transferring}
+              >
+                {transferring ? "Transferring..." : "Confirm Transfer"}
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-4 text-xs text-slate-600 dark:text-slate-300">
+            <p>
+              Transferring ownership of <strong>{activeWorkspace?.name}</strong> is an irreversible action.
+              The designated member will become the new Owner with full administrative control, and your role will transition to Administrator.
+            </p>
+
+            {transferError && (
+              <div className="p-2.5 rounded-lg bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-400 text-xs flex items-center gap-2">
+                <AlertCircle size={14} />
+                <span>{transferError}</span>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold mb-1 text-slate-700 dark:text-slate-300">
+                Select New Owner:
+              </label>
+              <select
+                value={selectedNewOwnerId}
+                onChange={(e) => setSelectedNewOwnerId(e.target.value)}
+                className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100"
+              >
+                <option value="">-- Choose active member --</option>
+                {(activeWorkspace?.members || [])
+                  .filter((m) => m._id !== authUser?._id)
+                  .map((m) => (
+                    <option key={m._id} value={m._id}>
+                      {m.name} ({m.email})
+                    </option>
+                  ))}
+              </select>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Delete Workspace Confirmation Modal (UX-06) */}
+      {deleteModalOpen && (
+        <Modal
+          isOpen={deleteModalOpen}
+          onClose={() => setDeleteModalOpen(false)}
+          title="Delete Workspace"
+          size="sm"
+          footer={
+            <div className="flex items-center justify-end gap-2 w-full">
+              <Button variant="ghost" size="sm" onClick={() => setDeleteModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={handleDeleteWorkspace}
+                disabled={deleteConfirmName !== activeWorkspace?.name || deletingWorkspace}
+              >
+                {deletingWorkspace ? "Deleting..." : "Permanently Delete"}
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-4 text-xs text-slate-600 dark:text-slate-300">
+            <div className="p-3 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300">
+              <p className="font-semibold mb-1">Warning: Irreversible Deletion</p>
+              <p>
+                Deleting <strong>{activeWorkspace?.name}</strong> will permanently remove all associated projects, tasks, workflows, milestones, and shared files.
+              </p>
+            </div>
+
+            <p>
+              To confirm, please type the exact workspace name: <strong className="text-slate-900 dark:text-slate-100">{activeWorkspace?.name}</strong>
+            </p>
+
+            <Input
+              value={deleteConfirmName}
+              onChange={(e) => setDeleteConfirmName(e.target.value)}
+              placeholder={activeWorkspace?.name}
+              required
+            />
           </div>
         </Modal>
       )}

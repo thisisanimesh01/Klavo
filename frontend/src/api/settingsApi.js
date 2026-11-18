@@ -77,10 +77,34 @@ export const uploadWorkspaceLogo = async (teamId, formData) => {
 };
 
 /**
- * Add member to workspace
+ * Add member to workspace with role (admin, member, guest)
  */
-export const addWorkspaceMember = async (teamId, email) => {
-  const res = await axiosClient.post("/teams/add-member", { teamId, email });
+export const addWorkspaceMember = async (teamId, email, role = "member") => {
+  const res = await axiosClient.post("/teams/add-member", { teamId, email, role });
+  return res.data;
+};
+
+/**
+ * Update member role within workspace (UX-06)
+ */
+export const updateMemberRole = async (teamId, memberId, role) => {
+  const res = await axiosClient.put(`/teams/${teamId}/members/${memberId}/role`, { role });
+  return res.data;
+};
+
+/**
+ * Transfer workspace ownership to an existing member (UX-06)
+ */
+export const transferWorkspaceOwnership = async (teamId, newOwnerId) => {
+  const res = await axiosClient.post(`/teams/${teamId}/transfer-ownership`, { newOwnerId });
+  return res.data;
+};
+
+/**
+ * Delete workspace (Owner-only)
+ */
+export const deleteWorkspace = async (teamId) => {
+  const res = await axiosClient.delete(`/teams/${teamId}`);
   return res.data;
 };
 

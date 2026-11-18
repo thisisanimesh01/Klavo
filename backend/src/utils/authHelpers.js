@@ -3,34 +3,161 @@ import { Project } from "../models/Project.js";
 import Task from "../models/Task.js";
 
 /**
- * Checks if a user is a member or owner of a team.
- * @param {string|ObjectId} teamId
- * @param {string|ObjectId} userId
- * @returns {Promise<{isMember: boolean, isOwner: boolean, team: object|null}>}
+ * Workspace role constants and hierarchy levels
  */
-export const checkTeamAccess = async (teamId, userId) => {
-  const team = await Team.findById(teamId);
-  if (!team) return { isMember: false, isOwner: false, team: null };
+export const WORKSPACE_ROLES = ["owner", "admin", "member", "guest"];
 
-  const userIdStr = userId.toString();
-  const isOwner = team.owner.toString() === userIdStr;
-  const isMember = isOwner || team.members.some((m) => m.toString() === userIdStr);
-
-  return { isMember, isOwner, team };
+export const WORKSPACE_ROLE_LEVELS = {
+  owner: 4,
+  admin: 3,
+  member: 2,
+  guest: 1,
+  none: 0,
 };
 
 /**
- * Checks if a user has access to a project through team membership.
+ * Resolves the effective workspace role for a user within a team/workspace.
+ *
+ * Rules:
+ * 1. Team Owner (`team.owner`) -> "owner"
+ * 2. Explicit role in `team.memberRoles` -> assigned role ("admin", "member", "guest")
+ * 3. Legacy member in `team.members` -> defaults to "member"
+ * 4. Not in team -> "none"
+ *
+ * @param {object} team
+ * @param {string|ObjectId} userId
+ * @returns {"owner"|"admin"|"member"|"guest"|"none"}
+ */
+export const resolveWorkspaceRole = (team, userId) => {
+  if (!team || !userId) return "none";
+
+  const userIdStr = userId.toString();
+  if (team.owner?.toString() === userIdStr) {
+    return "owner";
+  }
+
+  // Check explicit memberRoles
+  if (Array.isArray(team.memberRoles)) {
+    const roleEntry = team.memberRoles.find(
+      (mr) => (mr.userId?._id?.toString() || mr.userId?.toString()) === userIdStr
+    );
+    if (roleEntry && WORKSPACE_ROLES.includes(roleEntry.role)) {
+      return roleEntry.role;
+    }
+  }
+
+  // Check legacy members array fallback
+  if (Array.isArray(team.members)) {
+    const isLegacyMember = team.members.some(
+      (m) => (m?._id?.toString() || m?.toString()) === userIdStr
+    );
+    if (isLegacyMember) {
+      return "member";
+    }
+  }
+
+  return "none";
+};
+
+/**
+ * Checks if a user is a member, admin, or owner of a team, and resolves their role and capabilities.
+ * @param {string|ObjectId} teamId
+ * @param {string|ObjectId} userId
+ * @returns {Promise<{
+ *   isMember: boolean,
+ *   isOwner: boolean,
+ *   isAdmin: boolean,
+ *   isGuest: boolean,
+ *   role: "owner"|"admin"|"member"|"guest"|"none",
+ *   canManageMembers: boolean,
+ *   canManageSettings: boolean,
+ *   canTransferOwnership: boolean,
+ *   canDeleteWorkspace: boolean,
+ *   team: object|null
+ * }>}
+ */
+export const checkTeamAccess = async (teamId, userId) => {
+  const team = await Team.findById(teamId);
+  if (!team || !userId) {
+    return {
+      isMember: false,
+      isOwner: false,
+      isAdmin: false,
+      isGuest: false,
+      role: "none",
+      canManageMembers: false,
+      canManageSettings: false,
+      canTransferOwnership: false,
+      canDeleteWorkspace: false,
+      team: null,
+    };
+  }
+
+  const role = resolveWorkspaceRole(team, userId);
+  const isOwner = role === "owner";
+  const isAdmin = role === "admin" || isOwner;
+  const isMember = role !== "none";
+  const isGuest = role === "guest";
+
+  return {
+    isMember,
+    isOwner,
+    isAdmin,
+    isGuest,
+    role,
+    canManageMembers: isAdmin,
+    canManageSettings: isAdmin,
+    canTransferOwnership: isOwner,
+    canDeleteWorkspace: isOwner,
+    team,
+  };
+};
+
+/**
+ * Checks if a user has access to a project through team membership and role.
+ * Guests can access public team projects or projects where they are assigned tasks or explicit documents,
+ * but do not have administrative or creation powers.
+ *
  * @param {string|ObjectId} projectId
  * @param {string|ObjectId} userId
- * @returns {Promise<{hasAccess: boolean, isOwner: boolean, project: object|null, team: object|null}>}
+ * @returns {Promise<{
+ *   hasAccess: boolean,
+ *   isOwner: boolean,
+ *   isAdmin: boolean,
+ *   isGuest: boolean,
+ *   role: string,
+ *   project: object|null,
+ *   team: object|null
+ * }>}
  */
 export const checkProjectAccess = async (projectId, userId) => {
   const project = await Project.findById(projectId);
-  if (!project) return { hasAccess: false, isOwner: false, project: null, team: null };
+  if (!project) {
+    return {
+      hasAccess: false,
+      isOwner: false,
+      isAdmin: false,
+      isGuest: false,
+      role: "none",
+      project: null,
+      team: null,
+    };
+  }
 
-  const { isMember, isOwner, team } = await checkTeamAccess(project.teamId, userId);
-  return { hasAccess: isMember, isOwner, project, team };
+  const { isMember, isOwner, isAdmin, isGuest, role, team } = await checkTeamAccess(
+    project.teamId,
+    userId
+  );
+
+  return {
+    hasAccess: isMember,
+    isOwner,
+    isAdmin,
+    isGuest,
+    role,
+    project,
+    team,
+  };
 };
 
 /**
