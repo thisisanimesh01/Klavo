@@ -1086,3 +1086,18 @@ Enables organization leaders, managers, and team members to review cross-project
   - Design system interactive primitives (`Button`, `Select`, `Input`, `Checkbox`) provide standardized `disabled` states and accessibility attributes (`aria-disabled="true"`) for unauthorized actions.
   - Action buttons triggering mutation endpoints or administrative dialogs are conditionally disabled or hidden based on active user role (`Owner`, `Admin`, `Member`, `Viewer`).
   - Tooltips or helper text on disabled interactive elements clearly explain permission constraints when actions are restricted.
+
+---
+
+## 9. Global Search & Command Palette Authorization (UX-03)
+
+- **Search Tenancy & Isolation Guards**:
+  - The `GET /api/search` endpoint strictly scopes multi-resource queries (Projects, Tasks, Documents, Teams) to the authenticated user's verified team memberships (`$or: [{ members: userId }, { owner: userId }]`).
+  - Foreign, unshared, or unapproved workspace resources are completely excluded at the database query level (`{ projectId: { $in: authorizedProjectIds } }`).
+  - Search queries are sanitized against regex injection and ReDoS vulnerabilities with escaped special characters.
+  - Limits are strictly bounded between 1 and 20 (default 5 items per category) to prevent memory exhaustion and latency spikes.
+
+### Permissions & Anti-IDOR Enforcement:
+| Endpoint | Method | Required Permission / Role | Description |
+| :--- | :--- | :--- | :--- |
+| `/api/search` | `GET` | Authenticated User | Tenancy-isolated multi-resource search across projects, tasks, documents, and teams |

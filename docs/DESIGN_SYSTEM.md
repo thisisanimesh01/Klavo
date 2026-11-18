@@ -215,3 +215,26 @@ Standardized responsive viewport breakpoints configured in `tokens.js` and `tail
 - **Tables & Gantt Timelines**: Enclosed in horizontal scroll wrappers (`overflow-x-auto`) to guarantee zero page-level layout shifts or body overflow.
 - **Modals & Dialogs**: Constrained to viewport-safe bounds (`max-h-[92vh]`, `p-2 sm:p-4`), with interior scrolling and safe-touch close buttons.
 - **Touch Target Standard**: Primary interactive controls adhere to minimum 40px–44px touch targets on coarse pointer devices.
+
+---
+
+## 6. Global Command Palette & Quick Actions (UX-03)
+
+### Global Invocation
+- Keyboard shortcuts: `Cmd+K` (macOS) and `Ctrl+K` (Windows/Linux) globally trigger the command palette from any route.
+- Header search button: Topbar features a prominent search trigger displaying the platform-aware shortcut pill (`⌘K`).
+
+### Navigation & Focus Invariants
+- Arrow navigation: `ArrowDown` and `ArrowUp` cycle through active search results and commands with modulo wraparound.
+- Enter activation: `Enter` executes the currently selected action or navigates to the target route.
+- Escape dismissal: `Escape` immediately closes the palette and restores background interaction.
+- Auto-focus: The search input automatically captures focus when opened.
+
+### Search Categories & Quick Actions
+1. **Recent**: Tracks and deduplicates up to 5 recently navigated items in local storage.
+2. **Quick Actions**: Instant toggles for light/dark theme, create project (`/projects?action=create`), and create team (`/teams?action=create`).
+3. **Navigation**: Direct jumps to Dashboard, Projects, Teams, Calendar, Files, and Analytics.
+4. **Projects**: Searches accessible project workspaces.
+5. **Tasks**: Searches tasks by title/description across authorized projects, showing status and priority tags.
+6. **Documents & Wiki**: Searches document and wiki pages, distinguishing article types.
+7. **Teams**: Searches user's workspaces.
