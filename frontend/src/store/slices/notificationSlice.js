@@ -3,6 +3,7 @@ import { createSlice } from "@reduxjs/toolkit";
 const initialState = {
   items: [],
   unreadCount: 0,
+  preferences: null,
   loading: false,
 };
 
@@ -36,6 +37,20 @@ const notificationSlice = createSlice({
       });
       state.unreadCount = 0;
     },
+    removeNotification: (state, action) => {
+      const item = state.items.find((n) => n._id === action.payload);
+      if (item && !item.read) {
+        state.unreadCount = Math.max(0, state.unreadCount - 1);
+      }
+      state.items = state.items.filter((n) => n._id !== action.payload);
+    },
+    clearAll: (state) => {
+      state.items = [];
+      state.unreadCount = 0;
+    },
+    setPreferences: (state, action) => {
+      state.preferences = action.payload;
+    },
   },
 });
 
@@ -44,6 +59,9 @@ export const {
   addNotification,
   markRead,
   markAllRead,
+  removeNotification,
+  clearAll,
+  setPreferences,
 } = notificationSlice.actions;
 
 export default notificationSlice.reducer;

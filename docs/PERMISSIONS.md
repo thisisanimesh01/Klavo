@@ -1101,3 +1101,27 @@ Enables organization leaders, managers, and team members to review cross-project
 | Endpoint | Method | Required Permission / Role | Description |
 | :--- | :--- | :--- | :--- |
 | `/api/search` | `GET` | Authenticated User | Tenancy-isolated multi-resource search across projects, tasks, documents, and teams |
+
+---
+
+## 10. Notification Preferences & Notification Management Access Control (UX-04)
+
+- **User Tenancy & Isolation Guards**:
+  - Notification items (`Notification` collection) are strictly scoped to `userId: req.user._id`. Users can never view, mark as read, or delete notifications belonging to other users.
+  - Notification preference records (`NotificationPreference` collection) are strictly 1:1 bound to `userId: req.user._id`. A user can only fetch or update their own preference settings.
+  - Endpoints checking single notification IDs (`PUT /api/notifications/:id`, `DELETE /api/notifications/:id`) verify ownership (`notification.userId.toString() === req.user._id.toString()`) and reject unauthorized access attempts with `403 Forbidden`.
+  - Batch endpoints (`PUT /api/notifications/read-all`, `DELETE /api/notifications/clear`, `GET /api/notifications`) enforce MongoDB query scoping `{ userId: req.user._id }`.
+- **Real-Time Delivery & Channel Suppression**:
+  - `createTargetedNotification` inspects recipient preferences for in-app delivery, category-based opt-outs, duplicate suppression within a configurable grouping window, and timezone-aware quiet hours scheduling.
+  - Socket.io broadcasts for preference changes (`preferenceUpdated`) and notifications (`notificationCreated`) are strictly sent to private user rooms `user_${userId}`.
+
+### Permissions & Anti-IDOR Enforcement:
+| Endpoint | Method | Required Permission / Role | Description |
+| :--- | :--- | :--- | :--- |
+| `/api/notifications` | `GET` | Authenticated User | Retrieve user's own notifications sorted by creation date descending |
+| `/api/notifications/:id` | `PUT` | Notification Owner | Mark single notification as read with IDOR verification |
+| `/api/notifications/read-all` | `PUT` | Authenticated User | Mark all notifications belonging to authenticated user as read |
+| `/api/notifications/:id` | `DELETE` | Notification Owner | Delete single notification with IDOR verification |
+| `/api/notifications/clear` | `DELETE` | Authenticated User | Clear all notifications belonging to authenticated user |
+| `/api/notifications/preferences` | `GET` | Authenticated User | Retrieve authenticated user's notification preferences |
+| `/api/notifications/preferences` | `PUT` | Authenticated User | Update authenticated user's notification preferences and sync via Socket.IO |
