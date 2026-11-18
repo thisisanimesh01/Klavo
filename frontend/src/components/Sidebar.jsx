@@ -7,6 +7,7 @@ import {
   Calendar,
   FileUp,
   BarChart2,
+  Settings,
   X,
   ChevronLeft,
   ChevronRight,
@@ -23,6 +24,7 @@ export default function Sidebar({ mobileOpen = false, onMobileClose = () => {} }
     { label: "Calendar", icon: <Calendar size={20} />, path: "/calendar" },
     { label: "Files", icon: <FileUp size={20} />, path: "/files" },
     { label: "Analytics", icon: <BarChart2 size={20} />, path: "/analytics" },
+    { label: "Settings", icon: <Settings size={20} />, path: "/settings" },
   ];
 
   return (

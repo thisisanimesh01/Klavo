@@ -12,6 +12,7 @@ import Files from "./pages/Files";
 import Analytics from "./pages/Analytics";
 import Documents from "./pages/Documents";
 import Wiki from "./pages/Wiki";
+import Settings from "./pages/Settings";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Layout from "./layout/Layout";
 
@@ -135,6 +136,16 @@ export default function App() {
             element={
               <Layout>
                 <Analytics />
+              </Layout>
+            }
+          />
+
+          {/* Settings & Workspace (UX-05) */}
+          <Route
+            path="/settings"
+            element={
+              <Layout>
+                <Settings />
               </Layout>
             }
           />

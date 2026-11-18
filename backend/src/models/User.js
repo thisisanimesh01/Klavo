@@ -5,12 +5,15 @@ const userSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
+      trim: true,
     },
 
     email: {
       type: String,
       required: true,
       unique: true,
+      lowercase: true,
+      trim: true,
     },
 
     // password is optional so Google users can exist without it
@@ -24,6 +27,20 @@ const userSchema = new mongoose.Schema(
       default: "",
     },
 
+    bio: {
+      type: String,
+      default: "",
+      maxlength: 500,
+      trim: true,
+    },
+
+    roleTitle: {
+      type: String,
+      default: "",
+      maxlength: 100,
+      trim: true,
+    },
+
     googleUser: {
       type: Boolean,
       default: false,
@@ -33,3 +50,4 @@ const userSchema = new mongoose.Schema(
 );
 
 export const User = mongoose.model("User", userSchema);
+export default User;
