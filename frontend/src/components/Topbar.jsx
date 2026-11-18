@@ -4,9 +4,12 @@ import { useTheme } from "../context/ThemeContext";
 import { logout as logoutAction } from "../store/slices/authSlice";
 import axiosClient from "../api/axiosClient";
 import NotificationBell from "./NotificationBell";
-import { Menu, Moon, Sun, LogOut } from "lucide-react";
+import { Menu, Moon, Sun, LogOut, Search, Command } from "lucide-react";
 
-export default function Topbar({ onToggleMobileMenu = () => {} }) {
+export default function Topbar({
+  onToggleMobileMenu = () => {},
+  onOpenCommandPalette = () => {},
+}) {
   const { theme, toggleTheme } = useTheme();
   const dispatch = useDispatch();
   const user = useSelector((state) => state.auth?.user);
@@ -46,6 +49,30 @@ export default function Topbar({ onToggleMobileMenu = () => {} }) {
         <h2 className="text-base sm:text-lg md:text-xl font-semibold truncate" style={{ color: "var(--text-main)" }}>
           Welcome, {userName}
         </h2>
+      </div>
+
+      {/* Global Command Palette Trigger Button (UX-03) */}
+      <div className="flex-1 max-w-md mx-3 sm:mx-6">
+        <button
+          onClick={onOpenCommandPalette}
+          className="w-full flex items-center justify-between px-3 py-1.5 sm:py-2 rounded-xl border text-xs sm:text-sm text-slate-400 hover:text-slate-200 hover:border-slate-600 transition shadow-2xs"
+          style={{
+            background: "var(--bg-main)",
+            borderColor: "var(--card-border)",
+          }}
+          title="Open Command Palette (Cmd+K or Ctrl+K)"
+          aria-label="Open global search and command palette"
+        >
+          <div className="flex items-center gap-2 truncate">
+            <Search size={15} className="text-slate-400 shrink-0" />
+            <span className="truncate hidden sm:inline">Search projects, tasks, docs...</span>
+            <span className="truncate sm:hidden">Search...</span>
+          </div>
+
+          <div className="flex items-center gap-1 font-mono text-[10px] sm:text-[11px] shrink-0 text-slate-400">
+            <span className="px-1.5 py-0.5 rounded bg-slate-800/80 border border-slate-700">⌘K</span>
+          </div>
+        </button>
       </div>
 
       <div className="flex items-center gap-2 sm:gap-3">

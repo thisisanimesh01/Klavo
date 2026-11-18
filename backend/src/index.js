@@ -35,6 +35,7 @@ import fileRoutes from "./routes/fileRoutes.js";
 import calendarRoutes from "./routes/calendarRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import analyticsRoutes from "./routes/analyticsRoutes.js";
+import searchRoutes from "./routes/searchRoutes.js";
 
 const app = express();
 const server = createServer(app);
@@ -167,6 +168,7 @@ app.use("/api/files", fileRoutes);
 app.use("/api/calendar", calendarRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/analytics", analyticsRoutes);
+app.use("/api/search", searchRoutes);
 
 app.get("/", (req, res) => {
   res.send("Klavo backend running!");
