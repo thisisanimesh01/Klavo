@@ -11,6 +11,8 @@ import {
   uploadTeamLogo,
   serveTeamLogo,
   addMemberToTeam,
+  updateMemberRole,
+  transferOwnership,
   removeMemberFromTeam,
   deleteTeam,
 } from "../controllers/teamController.js";
@@ -47,6 +49,8 @@ router.get("/:teamId", getTeamById);
 router.put("/:teamId", updateTeam);
 router.post("/:teamId/logo", upload.single("logo"), uploadTeamLogo);
 router.post("/add-member", addMemberToTeam);
+router.put("/:teamId/members/:memberId/role", updateMemberRole);
+router.post("/:teamId/transfer-ownership", transferOwnership);
 router.delete("/:teamId/members/:memberId", removeMemberFromTeam);
 router.delete("/:teamId", deleteTeam);
 

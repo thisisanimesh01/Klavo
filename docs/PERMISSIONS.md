@@ -1150,8 +1150,30 @@ Enables organization leaders, managers, and team members to review cross-project
 | `/api/users/password` | `PUT` | Authenticated User | Update account password with current password verification & rate limiting |
 | `/api/users/:id` | `GET` | Authenticated User | Read public member profile preview (sanitized, no credentials) |
 | `/api/teams/:teamId` | `GET` | Workspace Member or Owner | Retrieve workspace metadata and populated member directory |
-| `/api/teams/:teamId` | `PUT` | Workspace Owner | Update workspace name and description |
-| `/api/teams/:teamId/logo` | `POST` | Workspace Owner | Upload workspace logo image via StorageService |
+| `/api/teams/:teamId` | `PUT` | Workspace Owner or Admin | Update workspace name and description |
+| `/api/teams/:teamId/logo` | `POST` | Workspace Owner or Admin | Upload workspace logo image via StorageService |
 | `/api/teams/logo/:key` | `GET` | Public / Authenticated | Stream workspace logo with Content-Security-Policy & nosniff headers |
-| `/api/teams/add-member` | `POST` | Workspace Member or Owner | Add existing user to workspace by email |
-| `/api/teams/:teamId/members/:memberId` | `DELETE` | Workspace Owner or Self | Remove member from workspace (or self-leave) |
+| `/api/teams/add-member` | `POST` | Workspace Owner or Admin | Add existing user to workspace by email with role assignment |
+| `/api/teams/:teamId/members/:memberId` | `DELETE` | Workspace Owner, Admin or Self | Remove member from workspace (with owner & admin demotion protection) |
+
+---
+
+## 12. Workspace Roles, Permissions & Administrative Controls (UX-06)
+
+- **Role Hierarchy & Capabilities**:
+  - `Owner` (Level 4): Full administrative control. Sole role permitted to transfer workspace ownership (`POST /api/teams/:teamId/transfer-ownership`) or permanently delete the workspace (`DELETE /api/teams/:teamId`). Last-owner protection prevents removing or deleting the owner without ownership transfer.
+  - `Admin` (Level 3): Workspace management. Permitted to update workspace name/description, upload logos, invite new members with assigned roles, and change roles of regular members and guests. Admins cannot promote anyone to Owner or modify other Admins.
+  - `Member` (Level 2): Standard collaborator. Permitted to view workspaces, collaborate on projects, create/update tasks, comments, and participate in project discussions. Cannot modify workspace settings or manage members.
+  - `Guest` (Level 1): Restricted access collaborator. Permitted to access specific assigned projects, tasks, and shared documents. Restricted from administrative settings and member directory manipulation.
+- **Backward Compatibility & Data Migration**:
+  - Legacy `Team.members` array is preserved and seamlessly migrated: existing members without an explicit entry in `Team.memberRoles` gracefully resolve to the `member` role.
+  - The team creator (`Team.owner`) strictly resolves to the `owner` role across all queries and socket rooms.
+- **Real-Time Socket Room Tenancy**:
+  - `joinTeam` and `joinProject` Socket.IO events verify workspace membership through `checkTeamAccess` and `checkProjectAccess`. Unauthorized connections are rejected.
+
+### Permissions & Anti-IDOR Enforcement:
+| Endpoint | Method | Required Role | Description |
+| :--- | :--- | :--- | :--- |
+| `/api/teams/:teamId/members/:memberId/role` | `PUT` | Workspace Owner or Admin | Change member's role (`admin`, `member`, `guest`). Admins cannot modify other Admins or Owner |
+| `/api/teams/:teamId/transfer-ownership` | `POST` | **Workspace Owner Only** | Transfer full workspace ownership to an existing active member |
+| `/api/teams/:teamId` | `DELETE` | **Workspace Owner Only** | Permanently delete workspace and cascade-associated resources |
