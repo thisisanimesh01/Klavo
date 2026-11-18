@@ -29,6 +29,30 @@ body {
   overflow-x: hidden;
 }
 
+/* WCAG 2.2 AA Focus Visibility Standards */
+:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+/* Accessible Skip Link for Keyboard Navigation */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 16px;
+  background: #4f46e5;
+  color: #ffffff;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  z-index: 1000;
+  transition: top 0.2s ease;
+}
+.skip-link:focus {
+  top: 16px;
+}
+
 /* Touch-friendly target standards (min 44x44px for primary touch controls) */
 @media (pointer: coarse) {
   button,
@@ -36,6 +60,18 @@ body {
   a {
     min-height: 40px;
     touch-action: manipulation;
+  }
+}
+
+/* Reduced Motion Support (WCAG 2.2 AA Guideline 2.3.3) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

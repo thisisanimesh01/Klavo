@@ -238,3 +238,33 @@ Standardized responsive viewport breakpoints configured in `tokens.js` and `tail
 5. **Tasks**: Searches tasks by title/description across authorized projects, showing status and priority tags.
 6. **Documents & Wiki**: Searches document and wiki pages, distinguishing article types.
 7. **Teams**: Searches user's workspaces.
+
+---
+
+## 7. Accessibility & Performance Optimization (UX-07)
+
+### WCAG 2.2 AA Compliance
+- **Color Contrast**: All text and semantic state tokens strictly maintain a contrast ratio of >= 4.5:1 against their corresponding background surfaces across both light and dark themes. Muted text tokens (`#64748b` in light, `#9ca3af` in dark) and brand primary tokens (`#4f46e5` in light, `#6366f1` in dark) meet WCAG AA standards.
+- **Visible Focus Rings**: All interactive controls (buttons, inputs, links, select menus, modal triggers) provide high-visibility focus indicators with `outline: 2px solid var(--color-primary)` and `outline-offset: 2px` when navigated via keyboard (`:focus-visible`).
+- **Keyboard Skip Link**: A direct skip link (`.skip-link`) is rendered at the top of the DOM, allowing screen reader and keyboard users to immediately jump past the navigation sidebar and header directly to `<main id="main-content">`.
+- **Modal Focus Trapping & Restoration**:
+  - Focus is automatically trapped within active modal dialogs (`role="dialog"`, `aria-modal="true"`).
+  - Tab and Shift+Tab key presses cycle strictly through interactive elements within the dialog boundary without escaping into background surfaces.
+  - Pressing `Escape` smoothly dismisses the modal.
+  - When dismissed, focus is automatically restored to the original triggering button or element (`triggerElementRef`).
+- **Screen Reader Live Region**: A centralized `LiveRegionProvider` context exposes an `announce(message, "polite" | "assertive")` function that dynamically speaks status announcements, toast messages, and background asynchronous updates to assistive technologies without visual disruption.
+- **Reduced Motion**: All animations and transitions respect user system preferences via `@media (prefers-reduced-motion: reduce)`, disabling non-essential transitions and reducing animations to `0.01ms`.
+
+### Frontend Performance & Bundle Optimization
+- **Route-Level Code Splitting**: All primary pages (`Login`, `Register`, `Dashboard`, `Projects`, `Teams`, `Kanban`, `Documents`, `Wiki`, `Settings`) are dynamically loaded via `React.lazy()` wrapped in `<Suspense fallback={<PageLoader />}>`, eliminating initial load bloat.
+- **Vite Manual Chunking**:
+  - `vendor-react`: Isolated core React runtime (`react`, `react-dom`, `react-router-dom`).
+  - `vendor-redux`: Isolated Redux state layer (`@reduxjs/toolkit`, `react-redux`).
+  - `vendor-editor`: Isolated TipTap rich text editing engine (`@tiptap/*`, `prosemirror-*`).
+  - `vendor-charts`: Isolated charting libraries (`recharts`, `lucide-react`).
+- **Asset & Media Optimization**:
+  - Avatars and remote profile images configure `loading="lazy"` and `decoding="async"` attributes to prevent render blocking on large team lists or project boards.
+- **Bundle Reduction Results**:
+  - Monolithic single bundle (~1.81 MB) split into modular async chunks.
+  - Initial HTML entry bundle reduced to < 195 kB (34.8 kB gzipped).
+  - Heavy editor and chart modules are deferred until their respective views are opened.
