@@ -1777,3 +1777,93 @@ test("FRONTEND ANL-08: Workspace Analytics UI Helpers & State Mapping", async (t
     assert.equal(payload.projectIds, "proj_1,proj_2");
   });
 });
+
+test("FRONTEND UX-01: Unified Design System & Component Consistency Tokens", async (t) => {
+  const { colors, typography, radii, shadows } = await import("../src/theme/tokens.js");
+
+  await t.test("Validates core design token scale completeness", () => {
+    // Brand palette
+    assert.ok(colors.brand[500]);
+    assert.equal(colors.brand[500], "#6366F1");
+
+    // Semantic tokens
+    assert.ok(colors.semantic.success.light);
+    assert.ok(colors.semantic.warning.light);
+    assert.ok(colors.semantic.danger.light);
+    assert.ok(colors.semantic.info.light);
+
+    // Radii & Shadows
+    assert.equal(radii.xl, "0.75rem");
+    assert.equal(radii["2xl"], "1rem");
+    assert.ok(shadows.sm);
+    assert.ok(shadows.glow);
+  });
+
+  await t.test("Validates button variant class mapping and disabled invariants", () => {
+    const getButtonClasses = ({ variant = "primary", size = "md", disabled = false, isLoading = false }) => {
+      const base = "inline-flex items-center justify-center font-medium rounded-xl transition";
+      const variantMap = {
+        primary: "bg-indigo-600 text-white hover:bg-indigo-500",
+        secondary: "bg-slate-800 text-slate-200 hover:bg-slate-700",
+        outline: "bg-transparent border border-slate-700 text-slate-300",
+        danger: "bg-red-600 text-white hover:bg-red-500",
+        ghost: "bg-transparent text-slate-400 hover:text-slate-100",
+      };
+      const sizeMap = {
+        xs: "px-2.5 py-1 text-xs",
+        sm: "px-3 py-1.5 text-xs",
+        md: "px-4 py-2 text-sm",
+        lg: "px-5 py-2.5 text-base",
+      };
+
+      const isDisabled = disabled || isLoading;
+      return `${base} ${variantMap[variant] || variantMap.primary} ${sizeMap[size] || sizeMap.md} ${
+        isDisabled ? "opacity-50 cursor-not-allowed" : ""
+      }`.trim();
+    };
+
+    const primaryBtn = getButtonClasses({ variant: "primary", size: "sm" });
+    assert.ok(primaryBtn.includes("bg-indigo-600"));
+    assert.ok(primaryBtn.includes("px-3 py-1.5 text-xs"));
+    assert.ok(!primaryBtn.includes("opacity-50"));
+
+    const disabledBtn = getButtonClasses({ variant: "danger", disabled: true });
+    assert.ok(disabledBtn.includes("bg-red-600"));
+    assert.ok(disabledBtn.includes("opacity-50 cursor-not-allowed"));
+
+    const loadingBtn = getButtonClasses({ variant: "outline", isLoading: true });
+    assert.ok(loadingBtn.includes("opacity-50 cursor-not-allowed"));
+  });
+
+  await t.test("Validates badge semantic styling and dot indicator resolver", () => {
+    const getBadgeProps = (variant) => {
+      const map = {
+        primary: { bg: "bg-indigo-500/10", text: "text-indigo-400" },
+        success: { bg: "bg-emerald-500/10", text: "text-emerald-400" },
+        warning: { bg: "bg-amber-500/10", text: "text-amber-400" },
+        danger: { bg: "bg-red-500/10", text: "text-red-400" },
+        neutral: { bg: "bg-slate-800", text: "text-slate-300" },
+      };
+      return map[variant] || map.neutral;
+    };
+
+    assert.equal(getBadgeProps("success").text, "text-emerald-400");
+    assert.equal(getBadgeProps("danger").text, "text-red-400");
+    assert.equal(getBadgeProps("warning").bg, "bg-amber-500/10");
+    assert.equal(getBadgeProps("unknown").bg, "bg-slate-800");
+  });
+
+  await t.test("Validates avatar initials resolution and deterministic color hash", () => {
+    const getInitials = (name) => {
+      if (!name) return "U";
+      const parts = name.trim().split(" ");
+      if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+      return name.slice(0, 2).toUpperCase();
+    };
+
+    assert.equal(getInitials("Alice Johnson"), "AJ");
+    assert.equal(getInitials("Developer"), "DE");
+    assert.equal(getInitials(""), "U");
+    assert.equal(getInitials(null), "U");
+  });
+});

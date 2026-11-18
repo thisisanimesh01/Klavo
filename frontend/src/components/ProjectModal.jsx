@@ -1,33 +1,46 @@
 import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
+import { Modal, Button, Input, Select } from "./ui";
 
 export default function ProjectModal({ open, onClose, onSuccess }) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [teams, setTeams] = useState([]);
   const [teamId, setTeamId] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     const fetchTeams = async () => {
       try {
         const res = await axiosClient.get("/teams/my-teams");
-        setTeams(res.data);
+        setTeams(res.data || []);
       } catch (err) {
         console.error(err);
       }
     };
-    if (open) fetchTeams();
+    if (open) {
+      setError(null);
+      fetchTeams();
+    }
   }, [open]);
 
   if (!open) return null;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!name.trim()) {
+      setError("Project name is required.");
+      return;
+    }
+
     try {
+      setLoading(true);
+      setError(null);
       await axiosClient.post("/projects", {
-        name,
-        description,
-        teamId,
+        name: name.trim(),
+        description: description.trim(),
+        teamId: teamId || undefined,
       });
       setName("");
       setDescription("");
@@ -35,54 +48,69 @@ export default function ProjectModal({ open, onClose, onSuccess }) {
       onSuccess();
       onClose();
     } catch (err) {
-      alert(err.response?.data?.message || "Failed to create project");
+      setError(err.response?.data?.message || "Failed to create project");
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="app-card p-6 rounded-lg w-96 shadow">
-        <h2 className="text-xl font-semibold mb-4">Create Project</h2>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <input
-            className="w-full border p-2 rounded bg-transparent"
-            placeholder="Project name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+    <Modal
+      isOpen={open}
+      onClose={onClose}
+      title="Create New Project"
+      subtitle="Organize tasks, documents, and sprints within a team"
+      size="md"
+    >
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Input
+          label="Project Name *"
+          placeholder="e.g. Mobile App Redesign"
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value);
+            if (error) setError(null);
+          }}
+          error={error}
+          autoFocus
+        />
+
+        <div className="space-y-1.5 text-left">
+          <label className="block text-xs font-semibold text-slate-300">
+            Description (Optional)
+          </label>
           <textarea
-            className="w-full border p-2 rounded bg-transparent"
+            className="w-full rounded-xl border border-slate-800 bg-slate-900 text-slate-100 placeholder-slate-500 text-sm p-3 transition duration-150 focus:outline-none focus:ring-2 focus:border-indigo-500 focus:ring-indigo-500/30 resize-none"
             rows={3}
-            placeholder="Short description"
+            placeholder="Brief goals and summary of this project..."
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
-          <select
-            className="w-full border p-2 rounded bg-transparent"
-            value={teamId}
-            onChange={(e) => setTeamId(e.target.value)}
-          >
-            <option value="">Select team</option>
-            {teams.map((t) => (
-              <option key={t._id} value={t._id}>
-                {t.name}
-              </option>
-            ))}
-          </select>
+        </div>
 
-          <button className="w-full bg-indigo-600 text-white py-2 rounded">
-            Create Project
-          </button>
+        <Select
+          label="Team / Workspace"
+          value={teamId}
+          onChange={(e) => setTeamId(e.target.value)}
+          helperText="Associate this project with a team for member access"
+        >
+          <option value="">No team (Personal)</option>
+          {teams.map((t) => (
+            <option key={t._id} value={t._id}>
+              {t.name}
+            </option>
+          ))}
+        </Select>
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="w-full border py-2 rounded"
-          >
+        <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-800">
+          <Button variant="ghost" size="sm" onClick={onClose} disabled={loading}>
             Cancel
-          </button>
-        </form>
-      </div>
-    </div>
+          </Button>
+          <Button variant="primary" size="sm" type="submit" isLoading={loading}>
+            Create Project
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }

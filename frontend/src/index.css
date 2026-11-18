@@ -6,12 +6,18 @@
   --bg-main: #f8fafc;
   --bg-card: #ffffff;
   --text-main: #0f172a;
+  --text-muted: #64748b;
+  --card-border: rgba(226, 232, 240, 0.8);
+  --color-primary: #6366f1;
 }
 
 .dark {
   --bg-main: #020617;
-  --bg-card: #0b1120;
-  --text-main: #e5e7eb;
+  --bg-card: #0f172a;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --card-border: rgba(30, 41, 59, 0.8);
+  --color-primary: #6366f1;
 }
 
 body {
