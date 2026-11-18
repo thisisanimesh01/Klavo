@@ -1,10 +1,12 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import { useSelector, useDispatch } from "react-redux";
 import { useTheme } from "../context/ThemeContext";
 import { logout as logoutAction } from "../store/slices/authSlice";
 import axiosClient from "../api/axiosClient";
 import NotificationBell from "./NotificationBell";
-import { Menu, Moon, Sun, LogOut, Search, Command } from "lucide-react";
+import { Avatar } from "./ui";
+import { Menu, Moon, Sun, LogOut, Search, Settings } from "lucide-react";
 
 export default function Topbar({
   onToggleMobileMenu = () => {},
@@ -78,6 +80,29 @@ export default function Topbar({
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Real-time Notifications Bell */}
         <NotificationBell />
+
+        {/* User Profile / Settings Quick Link (UX-05) */}
+        <Link
+          to="/settings"
+          className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl border flex items-center gap-2 hover:bg-slate-100 dark:hover:bg-slate-800 transition min-h-[40px]"
+          style={{
+            borderColor: "var(--card-border)",
+            color: "var(--text-main)",
+          }}
+          title="Account & Workspace Settings"
+          aria-label="Account and Workspace Settings"
+        >
+          <Avatar
+            src={user?.avatar}
+            name={userName}
+            size="sm"
+            className="shrink-0"
+          />
+          <span className="hidden lg:inline text-xs font-medium max-w-[100px] truncate">
+            {userName}
+          </span>
+          <Settings size={15} className="text-slate-400 hidden sm:inline" />
+        </Link>
 
         {/* Theme Toggle Button */}
         <button

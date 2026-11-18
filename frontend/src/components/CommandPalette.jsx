@@ -12,6 +12,7 @@ import {
   Calendar,
   FileUp,
   BarChart2,
+  Settings,
   BookOpen,
   Plus,
   Moon,
@@ -82,6 +83,7 @@ export default function CommandPalette({ isOpen, onClose }) {
     { id: "nav-cal", title: "Calendar", subtitle: "Upcoming deadlines and task schedules", icon: <Calendar size={16} />, path: "/calendar" },
     { id: "nav-files", title: "Files", subtitle: "Uploaded project attachments and assets", icon: <FileUp size={16} />, path: "/files" },
     { id: "nav-anl", title: "Analytics", subtitle: "Project velocity, workload, and health", icon: <BarChart2 size={16} />, path: "/analytics" },
+    { id: "nav-settings", title: "Settings", subtitle: "Personal profile, account security, and workspace preferences", icon: <Settings size={16} />, path: "/settings" },
   ];
 
   // Quick action items

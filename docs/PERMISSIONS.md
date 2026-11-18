@@ -1125,3 +1125,33 @@ Enables organization leaders, managers, and team members to review cross-project
 | `/api/notifications/clear` | `DELETE` | Authenticated User | Clear all notifications belonging to authenticated user |
 | `/api/notifications/preferences` | `GET` | Authenticated User | Retrieve authenticated user's notification preferences |
 | `/api/notifications/preferences` | `PUT` | Authenticated User | Update authenticated user's notification preferences and sync via Socket.IO |
+
+---
+
+## 11. User Profiles & Workspace Settings Authorization (UX-05)
+
+- **User Profile & Account Security**:
+  - `PUT /api/users/profile` and `POST /api/users/avatar`: Strictly updates the authenticated user's profile (`req.user._id`). Users can never mutate other profiles.
+  - Avatars are validated against allowed image extensions (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`), sanitized against SVG XSS/script injection via `isSafeSvg`, and stored safely via `StorageService`.
+  - Passwords can only be changed via `PUT /api/users/password` by supplying the verified `currentPassword` (unless a Google-only account without an existing password). Password changes are strictly rate-limited and never expose password hashes or credentials.
+- **Workspace Settings & Member Directory**:
+  - `PUT /api/teams/:teamId` and `POST /api/teams/:teamId/logo`: Strictly restricted to the **Workspace Owner** (`team.owner.toString() === req.user._id.toString()`). Non-owner members or external users receive `403 Forbidden`.
+  - `GET /api/teams/:teamId`: Restricted to workspace members or owners; unauthorized users cannot read workspace configurations.
+  - `DELETE /api/teams/:teamId/members/:memberId`: Workspace owners can remove members; members can remove themselves (leave workspace). The workspace owner cannot be removed.
+  - Member directory queries and previews sanitize user objects and never leak passwords or sensitive credentials.
+
+### Permissions & Anti-IDOR Enforcement:
+| Endpoint | Method | Required Permission / Role | Description |
+| :--- | :--- | :--- | :--- |
+| `/api/users/me` | `GET` | Authenticated User | Retrieve own user profile details |
+| `/api/users/profile` | `PUT` | Authenticated User | Update own name, bio, and role title |
+| `/api/users/avatar` | `POST` | Authenticated User | Upload and update own avatar image via StorageService |
+| `/api/users/avatar/:key` | `GET` | Public / Authenticated | Stream avatar image with Content-Security-Policy & nosniff headers |
+| `/api/users/password` | `PUT` | Authenticated User | Update account password with current password verification & rate limiting |
+| `/api/users/:id` | `GET` | Authenticated User | Read public member profile preview (sanitized, no credentials) |
+| `/api/teams/:teamId` | `GET` | Workspace Member or Owner | Retrieve workspace metadata and populated member directory |
+| `/api/teams/:teamId` | `PUT` | Workspace Owner | Update workspace name and description |
+| `/api/teams/:teamId/logo` | `POST` | Workspace Owner | Upload workspace logo image via StorageService |
+| `/api/teams/logo/:key` | `GET` | Public / Authenticated | Stream workspace logo with Content-Security-Policy & nosniff headers |
+| `/api/teams/add-member` | `POST` | Workspace Member or Owner | Add existing user to workspace by email |
+| `/api/teams/:teamId/members/:memberId` | `DELETE` | Workspace Owner or Self | Remove member from workspace (or self-leave) |
