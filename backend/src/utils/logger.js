@@ -155,7 +155,8 @@ const LOG_LEVEL_SEVERITY = {
 export class StructuredLogger {
   constructor(options = {}) {
     this.service = options.service || "klavo-backend";
-    this.minLevel = options.minLevel || (env.isTest ? "WARN" : env.isProduction ? "INFO" : "DEBUG");
+    const isTestMode = env.isTest || Boolean(process.env.NODE_TEST_CONTEXT) || process.env.NODE_ENV === "test";
+    this.minLevel = options.minLevel || (isTestMode ? "WARN" : env.isProduction ? "INFO" : "DEBUG");
     this.stream = options.stream || process.stdout;
     this.errorStream = options.errorStream || process.stderr;
   }
