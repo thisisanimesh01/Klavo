@@ -115,6 +115,24 @@ export class LocalDiskStorageProvider {
       return false;
     }
   }
+
+  async headObject(storageKey) {
+    try {
+      const filePath = this.getFilePath(storageKey);
+      if (!fs.existsSync(filePath)) {
+        return null;
+      }
+      const stats = fs.statSync(filePath);
+      return {
+        status: 200,
+        contentLength: stats.size,
+        contentType: "application/octet-stream",
+        etag: null,
+      };
+    } catch {
+      return null;
+    }
+  }
 }
 
 /**
@@ -197,6 +215,13 @@ export class StorageService {
 
   async exists(storageKey) {
     return this.provider.exists(storageKey);
+  }
+
+  async headObject(storageKey) {
+    if (typeof this.provider.headObject === "function") {
+      return this.provider.headObject(storageKey);
+    }
+    return null;
   }
 
   getSignedUrl(storageKey, expiresInSeconds) {

@@ -128,10 +128,32 @@ export class StorageMigrator {
 
         await this.targetStorage.save(filePayload, storageKey);
 
-        // Verification: confirm object exists in destination
+        // Verification: confirm object exists in destination and size & SHA-256 match
         const destinationExists = await this.targetStorage.exists(storageKey);
         if (!destinationExists) {
           throw new Error("Verification failed: object does not exist in target after upload");
+        }
+
+        // Verify destination size
+        if (typeof this.targetStorage.headObject === "function") {
+          const head = await this.targetStorage.headObject(storageKey);
+          if (head && head.contentLength !== null && head.contentLength !== undefined) {
+            if (head.contentLength !== file.size) {
+              throw new Error(`Integrity verification failed: destination size (${head.contentLength}) does not match source size (${file.size})`);
+            }
+          }
+        }
+
+        // Verify destination SHA-256 by reading destination object
+        if (typeof this.targetStorage.getObject === "function") {
+          const remoteObj = await this.targetStorage.getObject(storageKey);
+          if (!remoteObj || !remoteObj.buffer) {
+            throw new Error("Integrity verification failed: unable to fetch destination object for hash check");
+          }
+          const remoteHash = crypto.createHash("sha256").update(remoteObj.buffer).digest("hex");
+          if (remoteHash !== localHash) {
+            throw new Error(`Integrity verification failed: destination SHA-256 (${remoteHash}) does not match source (${localHash})`);
+          }
         }
 
         fileReport.status = "migrated";
