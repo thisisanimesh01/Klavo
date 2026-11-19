@@ -51,6 +51,31 @@ export const validateEnv = (customEnv = process.env) => {
       errors.push("JWT_SECRET must be at least 32 characters long in production for cryptographic security");
     }
 
+    // Insecure default / placeholder secret detection
+    const INSECURE_SECRET_PATTERNS = [
+      "change_me",
+      "replace_with",
+      "your_jwt_secret",
+      "default_secret",
+      "12345678",
+      "password123",
+      "test_jwt_secret",
+    ];
+
+    if (customEnv.JWT_SECRET) {
+      const lower = customEnv.JWT_SECRET.toLowerCase();
+      if (INSECURE_SECRET_PATTERNS.some((p) => lower.includes(p))) {
+        errors.push("JWT_SECRET contains an insecure default placeholder value; generate a strong random secret");
+      }
+    }
+
+    if (customEnv.MONGO_URI) {
+      const lowerUri = customEnv.MONGO_URI.toLowerCase();
+      if (lowerUri.includes("<db_password>") || lowerUri.includes("<db_user>") || lowerUri.includes("username:password@")) {
+        errors.push("MONGO_URI contains placeholder template credentials instead of valid credentials");
+      }
+    }
+
     if (!customEnv.FRONTEND_URL || customEnv.FRONTEND_URL.trim() === "") {
       missing.push("FRONTEND_URL");
     } else {
