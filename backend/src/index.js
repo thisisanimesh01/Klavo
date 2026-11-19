@@ -15,9 +15,20 @@ const app = createApp();
 const server = createServer(app);
 
 //socket.io setup
+const socketCorsOrigin = (origin, callback) => {
+  if (!origin || !env.isProduction) {
+    return callback(null, true);
+  }
+  if (env.ALLOWED_ORIGINS.includes(origin) || env.FRONTEND_URL === origin) {
+    return callback(null, true);
+  }
+  return callback(new Error("Socket CORS violation: Origin not allowed"), false);
+};
+
 const io = new Server(server, {
   cors: {
-    origin: true,
+    origin: socketCorsOrigin,
+    credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE"],
   },
 });

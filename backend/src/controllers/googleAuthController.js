@@ -1,6 +1,7 @@
 import { OAuth2Client } from "google-auth-library";
 import { User } from "../models/User.js";
-import {generateToken} from "../utils/generateToken.js";
+import { generateToken } from "../utils/generateToken.js";
+import { setAuthCookie } from "../utils/cookieHelpers.js";
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -34,6 +35,7 @@ export const googleAuthController = async (req, res) => {
 
 
     const token = generateToken(user._id);
+    setAuthCookie(res, token);
 
     return res.json({
       user: {

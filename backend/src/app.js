@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
+import { env } from "./config/env.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { securityHeaders } from "./middleware/securityHeaders.js";
 
@@ -30,14 +31,31 @@ import searchRoutes from "./routes/searchRoutes.js";
 export const createApp = (options = {}) => {
   const app = express();
 
+  // Trust reverse proxy (ELB, Nginx, Cloudflare) when configured or in production
+  if (env.TRUST_PROXY) {
+    app.set("trust proxy", 1);
+  }
+
   // Security Headers (REL-03)
   app.use(securityHeaders);
 
-  // Middleware
+  // Dynamic CORS configuration: in production strictly match allowed origins; in dev permit origin
+  const corsOrigin = (origin, callback) => {
+    if (!origin || !env.isProduction) {
+      return callback(null, true);
+    }
+    if (env.ALLOWED_ORIGINS.includes(origin) || env.FRONTEND_URL === origin) {
+      return callback(null, true);
+    }
+    return callback(new Error("CORS policy violation: Origin not allowed"), false);
+  };
+
   app.use(
     cors({
-      origin: true,
+      origin: corsOrigin,
       credentials: true,
+      methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+      allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
     })
   );
 
