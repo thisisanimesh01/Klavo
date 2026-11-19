@@ -1,5 +1,9 @@
 {
   "type": "module",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "preflight:prod": "node backend/src/utils/preflightCheck.js"
+  },
   "dependencies": {
     "@react-oauth/google": "^0.12.2",
     "mongodb": "^6.21.0"

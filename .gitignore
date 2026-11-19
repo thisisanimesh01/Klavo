@@ -58,3 +58,7 @@ ORIG_HEAD
 # Playwright Test Reports & Artifacts
 playwright-report/
 test-results/
+
+# Test Fixtures & Backups
+backend/tests/fixtures/test_migration_uploads/
+backups/

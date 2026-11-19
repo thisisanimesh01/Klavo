@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: klavo-app
+    restart: unless-stopped
+    ports:
+      - "5050:5050"
+    environment:
+      - NODE_ENV=production
+      - PORT=5050
+      - MONGO_URI=mongodb://mongo:27017/klavo
+      - JWT_SECRET=change_me_to_at_least_32_characters_long_hex_key
+      - FRONTEND_URL=https://app.yourdomain.com
+      - STORAGE_PROVIDER=local
+      - UPLOADS_DIR=uploads
+      - TRUST_PROXY=true
+      - COOKIE_SECURE=true
+    volumes:
+      - klavo-uploads:/app/backend/uploads
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:7.0
+    container_name: klavo-mongo
+    restart: unless-stopped
+    volumes:
+      - klavo-db-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  klavo-db-data:
+  klavo-uploads:
