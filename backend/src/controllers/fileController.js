@@ -111,13 +111,6 @@ export const downloadFile = async (req, res) => {
     }
 
     const storageFilename = fileRecord.storageKey || fileRecord.filename;
-    let filePath;
-    try {
-      filePath = storageService.getFilePath(storageFilename);
-    } catch (e) {
-      return res.status(400).json({ message: "Invalid file storage key" });
-    }
-
     const exists = await storageService.exists(storageFilename);
     if (!exists) {
       return res.status(404).json({ message: "File binary not found on server" });
@@ -133,7 +126,28 @@ export const downloadFile = async (req, res) => {
       "default-src 'none'; style-src 'unsafe-inline'; sandbox"
     );
 
-    res.download(filePath, fileRecord.filename);
+    // If local provider and file path is available, stream via res.download
+    if (storageService.type === "local") {
+      let filePath;
+      try {
+        filePath = storageService.getFilePath(storageFilename);
+      } catch (e) {
+        return res.status(400).json({ message: "Invalid file storage key" });
+      }
+      return res.download(filePath, fileRecord.filename);
+    }
+
+    // Cloud S3 / Object storage provider: stream binary buffer with attachment header
+    const objectData = await storageService.getObject(storageFilename);
+    if (!objectData) {
+      return res.status(404).json({ message: "File binary not found on server" });
+    }
+
+    const safeFilename = path.basename(fileRecord.filename).replace(/["\r\n]/g, "");
+    res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}"`);
+    res.setHeader("Content-Type", objectData.contentType || "application/octet-stream");
+    res.setHeader("Content-Length", objectData.contentLength);
+    res.send(objectData.buffer);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

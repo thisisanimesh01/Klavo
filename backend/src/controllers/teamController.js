@@ -174,12 +174,6 @@ export const uploadTeamLogo = async (req, res) => {
 export const serveTeamLogo = async (req, res) => {
   try {
     const { key } = req.params;
-    let filePath;
-    try {
-      filePath = storageService.getFilePath(key);
-    } catch {
-      return res.status(400).json({ message: "Invalid logo storage key" });
-    }
 
     const exists = await storageService.exists(key);
     if (!exists) {
@@ -191,7 +185,25 @@ export const serveTeamLogo = async (req, res) => {
       "Content-Security-Policy",
       "default-src 'none'; style-src 'unsafe-inline'; sandbox"
     );
-    res.sendFile(filePath);
+
+    if (storageService.type === "local") {
+      let filePath;
+      try {
+        filePath = storageService.getFilePath(key);
+      } catch {
+        return res.status(400).json({ message: "Invalid logo storage key" });
+      }
+      return res.sendFile(filePath);
+    }
+
+    const objectData = await storageService.getObject(key);
+    if (!objectData) {
+      return res.status(404).json({ message: "Logo not found" });
+    }
+
+    res.setHeader("Content-Type", objectData.contentType || "image/jpeg");
+    res.setHeader("Content-Length", objectData.contentLength);
+    res.send(objectData.buffer);
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

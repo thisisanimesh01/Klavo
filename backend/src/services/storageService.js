@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { S3CompatibleStorageProvider, sanitizeS3Key } from "./s3StorageProvider.js";
 
 /**
  * Validates whether an SVG file buffer contains active scripts, javascript URIs, or malicious event handlers.
@@ -31,9 +32,10 @@ export const isSafeSvg = (buffer) => {
 };
 
 /**
- * Storage provider interface.
+ * Local Disk Storage Provider Implementation.
+ * Default provider for development and testing.
  */
-class LocalDiskStorageProvider {
+export class LocalDiskStorageProvider {
   constructor(baseDir = "uploads") {
     this.baseDir = path.resolve(baseDir);
     if (!fs.existsSync(this.baseDir)) {
@@ -45,11 +47,9 @@ class LocalDiskStorageProvider {
    * Sanitizes key to strictly prevent directory traversal attacks (e.g. ../../etc/passwd)
    */
   sanitizeKey(key) {
-    // Strip all path separators (both POSIX / and Windows \)
     const noPathSeparators = String(key).replace(/[\\/]/g, "");
-    // Remove all consecutive dots to prevent traversal
     const noDots = noPathSeparators.replace(/\.+/g, ".");
-    const safeBase = noDots.replace(/^\.+/, ""); // remove leading dots
+    const safeBase = noDots.replace(/^\.+/, "");
     return safeBase.replace(/[^a-zA-Z0-9_.-]/g, "_");
   }
 
@@ -70,11 +70,26 @@ class LocalDiskStorageProvider {
       if (fs.existsSync(file.path)) {
         fs.renameSync(file.path, targetPath);
       }
+    } else if (file.buffer) {
+      fs.writeFileSync(targetPath, file.buffer);
     }
     return {
       storageKey: path.basename(targetPath),
       storageProvider: "local",
-      size: file.size,
+      size: file.size || (fs.existsSync(targetPath) ? fs.statSync(targetPath).size : 0),
+    };
+  }
+
+  async getObject(storageKey) {
+    const filePath = this.getFilePath(storageKey);
+    if (!fs.existsSync(filePath)) {
+      return null;
+    }
+    const buffer = fs.readFileSync(filePath);
+    return {
+      buffer,
+      contentType: "application/octet-stream",
+      contentLength: buffer.length,
     };
   }
 
@@ -103,20 +118,55 @@ class LocalDiskStorageProvider {
 
 /**
  * Storage Service Factory
- * Supports "local" by default and enables plugging in an S3/GCS/R2 provider
- * without vendor lock-in or extra paid service requirements.
+ * Configurable via STORAGE_PROVIDER environment variable:
+ * - "local" (default): persists to local filesystem directory
+ * - "s3": persists to AWS S3, Cloudflare R2, MinIO, or compatible object store
  */
-class StorageService {
-  constructor() {
-    this.provider = new LocalDiskStorageProvider();
+export class StorageService {
+  constructor(options = {}) {
+    const providerType = options.provider || process.env.STORAGE_PROVIDER || "local";
+
+    // Ensure temporary uploads directory exists for multipart staging
+    const defaultUploadsDir = path.resolve(options.baseDir || process.env.UPLOADS_DIR || "uploads");
+    if (!fs.existsSync(defaultUploadsDir)) {
+      fs.mkdirSync(defaultUploadsDir, { recursive: true });
+    }
+    this.tempUploadsDir = defaultUploadsDir;
+
+    if (providerType === "s3") {
+      this.provider = new S3CompatibleStorageProvider({
+        bucket: options.bucket || process.env.S3_BUCKET,
+        region: options.region || process.env.S3_REGION || "us-east-1",
+        endpoint: options.endpoint || process.env.S3_ENDPOINT,
+        accessKeyId: options.accessKeyId || process.env.S3_ACCESS_KEY_ID,
+        secretAccessKey: options.secretAccessKey || process.env.S3_SECRET_ACCESS_KEY,
+        forcePathStyle: options.forcePathStyle !== undefined
+          ? options.forcePathStyle
+          : process.env.S3_FORCE_PATH_STYLE !== "false",
+        fetchFn: options.fetchFn || globalThis.fetch,
+      });
+      // Expose baseDir getter on provider to maintain compatibility with multer setup
+      this.provider.baseDir = defaultUploadsDir;
+      this.type = "s3";
+    } else {
+      this.provider = new LocalDiskStorageProvider(defaultUploadsDir);
+      this.type = "local";
+    }
   }
 
   getFilePath(storageKey) {
-    return this.provider.getFilePath(storageKey);
+    if (typeof this.provider.getFilePath === "function") {
+      return this.provider.getFilePath(storageKey);
+    }
+    throw new Error("Local file path not applicable for cloud object storage provider");
   }
 
   async save(file, storageKey) {
     return this.provider.save(file, storageKey);
+  }
+
+  async getObject(storageKey) {
+    return this.provider.getObject(storageKey);
   }
 
   async delete(storageKey) {
@@ -125,6 +175,13 @@ class StorageService {
 
   async exists(storageKey) {
     return this.provider.exists(storageKey);
+  }
+
+  getSignedUrl(storageKey, expiresInSeconds) {
+    if (typeof this.provider.getSignedUrl === "function") {
+      return this.provider.getSignedUrl(storageKey, expiresInSeconds);
+    }
+    return null;
   }
 }
 
