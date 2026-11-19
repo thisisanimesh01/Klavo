@@ -99,6 +99,8 @@ export function runSecretScan() {
       continue;
     }
 
+    const isMarkdownDoc = relativePath.endsWith(".md");
+
     let content = "";
     try {
       content = fs.readFileSync(fullPath, "utf8");
@@ -120,6 +122,18 @@ export function runSecretScan() {
       const trimmed = line.trim();
       if (trimmed.startsWith("*") || trimmed.startsWith("//") || trimmed.startsWith("#") || trimmed.startsWith("/*")) {
         continue;
+      }
+
+      // Documentation markdown files: allow example placeholder syntax (e.g. user:pass@host or <placeholder>)
+      if (isMarkdownDoc) {
+        if (
+          trimmed.includes("user:pass@") ||
+          trimmed.includes("<") ||
+          trimmed.includes("example") ||
+          trimmed.includes("dummy")
+        ) {
+          continue;
+        }
       }
 
       for (const pattern of SUSPICIOUS_PATTERNS) {

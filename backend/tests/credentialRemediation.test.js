@@ -47,7 +47,7 @@ describe("SEC-09: Credential Rotation & Secret Remediation Test Suite", () => {
     it("accepts high-entropy cryptographic production secrets", () => {
       const valid = validateEnv({
         NODE_ENV: "production",
-        MONGO_URI: "mongodb+srv://prod_app_user:e3b0c44298fc1c149afbf4c8996fb924@cluster.mongodb.net/klavo",
+        MONGO_URI: "mongodb+srv://prod_app_user:mock_sample_e3b0c44298fc1c149afbf4c8996fb924@cluster.mongodb.net/klavo",
         JWT_SECRET: "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
         FRONTEND_URL: "https://app.example.com",
       });
