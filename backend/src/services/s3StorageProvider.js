@@ -353,9 +353,12 @@ export class S3CompatibleStorageProvider {
   }
 
   /**
-   * Checks if an object exists in S3 (via HEAD request).
+   * Retrieves object metadata (size, content-type, etag) via S3 HEAD request.
+   *
+   * @param {string} storageKey
+   * @returns {Promise<object|null>} Object metadata or null if not found
    */
-  async exists(storageKey) {
+  async headObject(storageKey) {
     const safeKey = this.sanitizeKey(storageKey);
     const url = this.getObjectUrl(safeKey);
 
@@ -371,9 +374,28 @@ export class S3CompatibleStorageProvider {
         method: "HEAD",
         headers,
       });
-      return response.status === 200;
+
+      if (response.status === 404 || !response.ok) {
+        return null;
+      }
+
+      const contentLength = response.headers.get("content-length");
+      return {
+        status: response.status,
+        contentLength: contentLength ? Number(contentLength) : null,
+        contentType: response.headers.get("content-type") || "application/octet-stream",
+        etag: response.headers.get("etag") || null,
+      };
     } catch {
-      return false;
+      return null;
     }
+  }
+
+  /**
+   * Checks if an object exists in S3 (via HEAD request).
+   */
+  async exists(storageKey) {
+    const head = await this.headObject(storageKey);
+    return head !== null;
   }
 }

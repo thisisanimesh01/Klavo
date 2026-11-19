@@ -87,35 +87,29 @@ The `StorageMigrator` service safely transitions existing uploads from local dis
 1. **Dry-Run by Default**: Previews the migration manifest, total file count, and byte volume without altering files or triggering uploads.
 2. **Non-Destructive**: Never deletes local source files unless explicit destructive flags (`deleteSourceAfterCopy: true`) are set.
 3. **Resumable & Collision Avoidance**: Checks remote object existence before uploading. If a file is already present, it is safely skipped (`status: "skipped"`), avoiding redundant network transfers or overwrites.
-4. **Integrity Verification**: Generates SHA256 checksums to verify payload integrity between local source and destination.
-
-### 4.2 Programmatic Usage
-```javascript
-import { StorageMigrator } from "./backend/src/services/storageMigrator.js";
-import { S3CompatibleStorageProvider } from "./backend/src/services/s3StorageProvider.js";
-
-const targetStorage = new S3CompatibleStorageProvider({
-  bucket: process.env.S3_BUCKET,
-  region: process.env.S3_REGION,
-  endpoint: process.env.S3_ENDPOINT,
-  accessKeyId: process.env.S3_ACCESS_KEY_ID,
-  secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
-});
-
-const migrator = new StorageMigrator({ targetStorage, localDir: "uploads" });
-
-// Dry-run preview:
-const preview = await migrator.migrate({ dryRun: true });
-console.log(`Eligible files: ${preview.totalFiles}, Total bytes: ${preview.totalBytes}`);
-
-// Live migration (non-destructive):
-const liveResult = await migrator.migrate({ dryRun: false, overwriteExisting: false });
-console.log(`Migrated: ${liveResult.migrated}, Skipped: ${liveResult.skipped}`);
-```
+4. **Comprehensive Integrity Verification**:
+   - Queries target object metadata via `headObject()` to verify destination `contentLength` matches local file size.
+   - Reads destination object buffer to compute and verify SHA-256 checksum matches local source SHA-256 before marking the record as migrated.
+   - If checksum or size fails verification, throws an error, flags the record as `failed`, and halts destructive deletion.
 
 ---
 
-## 5. Backup, Restore & Lifecycle Policies
+## 5. MongoDB Production Configuration & Pooling Invariants
+
+Klavo connects to MongoDB with optimized production connection pooling and timeout invariants configured via `getMongoConnectionOptions()` in `backend/src/config/db.js`:
+
+| Setting | Default Value | Production Behavior | Purpose |
+|---|---|---|---|
+| `autoIndex` | `false` in production (`true` in dev/test) | Disabled in production | Prevents automatic background index builds that can block database operations or cause high lock overhead during cluster deployments. |
+| `maxPoolSize` | `20` (configurable via `MONGO_MAX_POOL_SIZE`) | Capped connection pool | Limits concurrent sockets per container pod to avoid exhausting MongoDB Atlas connection limits. |
+| `minPoolSize` | `2` (configurable via `MONGO_MIN_POOL_SIZE`) | Warm standby sockets | Maintains pre-warmed connection pool for instant request handling. |
+| `serverSelectionTimeoutMS` | `5000` (5s) | Fast failure threshold | Prevents application threads from hanging indefinitely during primary stepdowns or network partitions. |
+| `socketTimeoutMS` | `45000` (45s) | Socket inactivity cap | Automatically terminates frozen socket connections. |
+| `heartbeatFrequencyMS` | `10000` (10s) | Periodic replica checks | Rapidly detects cluster topology changes or node failover. |
+
+---
+
+## 6. Backup, Restore & Lifecycle Policies
 
 1. **Bucket Versioning**: Enable versioning on the target S3 bucket to protect against accidental deletions or overwrites.
 2. **Lifecycle Policies**:
