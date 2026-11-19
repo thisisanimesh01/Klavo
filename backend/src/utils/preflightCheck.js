@@ -131,7 +131,8 @@ export async function runPreflightChecks(options = {}) {
 
 // Direct CLI invocation execution
 if (process.argv[1] && process.argv[1].endsWith("preflightCheck.js")) {
-  runPreflightChecks()
+  const skipDb = process.argv.includes("--skip-db");
+  runPreflightChecks({ skipDbCheck: skipDb })
     .then((report) => {
       if (!report.passed) {
         process.exit(1);
