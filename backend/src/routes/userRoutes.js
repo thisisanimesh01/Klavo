@@ -10,6 +10,8 @@ import {
   uploadAvatar,
   serveAvatar,
   changePassword,
+  getOnboardingState,
+  updateOnboardingState,
 } from "../controllers/userController.js";
 
 const router = express.Router();
@@ -49,6 +51,8 @@ router.get("/me", (req, res) => {
 });
 
 router.put("/profile", updateProfile);
+router.get("/onboarding", getOnboardingState);
+router.put("/onboarding", updateOnboardingState);
 router.post("/avatar", upload.single("avatar"), uploadAvatar);
 router.put("/password", passwordLimiter, changePassword);
 router.get("/:id", getUserById);

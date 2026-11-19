@@ -42,6 +42,7 @@ export const registerUser = async (req, res) => {
         name: user.name,
         email: user.email,
         avatar: user.avatar,
+        onboarding: user.onboarding,
       },
       token,
     });
@@ -105,6 +106,7 @@ export const loginUser = async (req, res) => {
         name: user.name,
         email: user.email,
         avatar: user.avatar,
+        onboarding: user.onboarding,
       },
       token,
     });
@@ -126,6 +128,7 @@ export const getProfile = async (req, res) => {
       name: user.name,
       email: user.email,
       avatar: user.avatar,
+      onboarding: user.onboarding,
     });
   } catch (err) {
     console.error("Get Profile Error:", err.message);

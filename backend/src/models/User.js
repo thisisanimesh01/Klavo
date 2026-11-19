@@ -45,6 +45,30 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+
+    // Persistent Onboarding State (UX-08)
+    onboarding: {
+      completed: {
+        type: Boolean,
+        default: false,
+      },
+      dismissed: {
+        type: Boolean,
+        default: false,
+      },
+      step: {
+        type: Number,
+        default: 0,
+      },
+      completedSteps: {
+        type: [String],
+        default: [],
+      },
+      completedAt: {
+        type: Date,
+        default: null,
+      },
+    },
   },
   { timestamps: true }
 );

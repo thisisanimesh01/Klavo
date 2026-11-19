@@ -6,13 +6,15 @@ import { logout as logoutAction } from "../store/slices/authSlice";
 import axiosClient from "../api/axiosClient";
 import NotificationBell from "./NotificationBell";
 import { Avatar } from "./ui";
-import { Menu, Moon, Sun, LogOut, Search, Settings } from "lucide-react";
+import { useOnboarding } from "../context/OnboardingContext";
+import { Menu, Moon, Sun, LogOut, Search, Settings, HelpCircle } from "lucide-react";
 
 export default function Topbar({
   onToggleMobileMenu = () => {},
   onOpenCommandPalette = () => {},
 }) {
   const { theme, toggleTheme } = useTheme();
+  const { startTour } = useOnboarding();
   const dispatch = useDispatch();
   const user = useSelector((state) => state.auth?.user);
 
@@ -80,6 +82,21 @@ export default function Topbar({
       <div className="flex items-center gap-2 sm:gap-3">
         {/* Real-time Notifications Bell */}
         <NotificationBell />
+
+        {/* Product Guidance / Walkthrough Quick Trigger (UX-08) */}
+        <button
+          onClick={() => startTour(0)}
+          className="p-2 sm:px-2.5 sm:py-2 rounded-xl border flex items-center gap-1.5 transition text-xs font-medium min-h-[40px] text-slate-400 hover:text-indigo-400 hover:border-indigo-500/40"
+          style={{
+            borderColor: "var(--card-border)",
+            background: "var(--bg-main)",
+          }}
+          title="Product Tour & Help Guide"
+          aria-label="Launch interactive product guide"
+        >
+          <HelpCircle size={16} />
+          <span className="hidden xl:inline">Guide</span>
+        </button>
 
         {/* User Profile / Settings Quick Link (UX-05) */}
         <Link

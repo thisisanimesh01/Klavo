@@ -2,6 +2,10 @@ import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
 import { Link } from "react-router-dom";
 import socket from "../socket";
+import { useSelector } from "react-redux";
+import OnboardingChecklist from "../components/OnboardingChecklist";
+import FirstLoginWizardModal from "../components/FirstLoginWizardModal";
+import { useOnboarding } from "../context/OnboardingContext";
 
 import {
   AreaChart,
@@ -20,6 +24,10 @@ export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [recentActivities, setRecentActivities] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [showWizard, setShowWizard] = useState(false);
+
+  const authUser = useSelector((state) => state.auth?.user);
+  const { state: onboardingState, completeStep } = useOnboarding();
 
   const loadStats = async () => {
     try {
@@ -34,6 +42,20 @@ export default function Dashboard() {
       setLoading(false);
     }
   };
+
+  // Detect first-login for new users (0 teams, 0 projects, not previously dismissed or completed)
+  useEffect(() => {
+    if (stats && !loading) {
+      if (
+        stats.teamCount === 0 &&
+        stats.projectCount === 0 &&
+        !onboardingState.completed &&
+        !onboardingState.dismissed
+      ) {
+        setShowWizard(true);
+      }
+    }
+  }, [stats, loading, onboardingState.completed, onboardingState.dismissed]);
 
   useEffect(() => {
     loadStats();
@@ -82,6 +104,19 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6" style={{ color: "var(--text-main)" }}>
+      {/* Onboarding Checklist (UX-08) */}
+      <OnboardingChecklist userRole={authUser?.role || "member"} />
+
+      {/* First-Login Setup Wizard Modal (UX-08) */}
+      <FirstLoginWizardModal
+        isOpen={showWizard}
+        onClose={() => setShowWizard(false)}
+        onComplete={() => {
+          setShowWizard(false);
+          loadStats();
+        }}
+      />
+
       {/* Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
         <StatCard label="Projects" value={stats.projectCount} />

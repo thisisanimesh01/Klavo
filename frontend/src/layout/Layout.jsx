@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import Sidebar from "../components/Sidebar";
 import Topbar from "../components/Topbar";
 import CommandPalette from "../components/CommandPalette";
+import ProductWalkthroughModal from "../components/ProductWalkthroughModal";
 
 export default function Layout({ children }) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -60,6 +61,9 @@ export default function Layout({ children }) {
         isOpen={commandPaletteOpen}
         onClose={() => setCommandPaletteOpen(false)}
       />
+
+      {/* Global Product Walkthrough Modal (UX-08) */}
+      <ProductWalkthroughModal />
     </div>
   );
 }

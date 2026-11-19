@@ -60,6 +60,7 @@ export const updateProfile = async (req, res) => {
       bio: user.bio,
       roleTitle: user.roleTitle,
       googleUser: user.googleUser,
+      onboarding: user.onboarding,
     });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -193,6 +194,104 @@ export const changePassword = async (req, res) => {
     await user.save();
 
     res.json({ message: "Password updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Get authenticated user's onboarding progress state (UX-08)
+ */
+export const getOnboardingState = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select("onboarding createdAt");
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const onboarding = user.onboarding || {
+      completed: false,
+      dismissed: false,
+      step: 0,
+      completedSteps: [],
+      completedAt: null,
+    };
+
+    res.json(onboarding);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+/**
+ * Update authenticated user's onboarding state (UX-08)
+ * Supports step progress, completing steps, dismiss/skip, and reset/restart
+ */
+export const updateOnboardingState = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const { step, completed, dismissed, completedSteps, reset } = req.body;
+
+    if (!user.onboarding) {
+      user.onboarding = {
+        completed: false,
+        dismissed: false,
+        step: 0,
+        completedSteps: [],
+        completedAt: null,
+      };
+    }
+
+    if (reset) {
+      user.onboarding = {
+        completed: false,
+        dismissed: false,
+        step: 0,
+        completedSteps: [],
+        completedAt: null,
+      };
+      await user.save();
+      return res.json({
+        message: "Onboarding restarted successfully",
+        onboarding: user.onboarding,
+      });
+    }
+
+    if (typeof step === "number" && step >= 0) {
+      user.onboarding.step = step;
+    }
+
+    if (typeof dismissed === "boolean") {
+      user.onboarding.dismissed = dismissed;
+    }
+
+    if (Array.isArray(completedSteps)) {
+      const merged = new Set([
+        ...(user.onboarding.completedSteps || []),
+        ...completedSteps.map((s) => String(s).trim()),
+      ]);
+      user.onboarding.completedSteps = Array.from(merged);
+    }
+
+    if (typeof completed === "boolean") {
+      user.onboarding.completed = completed;
+      if (completed && !user.onboarding.completedAt) {
+        user.onboarding.completedAt = new Date();
+      } else if (!completed) {
+        user.onboarding.completedAt = null;
+      }
+    }
+
+    await user.save();
+
+    res.json({
+      message: "Onboarding state updated",
+      onboarding: user.onboarding,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
