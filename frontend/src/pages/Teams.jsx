@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import axiosClient from "../api/axiosClient";
 import TeamModal from "../components/TeamModal";
 import AddMemberModal from "../components/AddMemberModal";
+import { Button, Card, EmptyState, LoadingState, Badge } from "../components/ui";
+import { Users, Plus, UserPlus, Trash2 } from "lucide-react";
 
 export default function Teams() {
   const [teams, setTeams] = useState([]);
@@ -60,7 +62,21 @@ export default function Teams() {
 
         {/* IF NO TEAMS */}
         {teams.length === 0 ? (
-          <p className="text-gray-500">No teams yet. Create your first team!</p>
+          <EmptyState
+            icon={Users}
+            title="No teams or workspaces yet"
+            description="Create your first team workspace to start inviting members and collaborating on projects."
+            action={
+              <Button
+                variant="primary"
+                size="sm"
+                leftIcon={Plus}
+                onClick={() => setOpenCreateModal(true)}
+              >
+                Create Team
+              </Button>
+            }
+          />
         ) : (
           /* TEAM CARDS */
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

@@ -8,6 +8,7 @@ import store from "./store/store";
 
 import { ThemeProvider } from "./context/ThemeContext";
 import { LiveRegionProvider } from "./context/LiveRegionContext";
+import { OnboardingProvider } from "./context/OnboardingContext";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 
 const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
@@ -17,7 +18,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <Provider store={store}>
       <ThemeProvider>
         <LiveRegionProvider>
-          <App />
+          <OnboardingProvider>
+            <App />
+          </OnboardingProvider>
         </LiveRegionProvider>
       </ThemeProvider>
     </Provider>

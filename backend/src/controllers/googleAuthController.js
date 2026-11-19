@@ -41,6 +41,7 @@ export const googleAuthController = async (req, res) => {
         email: user.email,
         name: user.name,
         avatar: user.avatar,
+        onboarding: user.onboarding,
       },
       token,
     });

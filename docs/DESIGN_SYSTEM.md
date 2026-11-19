@@ -268,3 +268,32 @@ Standardized responsive viewport breakpoints configured in `tokens.js` and `tail
   - Monolithic single bundle (~1.81 MB) split into modular async chunks.
   - Initial HTML entry bundle reduced to < 195 kB (34.8 kB gzipped).
   - Heavy editor and chart modules are deferred until their respective views are opened.
+
+---
+
+## 8. Onboarding & Product Guidance (UX-08)
+
+### Architecture & Persistence
+- **Persistent User State**: User onboarding milestones and progress are persisted in MongoDB (`User.onboarding`) and synchronized with the frontend via `/api/users/onboarding`.
+  - `completed`: Boolean indicating full onboarding completion.
+  - `dismissed`: Boolean indicating user choice to hide or dismiss the checklist.
+  - `step`: Current walkthrough step index.
+  - `completedSteps`: Array of step identifier strings.
+  - `completedAt`: Date timestamp when all milestones were achieved.
+- **Existing User Protection**: Users with existing projects or teams, or who have already completed or dismissed onboarding, are never forced through onboarding again.
+
+### Core Onboarding Features
+1. **First-Login Wizard (`FirstLoginWizardModal`)**:
+   - Detects newly registered accounts (0 teams, 0 projects).
+   - Guides the user through a 2-step setup: creating their first Workspace and their first Project.
+   - Non-blocking and dismissible at any time.
+2. **Dashboard Onboarding Checklist (`OnboardingChecklist`)**:
+   - Surfaces role-aware milestone cards (Workspace, Project, Kanban Tasks, Documents/Wiki, Analytics).
+   - Visual progress bar showing completion percentage.
+   - Expandable/collapsible and dismissible, with a persistent resume trigger when hidden.
+3. **Interactive Product Walkthrough (`ProductWalkthroughModal`)**:
+   - Multi-step modal tour covering core Klavo workflows: workspace creation, project configuration, task management, document multiplayer collaboration, and engineering metrics.
+   - Full keyboard navigation (`Escape` to close, arrow keys/enter buttons) and WCAG-compliant color contrast.
+   - Accessible via the "Guide" button in the Topbar header at any time.
+4. **Contextual Empty States**:
+   - Upgraded empty states in Teams, Projects, Documents, and Settings with clear next-action buttons to orient users when no records exist.
