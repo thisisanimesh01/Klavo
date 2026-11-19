@@ -4,6 +4,8 @@ import cookieParser from "cookie-parser";
 import { env } from "./config/env.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import { securityHeaders } from "./middleware/securityHeaders.js";
+import { requestCorrelation, requestLogger } from "./middleware/requestLogger.js";
+import { metricsMiddleware } from "./utils/metrics.js";
 
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
@@ -27,6 +29,7 @@ import calendarRoutes from "./routes/calendarRoutes.js";
 import dashboardRoutes from "./routes/dashboardRoutes.js";
 import analyticsRoutes from "./routes/analyticsRoutes.js";
 import searchRoutes from "./routes/searchRoutes.js";
+import healthRoutes from "./routes/healthRoutes.js";
 
 export const createApp = (options = {}) => {
   const app = express();
@@ -35,6 +38,9 @@ export const createApp = (options = {}) => {
   if (env.TRUST_PROXY) {
     app.set("trust proxy", 1);
   }
+
+  // Request correlation context & tracing (REL-07)
+  app.use(requestCorrelation);
 
   // Security Headers (REL-03)
   app.use(securityHeaders);
@@ -55,19 +61,27 @@ export const createApp = (options = {}) => {
       origin: corsOrigin,
       credentials: true,
       methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-      allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+      allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "X-Request-ID"],
+      exposedHeaders: ["X-Request-ID"],
     })
   );
 
   app.use(express.json());
   app.use(cookieParser());
 
+  // Metrics telemetry and request logging (REL-07)
+  app.use(metricsMiddleware);
+  app.use(requestLogger);
+
   // Mount IO instance if provided
   if (options.io) {
     app.set("io", options.io);
   }
 
-  // Routes
+  // Operational Health, Liveness, Readiness & Metrics (REL-07)
+  app.use("/api/health", healthRoutes);
+
+  // Domain Routes
   app.use("/api/auth", authRoutes);
   app.use("/api/users", userRoutes);
   app.use("/api/projects", projectRoutes);

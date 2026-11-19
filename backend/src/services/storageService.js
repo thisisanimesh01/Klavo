@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { S3CompatibleStorageProvider, sanitizeS3Key } from "./s3StorageProvider.js";
+import { metrics } from "../utils/metrics.js";
 
 /**
  * Validates whether an SVG file buffer contains active scripts, javascript URIs, or malicious event handlers.
@@ -162,15 +163,36 @@ export class StorageService {
   }
 
   async save(file, storageKey) {
-    return this.provider.save(file, storageKey);
+    try {
+      const result = await this.provider.save(file, storageKey);
+      metrics.recordStorageOperation(false);
+      return result;
+    } catch (err) {
+      metrics.recordStorageOperation(true);
+      throw err;
+    }
   }
 
   async getObject(storageKey) {
-    return this.provider.getObject(storageKey);
+    try {
+      const result = await this.provider.getObject(storageKey);
+      metrics.recordStorageOperation(false);
+      return result;
+    } catch (err) {
+      metrics.recordStorageOperation(true);
+      throw err;
+    }
   }
 
   async delete(storageKey) {
-    return this.provider.delete(storageKey);
+    try {
+      const result = await this.provider.delete(storageKey);
+      metrics.recordStorageOperation(false);
+      return result;
+    } catch (err) {
+      metrics.recordStorageOperation(true);
+      throw err;
+    }
   }
 
   async exists(storageKey) {
