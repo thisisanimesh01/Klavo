@@ -2,6 +2,8 @@ import AutomationRule from "../models/AutomationRule.js";
 import AutomationLog from "../models/AutomationLog.js";
 import Task from "../models/Task.js";
 import { createTargetedNotification } from "./notificationHelpers.js";
+import { logger } from "./logger.js";
+import { metrics } from "./metrics.js";
 
 const MAX_EXECUTION_DEPTH = 3;
 
@@ -332,6 +334,12 @@ export const runAutomationsForEvent = async (io, eventPayload) => {
       await rule.save();
     }
   } catch (err) {
-    console.error("[AutomationEngine] Error executing automations:", err);
+    metrics.recordAutomationExecution(true);
+    logger.error("Error executing automations in AutomationEngine", {
+      message: err.message,
+      name: err.name,
+      event,
+      taskId: task?._id,
+    });
   }
 };

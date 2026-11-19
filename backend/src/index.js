@@ -10,6 +10,8 @@ import { initReactionSockets } from "./sockets/reactions.js";
 import { initNotificationSockets } from "./sockets/notifications.js";
 import { initDocumentSockets } from "./sockets/documents.js";
 import { createApp } from "./app.js";
+import { logger } from "./utils/logger.js";
+import { metrics } from "./utils/metrics.js";
 
 const app = createApp();
 const server = createServer(app);
@@ -63,6 +65,9 @@ io.use(async (socket, next) => {
 });
 
 io.on("connection", (socket) => {
+  metrics.recordSocketConnect();
+  logger.debug("Socket.IO client connected", { socketId: socket.id, userId: socket.user?._id });
+
   // Initialize sub-socket handlers
   initNotificationSockets(io, socket);
   initCommentSockets(io, socket);
@@ -116,7 +121,10 @@ io.on("connection", (socket) => {
     if (projectId) socket.leave(`project_${projectId}`);
   });
 
-  socket.on("disconnect", () => {});
+  socket.on("disconnect", () => {
+    metrics.recordSocketDisconnect();
+    logger.debug("Socket.IO client disconnected", { socketId: socket.id });
+  });
 });
 
 //connect to database
@@ -126,21 +134,21 @@ connectDB();
 const PORT = env.PORT || 5050;
 
 server.listen(PORT, () => {
-  console.log(`🚀 Server running on http://localhost:${PORT}`);
+  logger.info(`Server started successfully`, { port: PORT, env: env.NODE_ENV });
 });
 
 // Graceful Shutdown Handling
 const shutdown = async (signal) => {
-  console.log(`\nReceived ${signal}. Shutting down gracefully...`);
+  logger.info(`Received ${signal}. Shutting down gracefully...`);
   server.close(async () => {
-    console.log("HTTP server closed.");
+    logger.info("HTTP server closed cleanly");
     await closeDB();
     process.exit(0);
   });
 
   // Force exit if shutdown hangs beyond 10 seconds
   setTimeout(() => {
-    console.error("Could not close connections in time, forcefully shutting down");
+    logger.error("Could not close connections in time, forcefully shutting down");
     process.exit(1);
   }, 10000).unref();
 };

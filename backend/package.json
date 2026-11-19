@@ -5,7 +5,9 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "preflight:prod": "node src/utils/preflightCheck.js"
+    "preflight:prod": "node src/utils/preflightCheck.js",
+    "backup:create": "node src/utils/backupManager.js",
+    "backup:restore-verify": "node src/utils/backupManager.js --restore"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

@@ -1,10 +1,27 @@
+import { logger } from "../utils/logger.js";
+import { metrics } from "../utils/metrics.js";
+
 /**
  * Central Error Handling Middleware
  * Ensures all errors are sanitized before returning to clients in production,
  * avoiding exposure of internal stack traces, database details, or credentials.
+ * Structured error logs are emitted server-side with request correlation.
  */
 export const errorHandler = (err, req, res, next) => {
   const statusCode = err.statusCode || (res.statusCode && res.statusCode !== 200 ? res.statusCode : 500);
+
+  // Record metrics
+  metrics.recordHttpRequest(req.method, statusCode, 0);
+
+  // Server-side structured error logging
+  logger.error(err.message || "Unhandled server error", {
+    name: err.name,
+    code: err.code,
+    statusCode,
+    method: req.method,
+    path: req.originalUrl || req.url,
+    error: err,
+  });
 
   // Specific handling for Multer file upload errors
   if (err.code === "LIMIT_FILE_SIZE") {

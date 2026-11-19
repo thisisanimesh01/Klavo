@@ -1,13 +1,22 @@
 import mongoose from "mongoose";
 import { env } from "./env.js";
+import { logger } from "../utils/logger.js";
+import { metrics } from "../utils/metrics.js";
 
 export const connectDB = async () => {
   try {
     const conn = await mongoose.connect(env.MONGO_URI);
-    console.log(`✅ MongoDB connected successfully to: ${conn.connection.host}`);
+    logger.info("MongoDB connected successfully", {
+      host: conn.connection.host,
+      name: conn.connection.name,
+    });
     return conn;
   } catch (err) {
-    console.error("MongoDB connection error :", err.message);
+    metrics.recordDatabaseError(err);
+    logger.error("MongoDB connection error", {
+      message: err.message,
+      name: err.name,
+    });
     process.exit(1);
   }
 };
@@ -15,8 +24,11 @@ export const connectDB = async () => {
 export const closeDB = async () => {
   try {
     await mongoose.connection.close();
-    console.log("MongoDB connection closed cleanly.");
+    logger.info("MongoDB connection closed cleanly");
   } catch (err) {
-    console.error("Error closing MongoDB connection:", err.message);
+    metrics.recordDatabaseError(err);
+    logger.error("Error closing MongoDB connection", {
+      message: err.message,
+    });
   }
 };
