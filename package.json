@@ -2,7 +2,8 @@
   "type": "module",
   "scripts": {
     "test:e2e": "playwright test",
-    "preflight:prod": "node backend/src/utils/preflightCheck.js"
+    "preflight:prod": "node backend/src/utils/preflightCheck.js",
+    "scan:secrets": "node scripts/scan_secrets.js"
   },
   "dependencies": {
     "@react-oauth/google": "^0.12.2",
