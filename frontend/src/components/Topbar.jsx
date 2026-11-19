@@ -150,6 +150,7 @@ export default function Topbar({
           onClick={handleLogout}
           className="p-2 sm:px-3.5 sm:py-2 bg-indigo-600 hover:bg-indigo-700 transition text-white rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 shadow-xs min-h-[40px]"
           title="Log out of Klavo"
+          aria-label="Log out of Klavo"
         >
           <LogOut size={16} />
           <span className="hidden sm:inline">Logout</span>

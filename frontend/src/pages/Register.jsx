@@ -24,7 +24,7 @@ export default function Register() {
       dispatch(
         setCredentials({
           user: res.data.user,
-          token: res.data.accessToken,
+          token: res.data.token || res.data.accessToken,
         })
       );
       navigate("/");
