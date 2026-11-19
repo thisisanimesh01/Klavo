@@ -1,6 +1,10 @@
 {
+  "type": "module",
   "dependencies": {
     "@react-oauth/google": "^0.12.2",
     "mongodb": "^6.21.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1"
   }
 }

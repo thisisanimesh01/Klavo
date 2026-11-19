@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import { useDispatch } from "react-redux";
 import { setCredentials } from "../store/slices/authSlice";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
+import axiosClient from "../api/axiosClient";
 import GoogleLoginButton from "../components/GoogleLoginButton";
 
 export default function Login() {
@@ -12,14 +12,12 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const backendURL = "http://localhost:5050/api/auth/login";
-
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const { data } = await axios.post(backendURL, { email, password });
+      const { data } = await axiosClient.post("/auth/login", { email, password });
       dispatch(setCredentials(data));
 
       setTimeout(() => navigate("/"), 500);

@@ -54,3 +54,7 @@ demos/[0-9][0-9]_*.png
 # Git References
 FETCH_HEAD
 ORIG_HEAD
+
+# Playwright Test Reports & Artifacts
+playwright-report/
+test-results/

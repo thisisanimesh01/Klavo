@@ -81,3 +81,51 @@ A GitHub Actions workflow is defined in `.github/workflows/ci.yml`. It triggers 
 ```bash
 node --test backend/tests/httpPipeline.test.js backend/tests/socketIntegration.test.js frontend/tests/rel01_integration.test.js
 ```
+
+---
+
+## 5. End-to-End Workflow Testing (REL-02)
+
+Klavo implements a comprehensive browser-based E2E testing architecture powered by **Playwright**, testing real user workflows across Desktop Chromium and Mobile Chromium.
+
+### Architecture & Key Components
+- **`playwright.config.js`**:
+  - Deterministic single-worker test runner (`workers: 1`) to eliminate database state races.
+  - Device profiles: Desktop Chromium (1280x800) and Mobile Chromium (Pixel 5 viewport).
+  - Diagnostic capture: Traces (`retain-on-failure`), Screenshots (`only-on-failure`), and Videos (`retain-on-failure`).
+- **`e2e/fixtures/testEnvironment.js`**:
+  - `startUnifiedTestServer()`: Launches an in-process HTTP server serving both the frontend production bundle (`frontend/dist`) and backend Express API under the same origin.
+  - Automatically establishes connection to the isolated local MongoDB instance.
+  - Ensures clean teardown and ephemeral port binding.
+
+### Test Suites
+- **`e2e/auth-session.spec.js`**:
+  - User registration, login with credentials, and session persistence across page reloads.
+  - Topbar user greeting and logout redirection.
+  - Dialog-intercepted validation error on invalid login credentials.
+  - Unauthenticated access redirects.
+- **`e2e/workspaces-projects-tasks.spec.js`**:
+  - Workspace/team creation and member directory listing.
+  - Project creation within workspace tenancy.
+  - Project Kanban board loading, columns verification (`Todo`, `In Progress`, `Done`), and view navigation (`Product Backlog`, `Milestones & Gantt`).
+- **`e2e/documents-collab.spec.js`**:
+  - Project workspace navigation to real-time documents editor (`/documents/:projectId`).
+  - Action button verification for new documents and folders.
+  - Project wiki knowledge base navigation (`/wiki/:projectId`).
+- **`e2e/analytics-onboarding-responsive.spec.js`**:
+  - Dashboard analytics stats and onboarding checklist progress tracking (`0/5 completed`).
+  - Global Command Palette modal interaction (Cmd+K / search trigger button and Escape dismissal).
+  - Project Analytics Dashboard inspection (`/analytics`).
+  - Mobile viewport responsive navigation drawer toggle.
+
+### Running Playwright E2E Tests
+```bash
+# Run all E2E tests across Desktop and Mobile Chromium
+npx playwright test
+
+# Run a specific suite
+npx playwright test e2e/auth-session.spec.js
+
+# View HTML Test Report
+npx playwright show-report
+```
