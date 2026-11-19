@@ -63,3 +63,21 @@ A GitHub Actions workflow is defined in `.github/workflows/ci.yml`. It triggers 
    - Installs frontend dependencies via `npm ci`.
    - Executes unit tests under `frontend/tests/`.
    - Validates Vite production bundle compilation via `npm run build`.
+
+---
+
+## 4. Integration Test Architecture (REL-01)
+
+### Backend HTTP & Socket Integration
+- **`backend/src/app.js`**: Decouples the Express application factory (`createApp`) from the network socket listener (`server.listen()`). This allows in-memory integration testing of all routes and middleware layers without spinning up external listening ports or connecting to external live databases.
+- **`backend/tests/helpers/testServer.js`**: Provides `dispatchRequest()`, which pipes native Node.js `IncomingMessage` and `ServerResponse` streams through the complete Express middleware stack (CORS, body parsing, cookie parsing, router routes, and centralized 404/500 error handlers).
+- **`backend/tests/httpPipeline.test.js`**: Verifies real HTTP request/response flows, CORS preflights, unmounted 404 handling, missing Authorization tokens, malformed headers, and payload validation (registration, login, teams, projects, tasks, documents, analytics, and onboarding).
+- **`backend/tests/socketIntegration.test.js`**: Tests Socket.IO connection authentication via auth payload and Bearer header, private user notification room isolation, and role-authorized team/project room joining.
+
+### Frontend API Client & State Integration
+- **`frontend/tests/rel01_integration.test.js`**: Tests the end-to-end integration between asynchronous actions, Redux slices (`auth`, `notifications`, `onboarding`), state hydration, credential clearing on logout, real-time unread count updates, and milestone deduplication.
+
+### Running Integration Tests
+```bash
+node --test backend/tests/httpPipeline.test.js backend/tests/socketIntegration.test.js frontend/tests/rel01_integration.test.js
+```
