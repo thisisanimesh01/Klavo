@@ -5,9 +5,12 @@
  */
 export const initReactionSockets = (io, socket) => {
   socket.on("joinReactions", (commentId) => {
-    if (commentId) {
-      socket.join(`comment_${commentId}`);
+    if (!commentId) return;
+    if (!socket.user) {
+      socket.emit("error", { message: "Unauthorized: Authentication required to join reactions" });
+      return;
     }
+    socket.join(`comment_${commentId}`);
   });
 
   socket.on("leaveReactions", (commentId) => {

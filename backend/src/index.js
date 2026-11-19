@@ -63,19 +63,20 @@ io.on("connection", (socket) => {
     if (userId) socket.leave(`user_${userId}`);
   });
 
-  // Join team room with authorization
+  // Join team room with authorization (requires authenticated user)
   socket.on("joinTeam", async ({ teamId }) => {
     if (!teamId) return;
 
-    if (socket.user) {
-      const { isMember } = await checkTeamAccess(teamId, socket.user._id);
-      if (isMember) {
-        socket.join(`team_${teamId}`);
-      } else {
-        socket.emit("error", { message: "Unauthorized to join this team room" });
-      }
-    } else {
+    if (!socket.user) {
+      socket.emit("error", { message: "Unauthorized: Authentication required to join team room" });
+      return;
+    }
+
+    const { isMember } = await checkTeamAccess(teamId, socket.user._id);
+    if (isMember) {
       socket.join(`team_${teamId}`);
+    } else {
+      socket.emit("error", { message: "Unauthorized to join this team room" });
     }
   });
 
@@ -83,19 +84,20 @@ io.on("connection", (socket) => {
     if (teamId) socket.leave(`team_${teamId}`);
   });
 
-  // Join project room with authorization
+  // Join project room with authorization (requires authenticated user)
   socket.on("joinProject", async ({ projectId }) => {
     if (!projectId) return;
 
-    if (socket.user) {
-      const { hasAccess } = await checkProjectAccess(projectId, socket.user._id);
-      if (hasAccess) {
-        socket.join(`project_${projectId}`);
-      } else {
-        socket.emit("error", { message: "Unauthorized to join this project room" });
-      }
-    } else {
+    if (!socket.user) {
+      socket.emit("error", { message: "Unauthorized: Authentication required to join project room" });
+      return;
+    }
+
+    const { hasAccess } = await checkProjectAccess(projectId, socket.user._id);
+    if (hasAccess) {
       socket.join(`project_${projectId}`);
+    } else {
+      socket.emit("error", { message: "Unauthorized to join this project room" });
     }
   });
 
