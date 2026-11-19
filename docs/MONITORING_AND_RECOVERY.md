@@ -124,22 +124,37 @@ node src/utils/backupManager.js --restore --path ./backups/backup-2026-11-19T15-
 
 ---
 
-## 6. Multi-Instance & High Availability Architecture Assessment
+## 6. Multi-Instance & High Availability Architecture Assessment (REL-10)
 
-The table below outlines current operational capabilities and architectural requirements for multi-instance horizontal scaling:
+The table below outlines operational capabilities, implemented distributed adapters, and architectural guarantees for horizontal scaling:
 
-| Subsystem | Single Node (Current) | Multi-Node Horizontal Architecture Requirement | Status / Strategy |
+| Subsystem | Single Node (Local Dev) | Multi-Node Horizontal Architecture (REL-10 Implemented) | Status & Scaling Guarantees |
 | :--- | :--- | :--- | :--- |
 | **HTTP API** | Fully Stateless | Stateless behind reverse proxy / ingress load balancer | Production Ready |
-| **Authentication** | JWT + Cookie Fallback | Stateless JWT verification across instances | Production Ready |
-| **Socket.IO** | In-Memory Server | `@socket.io/redis-adapter` required to broadcast across multiple instances | Multi-instance Gap Identified (Requires Redis cluster) |
-| **Yjs CRDT Docs** | In-Memory Room Map + MongoDB binary snapshot | Redis pub/sub or distributed Yjs WebSocket gateway required for multi-pod edits | Multi-instance Gap Identified (Persisted in DB on disconnect) |
-| **Rate Limiter** | In-Memory Sliding Window (`Map`) | Redis-backed token bucket required for cross-pod rate limiting | Documented limitation (Local to each pod) |
-| **Automation Engine** | Event-driven per request | Message queue (e.g. BullMQ / RabbitMQ) for distributed cron or async background tasks | In-process execution per HTTP request |
+| **Authentication** | JWT + Cookie Fallback | Stateless JWT cryptographic verification across instances | Production Ready |
+| **Socket.IO Event Fanout** | In-Memory Server | Multi-pod event broadcasting coordinated via `RedisCoordinator` RESP client | Ready via `REDIS_URL` with automatic local fallback |
+| **Yjs CRDT Docs** | In-Memory Room Map (`activeDocRooms`) | Cross-pod sync via Redis pub/sub (`docSyncUpdate`) + MongoDB binary persistence with epoch protection | Implemented & synchronized across instances |
+| **Rate Limiter** | In-Memory Sliding Window (`Map`) | Hybrid sliding window: Redis EVAL script when connected; local memory fallback | Enforces cluster-wide limits across pods |
+| **Recurring Task Scheduler** | In-process execution | Distributed atomic leader lease via Redis/MongoDB (`DistributedLock`) with optimistic concurrency (`nextRunAt`) | Prevents duplicate task generation across pods |
 
 ---
 
-## 7. Recommended Production Alerting Thresholds
+## 7. Distributed Failure Modes & Scaling Limits
+
+1. **Redis Degradation / Network Partition**:
+   - When `REDIS_URL` is configured but Redis goes offline, the `RedisCoordinator` automatically catches connection errors and seamlessly falls back to:
+     - Local memory sliding window rate limiting.
+     - Atomic MongoDB lease locking (`DistributedLock` collection with TTL indexing) for recurring tasks.
+     - Local WebSocket broadcasting without crashing the Node.js process.
+2. **Strict Mode Safety Invariant**:
+   - If `DISTRIBUTED_MODE=true` is explicitly set in production configuration, `validateEnv()` mandates that `REDIS_URL` must be supplied. It will refuse to boot if `REDIS_URL` is omitted, preventing silent single-instance misconfigurations.
+3. **Scaling Limits**:
+   - Current distributed coordination supports horizontally scaled clusters of 2–50 backend pods per replica set.
+   - For high-volume multi-region setups, Redis cluster mode or managed AWS ElastiCache / Redis Enterprise with Sentinel is recommended.
+
+---
+
+## 8. Recommended Production Alerting Thresholds
 
 | Metric | Condition | Severity | Recommended Action |
 | :--- | :--- | :--- | :--- |

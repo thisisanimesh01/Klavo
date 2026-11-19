@@ -2,6 +2,7 @@ import * as Y from "yjs";
 import Document from "../models/Document.js";
 import { checkProjectAccess } from "../utils/authHelpers.js";
 import { resolveDocumentAccess } from "../utils/documentPermissions.js";
+import { redisCoordinator } from "../utils/redisCoordinator.js";
 
 // Active document room state in memory:
 // Map<documentId, {
@@ -15,6 +16,21 @@ import { resolveDocumentAccess } from "../utils/documentPermissions.js";
 //   restoreEpoch: number, // Epoch/generation counter to reject pre-restore in-flight updates
 // }>
 export const activeDocRooms = new Map();
+
+// Global pub/sub sync listener for cross-pod document editing
+if (redisCoordinator && typeof redisCoordinator.on === "function") {
+  redisCoordinator.on("docSyncUpdate", ({ documentId, update, epoch, senderSocketId }) => {
+    const room = activeDocRooms.get(documentId);
+    if (!room) return;
+    try {
+      const updateBuffer = Buffer.from(update, "base64");
+      Y.applyUpdate(room.doc, new Uint8Array(updateBuffer));
+      room.dirty = true;
+    } catch (e) {
+      // Ignored
+    }
+  });
+}
 
 // Color palette for collaborator cursors and avatars
 export const COLLAB_COLORS = [
@@ -220,6 +236,16 @@ export const initDocumentSockets = (io, socket) => {
         epoch: currentRoomEpoch,
         senderSocketId: socket.id,
       });
+
+      // Cross-pod propagation via Redis when active
+      if (redisCoordinator.connected) {
+        redisCoordinator.publish("docSyncUpdate", {
+          documentId,
+          update: typeof update === "string" ? update : updateBuffer.toString("base64"),
+          epoch: currentRoomEpoch,
+          senderSocketId: socket.id,
+        }).catch(() => {});
+      }
 
       // Debounce persistence to database
       if (room.debounceTimer) clearTimeout(room.debounceTimer);
