@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
+import { securityHeaders } from "./middleware/securityHeaders.js";
 
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
@@ -28,6 +29,9 @@ import searchRoutes from "./routes/searchRoutes.js";
 
 export const createApp = (options = {}) => {
   const app = express();
+
+  // Security Headers (REL-03)
+  app.use(securityHeaders);
 
   // Middleware
   app.use(

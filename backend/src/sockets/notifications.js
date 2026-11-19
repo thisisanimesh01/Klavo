@@ -7,8 +7,13 @@ export const initNotificationSockets = (io, socket) => {
   socket.on("joinUser", ({ userId }) => {
     if (!userId) return;
 
-    // Prevent joining other users' private rooms if authenticated
-    if (socket.user && socket.user._id.toString() !== userId.toString()) {
+    if (!socket.user) {
+      socket.emit("error", { message: "Unauthorized: Authentication required to join user notification room" });
+      return;
+    }
+
+    // Prevent joining other users' private rooms
+    if (socket.user._id.toString() !== userId.toString()) {
       socket.emit("error", { message: "Unauthorized to join this user notification room" });
       return;
     }

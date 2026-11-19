@@ -23,4 +23,10 @@ router.post("/google", authLimiter, googleAuthController);
 // Protected profile route
 router.get("/me", authRequired, getProfile);
 
+// Secure logout endpoint: clears auth cookies if present and confirms termination
+router.post("/logout", (req, res) => {
+  res.clearCookie("token");
+  res.json({ message: "Logged out successfully" });
+});
+
 export default router;

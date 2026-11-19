@@ -10,12 +10,12 @@ export const initCommentSockets = (io, socket) => {
   socket.on("joinCommentThread", async (commentId) => {
     if (!commentId) return;
 
-    if (socket.user) {
-      // Allow joining thread room for authorized user
-      socket.join(`comment_${commentId}`);
-    } else {
-      socket.join(`comment_${commentId}`);
+    if (!socket.user) {
+      socket.emit("error", { message: "Unauthorized: Authentication required to join comment thread" });
+      return;
     }
+
+    socket.join(`comment_${commentId}`);
   });
 
   socket.on("leaveCommentThread", (commentId) => {
