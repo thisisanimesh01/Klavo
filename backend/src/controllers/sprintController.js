@@ -252,11 +252,20 @@ export const startSprint = async (req, res) => {
       });
     }
 
-    sprint.status = "active";
-    if (!sprint.startDate) {
-      sprint.startDate = new Date();
+    const startDate = sprint.startDate || new Date();
+    // Atomic update to prevent race conditions during concurrent sprint activation
+    const updatedSprint = await Sprint.findOneAndUpdate(
+      { _id: sprint._id, status: "planned" },
+      { $set: { status: "active", startDate } },
+      { new: true }
+    );
+
+    if (!updatedSprint) {
+      return res.status(409).json({ message: "Sprint status conflict: sprint may have already been started or modified" });
     }
-    await sprint.save();
+
+    sprint.status = "active";
+    sprint.startDate = startDate;
 
     await logActivity({
       projectId: sprint.projectId,
@@ -304,9 +313,20 @@ export const completeSprint = async (req, res) => {
       return res.status(400).json({ message: "Only active sprints can be completed" });
     }
 
+    const completedAt = new Date();
+    // Atomic update to transition to completed state and prevent duplicate concurrent completions
+    const updatedSprint = await Sprint.findOneAndUpdate(
+      { _id: sprint._id, status: "active" },
+      { $set: { status: "completed", completedAt } },
+      { new: true }
+    );
+
+    if (!updatedSprint) {
+      return res.status(409).json({ message: "Sprint completion conflict: sprint may have already been completed" });
+    }
+
     sprint.status = "completed";
-    sprint.completedAt = new Date();
-    await sprint.save();
+    sprint.completedAt = completedAt;
 
     // Rollover incomplete tasks
     let rolloverDestination = null;
