@@ -207,11 +207,10 @@ export const metrics = new MetricsRegistry();
  * Express middleware to automatically track request latencies and response codes.
  */
 export const metricsMiddleware = (req, res, next) => {
-  const startHrTime = process.hrtime();
+  const start = Date.now();
 
   res.on("finish", () => {
-    const elapsed = process.hrtime(startHrTime);
-    const durationMs = parseFloat((elapsed[0] * 1000 + elapsed[1] / 1e6).toFixed(2));
+    const durationMs = Date.now() - start;
     metrics.recordHttpRequest(req.method, res.statusCode, durationMs);
   });
 

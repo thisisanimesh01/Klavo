@@ -27,7 +27,7 @@ export const requestCorrelation = (req, res, next) => {
  * Logs method, path, status, durationMs, and client IP without capturing sensitive bodies or headers.
  */
 export const requestLogger = (req, res, next) => {
-  const startHrTime = process.hrtime();
+  const start = Date.now();
 
   // Log incoming request at DEBUG level only if debug logging is enabled
   if (logger.shouldLog("DEBUG")) {
@@ -38,17 +38,15 @@ export const requestLogger = (req, res, next) => {
   }
 
   res.on("finish", () => {
-    const elapsed = process.hrtime(startHrTime);
-    const durationMs = (elapsed[0] * 1000 + elapsed[1] / 1e6).toFixed(2);
-
     const level = res.statusCode >= 500 ? "ERROR" : res.statusCode >= 400 ? "WARN" : "INFO";
     if (!logger.shouldLog(level)) return;
 
+    const durationMs = Date.now() - start;
     const context = {
       method: req.method,
       path: req.route?.path || req.originalUrl || req.url,
       statusCode: res.statusCode,
-      durationMs: parseFloat(durationMs),
+      durationMs,
       userAgent: req.headers["user-agent"] || null,
       ip: req.ip || req.headers["x-forwarded-for"] || req.socket?.remoteAddress,
     };

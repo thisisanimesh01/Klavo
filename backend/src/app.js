@@ -81,6 +81,11 @@ export const createApp = (options = {}) => {
   // Operational Health, Liveness, Readiness & Metrics (REL-07)
   app.use("/api/health", healthRoutes);
 
+  // Root health probe
+  app.get("/", (req, res) => {
+    res.send("Klavo backend running!");
+  });
+
   // Domain Routes
   app.use("/api/auth", authRoutes);
   app.use("/api/users", userRoutes);
@@ -104,10 +109,6 @@ export const createApp = (options = {}) => {
   app.use("/api/dashboard", dashboardRoutes);
   app.use("/api/analytics", analyticsRoutes);
   app.use("/api/search", searchRoutes);
-
-  app.get("/", (req, res) => {
-    res.send("Klavo backend running!");
-  });
 
   // 404 and Centralized Error Handling Middlewares
   app.use(notFoundHandler);
