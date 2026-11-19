@@ -3,6 +3,7 @@ import { registerUser, loginUser, getProfile } from "../controllers/authControll
 import { googleAuthController } from "../controllers/googleAuthController.js";
 import { authRequired } from "../middleware/authMiddleware.js";
 import { rateLimit } from "../middleware/rateLimiter.js";
+import { clearAuthCookie } from "../utils/cookieHelpers.js";
 
 const router = express.Router();
 
@@ -25,7 +26,7 @@ router.get("/me", authRequired, getProfile);
 
 // Secure logout endpoint: clears auth cookies if present and confirms termination
 router.post("/logout", (req, res) => {
-  res.clearCookie("token");
+  clearAuthCookie(res);
   res.json({ message: "Logged out successfully" });
 });
 

@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { User } from "../models/User.js";
 import { generateToken } from "../utils/generateToken.js";
+import { setAuthCookie } from "../utils/cookieHelpers.js";
 
 const SALT_ROUNDS = 10;
 
@@ -35,6 +36,7 @@ export const registerUser = async (req, res) => {
     });
 
     const token = generateToken(user._id);
+    setAuthCookie(res, token);
 
     res.status(201).json({
       user: {
@@ -99,6 +101,7 @@ export const loginUser = async (req, res) => {
     }
 
     const token = generateToken(user._id);
+    setAuthCookie(res, token);
 
     res.json({
       user: {
