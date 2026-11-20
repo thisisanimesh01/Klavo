@@ -7,7 +7,7 @@ import mongoose from "mongoose";
 import { redact, redactString, logger, StructuredLogger, LogLevel, requestContext } from "../src/utils/logger.js";
 import { metrics, MetricsRegistry } from "../src/utils/metrics.js";
 import { createApp } from "../src/app.js";
-import { runMongoBackup, runMongoRestore } from "../src/utils/backupManager.js";
+import { runMongoBackup, runMongoRestore, calculateChecksum } from "../src/utils/backupManager.js";
 
 describe("REL-07: Monitoring, Logging, Backups & Recovery Test Suite", () => {
   let server;
@@ -271,12 +271,27 @@ describe("REL-07: Monitoring, Logging, Backups & Recovery Test Suite", () => {
     it("verifies restore safely into an isolated non-production verification database", async () => {
       if (mongoose.connection.readyState !== 1) return;
 
-      // Seed a small mock file into testBackupDir
-      fs.writeFileSync(
-        path.join(testBackupDir, "sample_items.json"),
-        JSON.stringify([{ _id: "item1", name: "Sample Item" }]),
-        "utf8"
-      );
+      // Seed a small mock file into testBackupDir and update manifest so restore recognizes it
+      const sampleBuffer = Buffer.from(JSON.stringify([{ _id: "item1", name: "Sample Item" }]), "utf8");
+      fs.writeFileSync(path.join(testBackupDir, "sample_items.json"), sampleBuffer);
+
+      const manifestPath = path.join(testBackupDir, "backup-manifest.json");
+      let manifest = { files: {} };
+      if (fs.existsSync(manifestPath)) {
+        manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+      }
+      manifest.files = manifest.files || {};
+      const checksum = calculateChecksum(sampleBuffer);
+      manifest.files["sample_items.json"] = {
+        collection: "sample_items",
+        documentCount: 1,
+        rawSize: sampleBuffer.length,
+        storedSize: sampleBuffer.length,
+        plainChecksum: checksum,
+        storedChecksum: checksum,
+        encrypted: false,
+      };
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
 
       const restoreResult = await runMongoRestore({
         backupPath: testBackupDir,

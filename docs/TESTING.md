@@ -117,6 +117,15 @@ Klavo implements a comprehensive browser-based E2E testing architecture powered 
   - Global Command Palette modal interaction (Cmd+K / search trigger button and Escape dismissal).
   - Project Analytics Dashboard inspection (`/analytics`).
   - Mobile viewport responsive navigation drawer toggle.
+- **`e2e/collaboration-notifications-files.spec.js`**:
+  - Cross-feature navigation through Calendar (`/calendar`) and task due dates.
+  - Persistent object storage file repository (`/files`), project selector, and file upload controls.
+  - Real-time Notifications drawer toggle via Topbar.
+  - Workspace settings (`/settings`), user profile inspection, and workspace management tabs.
+- **`e2e/analytics-exports-automation.spec.js`**:
+  - Automated rule workflows & recurring tasks modal on project boards.
+  - Detailed analytics metrics, charts, and report groupings.
+  - RFC 4180 CSV and formatted PDF export actions.
 
 ### Running Playwright E2E Tests
 ```bash
@@ -129,3 +138,17 @@ npx playwright test e2e/auth-session.spec.js
 # View HTML Test Report
 npx playwright show-report
 ```
+
+---
+
+## 6. Complete End-to-End CI Pipeline (REL-12)
+
+The GitHub Actions CI pipeline (`.github/workflows/ci.yml`) executes on every push and pull request to `main`:
+1. **`backend-tests`**: Runs all unit, integration, secret regression, and production preflight checks.
+2. **`frontend-checks`**: Runs frontend Redux, component, and accessibility test suites, followed by full Vite production bundle compilation.
+3. **`e2e-tests`**:
+   - Boots an isolated containerized MongoDB service (`mongo:6.0`).
+   - Installs Playwright Chromium binaries with OS-level dependencies.
+   - Compiles the frontend production bundle and starts the unified test server.
+   - Executes all 16 Playwright journeys across Desktop Chromium and Mobile Chromium.
+   - Uploads HTML test reports, failure screenshots, and execution traces as a 14-day retained artifact upon test completion or regression.
