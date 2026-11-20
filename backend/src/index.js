@@ -14,6 +14,7 @@ import { logger } from "./utils/logger.js";
 import { metrics } from "./utils/metrics.js";
 import { redisCoordinator } from "./utils/redisCoordinator.js";
 import { recurringScheduler } from "./utils/recurringScheduler.js";
+import { backupScheduler } from "./utils/backupManager.js";
 
 const app = createApp();
 const server = createServer(app);
@@ -147,6 +148,11 @@ if (env.REDIS_URL) {
 recurringScheduler.setIO(io);
 recurringScheduler.start();
 
+// Initialize automated backup scheduler if enabled
+if (env.BACKUP_SCHEDULE_ENABLED) {
+  backupScheduler.start();
+}
+
 //start server
 const PORT = env.PORT || 5050;
 
@@ -158,6 +164,7 @@ server.listen(PORT, () => {
 const shutdown = async (signal) => {
   logger.info(`Received ${signal}. Shutting down gracefully...`);
   recurringScheduler.stop();
+  backupScheduler.stop();
   if (redisCoordinator.connected) {
     await redisCoordinator.close();
   }
