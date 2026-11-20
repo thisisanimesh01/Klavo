@@ -101,6 +101,13 @@ export const validateEnv = (customEnv = process.env) => {
     }
   }
 
+  // Explicit Distributed Mode validation (if DISTRIBUTED_MODE=true is configured)
+  if (customEnv.DISTRIBUTED_MODE === "true") {
+    if (!customEnv.REDIS_URL || customEnv.REDIS_URL.trim() === "") {
+      errors.push("REDIS_URL is required when DISTRIBUTED_MODE is set to 'true'");
+    }
+  }
+
   if (missing.length > 0) {
     errors.push(`Missing required environment variable(s): ${missing.join(", ")}`);
   }
@@ -135,6 +142,8 @@ export const validateEnv = (customEnv = process.env) => {
     S3_FORCE_PATH_STYLE: customEnv.S3_FORCE_PATH_STYLE !== "false",
     TRUST_PROXY: customEnv.TRUST_PROXY === "true" || isProduction,
     COOKIE_SECURE: customEnv.COOKIE_SECURE === "true" || isProduction,
+    REDIS_URL: customEnv.REDIS_URL || null,
+    DISTRIBUTED_MODE: customEnv.DISTRIBUTED_MODE === "true",
     MONGO_MAX_POOL_SIZE: Number(customEnv.MONGO_MAX_POOL_SIZE) || 20,
     MONGO_MIN_POOL_SIZE: Number(customEnv.MONGO_MIN_POOL_SIZE) || 2,
     MONGO_SERVER_SELECTION_TIMEOUT_MS: Number(customEnv.MONGO_SERVER_SELECTION_TIMEOUT_MS) || 5000,

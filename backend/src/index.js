@@ -12,6 +12,8 @@ import { initDocumentSockets } from "./sockets/documents.js";
 import { createApp } from "./app.js";
 import { logger } from "./utils/logger.js";
 import { metrics } from "./utils/metrics.js";
+import { redisCoordinator } from "./utils/redisCoordinator.js";
+import { recurringScheduler } from "./utils/recurringScheduler.js";
 
 const app = createApp();
 const server = createServer(app);
@@ -128,7 +130,22 @@ io.on("connection", (socket) => {
 });
 
 //connect to database
-connectDB();
+await connectDB();
+
+// Connect to Redis coordinator if configured
+if (env.REDIS_URL) {
+  try {
+    await redisCoordinator.connect();
+  } catch (redisErr) {
+    logger.warn("Redis coordinator initialization failed; running in single-instance mode", {
+      error: redisErr.message,
+    });
+  }
+}
+
+// Initialize recurring task scheduler
+recurringScheduler.setIO(io);
+recurringScheduler.start();
 
 //start server
 const PORT = env.PORT || 5050;
@@ -140,6 +157,10 @@ server.listen(PORT, () => {
 // Graceful Shutdown Handling
 const shutdown = async (signal) => {
   logger.info(`Received ${signal}. Shutting down gracefully...`);
+  recurringScheduler.stop();
+  if (redisCoordinator.connected) {
+    await redisCoordinator.close();
+  }
   server.close(async () => {
     logger.info("HTTP server closed cleanly");
     await closeDB();
