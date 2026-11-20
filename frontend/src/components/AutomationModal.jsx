@@ -248,6 +248,7 @@ export default function AutomationModal({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close automation dialog"
             className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg"
           >
             <X className="w-5 h-5" />
