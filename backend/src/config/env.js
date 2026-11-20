@@ -148,6 +148,9 @@ export const validateEnv = (customEnv = process.env) => {
     MONGO_MIN_POOL_SIZE: Number(customEnv.MONGO_MIN_POOL_SIZE) || 2,
     MONGO_SERVER_SELECTION_TIMEOUT_MS: Number(customEnv.MONGO_SERVER_SELECTION_TIMEOUT_MS) || 5000,
     MONGO_SOCKET_TIMEOUT_MS: Number(customEnv.MONGO_SOCKET_TIMEOUT_MS) || 45000,
+    BACKUP_SCHEDULE_ENABLED: customEnv.BACKUP_SCHEDULE_ENABLED === "true",
+    BACKUP_RETENTION_DAYS: Number(customEnv.BACKUP_RETENTION_DAYS) || 30,
+    BACKUP_ENCRYPTION_KEY: customEnv.BACKUP_ENCRYPTION_KEY || null,
   };
 };
 

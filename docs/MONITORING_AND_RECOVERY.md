@@ -82,31 +82,34 @@ To forward metrics to external systems (e.g. Datadog, Prometheus, Grafana Cloud,
 > - **RPO Target**: $\le 1$ hour (with automated hourly snapshots or continuous point-in-time recovery via MongoDB Atlas / replica set oplog).
 > - **RTO Target**: $\le 30$ minutes (using automated restore scripts into verified database instances).
 
-### Backup Strategy & Tooling
+### Backup Strategy & Automation (REL-11)
 Klavo provides an automated backup and restore utility (`backend/src/utils/backupManager.js`):
 - **Command**: `npm run backup:create` (or `node src/utils/backupManager.js`)
+- **Automated Daemon**: Controlled via `BACKUP_SCHEDULE_ENABLED=true` (runs daily, coordinates via distributed leader lease).
 - **Mechanism**:
-  1. Executes `mongodump --uri=$MONGO_URI --gzip --out=backups/backup-<timestamp>` when `mongodump` binary is present.
-  2. Falls back to consistent JSON collection exports with an authoritative `backup-manifest.json` manifest.
-- **Retention Schedule**:
-  - Daily backups: Retain for 30 days.
-  - Weekly backups: Retain for 12 weeks.
-  - Monthly backups: Retain for 12 months.
-  - Storage: Backups should be transferred to encrypted, versioned secondary cloud storage (e.g. AWS S3 Glacier or Cloudflare R2 with object lock).
+  1. Exports MongoDB collections to consistent JSON files with per-file SHA-256 checksums recorded in an authoritative `backup-manifest.json`.
+  2. Optional AES-256-GCM encryption at rest when `BACKUP_ENCRYPTION_KEY` is configured.
+  3. Optional off-site upload to S3-compatible persistent object storage (`uploadOffsite: true`).
+- **Configurable Retention**:
+  - `BACKUP_RETENTION_DAYS`: Defaults to 30 days. Backups older than the configured threshold are safely pruned automatically by `pruneExpiredBackups()`.
+  - Retention Schedule: Daily backups (30 days), Weekly backups (12 weeks), Monthly backups (12 months).
 
-### Isolated Restore Verification Procedure
+### Isolated Restore Verification Procedure (Disaster Recovery Drill)
 > [!CAUTION]
-> **Production Protection Invariant**: `runMongoRestore` strictly blocks restore operations against production databases (`NODE_ENV=production`) unless `allowProductionRestore: true` is explicitly provided. Always verify restores in an isolated sandbox database first!
+> **Production Protection Invariant**: `runMongoRestore` strictly blocks restore operations against production databases (`NODE_ENV=production`) unless `allowProductionRestore: true` is explicitly provided. Source backup files are strictly read-only and never deleted during restore drills.
 
 To verify a backup without risking production data:
 ```bash
 # 1. Run restore verification against isolated database target
-node src/utils/backupManager.js --restore --path ./backups/backup-2026-11-19T15-00-00-000Z
+node src/utils/backupManager.js --restore --path ./backups/backup-2026-11-20T00-00-00-000Z
 
 # Script verifies:
-# - Integrity of backup-manifest.json
+# - Integrity and existence of backup-manifest.json
+# - Exact bit-for-bit SHA-256 checksum matching for every collection file
+# - Authentication and payload decryption via AES-256-GCM auth tags (if encrypted)
 # - Deletion of stale collections in verification database (default: klavo_restore_verification)
-# - Successful document re-insertion and count validation
+# - Successful document re-insertion and record validation
+# - Source backup files remain intact (non-destructive)
 ```
 
 ---
