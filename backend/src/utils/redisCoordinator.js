@@ -1,4 +1,5 @@
 import net from "net";
+import tls from "tls";
 import { EventEmitter } from "events";
 import { logger } from "./logger.js";
 
@@ -61,16 +62,23 @@ export class RedisCoordinator extends EventEmitter {
 
     return new Promise((resolve) => {
       try {
-        this.socket = net.createConnection({ host: this.host, port: this.port }, () => {
+        const connectOptions = { host: this.host, port: this.port };
+        const onConnected = () => {
           this.connected = true;
           this.reconnecting = false;
-          logger.info("Connected to Redis coordinator", { host: this.host, port: this.port });
+          logger.info("Connected to Redis coordinator", { host: this.host, port: this.port, tls: this.tls });
           if (this.password) {
             this.sendCommand(["AUTH", this.password]).catch(() => {});
           }
           this.emit("connect");
           resolve(true);
-        });
+        };
+
+        if (this.tls) {
+          this.socket = tls.connect(connectOptions, onConnected);
+        } else {
+          this.socket = net.createConnection(connectOptions, onConnected);
+        }
 
         this.socket.on("error", (err) => {
           this.connected = false;
