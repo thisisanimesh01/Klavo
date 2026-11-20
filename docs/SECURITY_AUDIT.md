@@ -106,14 +106,48 @@ When conducting scheduled authorized penetration testing of Klavo, security engi
 
 Running `npm audit` across the project revealed:
 - **Root Project**: 0 vulnerabilities.
-- **Backend / Frontend**:
-  - Confirmed third-party vulnerabilities are located in indirect transitive devDependencies (such as `vite` bundling dependencies, `body-parser` in Express 4.18, and `socket.io-parser`).
+- **Backend**: 20 vulnerabilities (1 low, 8 moderate, 11 high). Primarily located in transitive dependencies (e.g., `express` 4.18.2 / `body-parser`, `multer`, `socket.io-parser`, `cookie`).
   - No exploitable direct vulnerability exists in Klavo application code.
-  - Recommended maintenance: schedule upgrades to Express 5 and Vite 6+ in future dependency release milestones.
+  - Mitigated by input validation schemas, file type whitelists, size limits, and `securityHeaders`.
+  - Next maintenance: Upgrade Express from 4.18 to 4.21+ / Express 5 and update socket.io-parser in the next maintenance cycle.
+- **Frontend**: 20 vulnerabilities (1 low, 7 moderate, 12 high). In development/bundling toolchains (e.g., `rollup`, `vite`, `axios`, `ws`).
+  - Mitigated by static asset compilation with no runtime Node server execution on the client.
+- **Automated Regression Defense**: `scripts/scan_secrets.js` runs in CI ensuring zero exposed credentials or API tokens in tracked files.
 
 ---
 
-## 7. Residual Risks & Next Steps
+## 7. Phase 9 Milestone 5: Security Remediation & Penetration-Test Hardening (SEC-10)
 
-1. **JWT Revocation / Blacklisting**: Current tokens expire after 30 days. For enterprise compliance, introducing a Redis-backed token revocation list or shortening token lifetime to 15 minutes with refresh tokens is recommended for Phase 9.
+As part of Milestone SEC-10, an in-depth security penetration audit and remediation cycle was conducted across critical security surfaces:
+
+### 1. Authentication & JWT Tamper Defense
+- **Algorithm Confusion Attacks**: Validated that `jwt.verify` strictly rejects tokens with `alg: "none"` or unapproved algorithms, requiring valid HMAC-SHA256 signatures with the configured secret.
+- **Token Expiration**: Strict enforcement of token expiration rejects expired signatures and prevents replayed sessions.
+- **Token Signature Integrity**: Altered payloads or truncated signatures immediately fail verification.
+
+### 2. Workspace RBAC & Immediate Socket Revocation
+- **Hierarchy Resolution**: Roles are strictly mapped (`owner: 4`, `admin: 3`, `member: 2`, `guest: 1`, `none: 0`). Outsiders resolve to `none` preventing unauthorized operations.
+- **Real-Time Member Eviction**: In `backend/src/controllers/teamController.js`, when a team member is removed from a workspace, the backend emits `workspaceAccessRevoked` and `teamMemberRemoved` to the member's private channel (`user_<memberId>`) and the team room (`team_<teamId>`), causing the client to immediately drop real-time subscriptions and evict from workspace views without waiting for session expiration.
+
+### 3. Object Storage (S3) & Path Traversal Mitigations
+- **Path Sanitization**: Key paths are cleansed of `..`, `\` and null bytes via `path.posix.normalize` and sanitization checks, confining all operations within the workspace bucket prefix.
+- **SigV4 Presigned URLs**: Presigned GET/PUT URLs are signed using AWS SigV4 with strictly capped expiration windows (default 15 minutes) and required headers (`x-amz-content-sha256: UNSIGNED-PAYLOAD`).
+
+### 4. File Upload XSS & SVG Script Sanitization
+- **SVG Defense**: Strict script and event handler detection (`<script>`, `onload`, `javascript:`, `xlink:href`) rejects dangerous vectors before storage, accompanied by `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`.
+
+### 5. Redis Transport Security & Distributed Safety
+- **TLS Protocol Handling**: In `backend/src/utils/redisCoordinator.js`, Redis connections with `rediss://` or `REDIS_TLS=true` natively establish encrypted TLS sockets via Node.js `tls.connect` with SNI validation.
+- **Distributed Safety Invariants**: Distributed mode fails safely if Redis is unreachable or misconfigured, and rate limiters fall back to robust in-memory sliding windows.
+
+### 6. Backup Authenticated Encryption & Tamper Proofing
+- **Authenticated Encryption**: Automated backups employ AES-256-GCM. Any ciphertext or auth tag modification immediately throws cryptographic errors and aborts restore operations.
+- **Checksum Manifests**: Every backup archive includes SHA-256 manifests verifying uncorrupted state before decryption.
+
+---
+
+## 8. Residual Risks & Next Steps
+
+1. **JWT Revocation / Blacklisting**: Current tokens expire after 30 days. Introducing a Redis-backed token revocation list or shortening token lifetime to 15 minutes with refresh tokens is recommended for future releases.
 2. **CORS Origin Restriction**: In local development, CORS is configured with `origin: true`. In production deployment, `CORS_ORIGIN` environment variable should strictly whitelist the production domain.
+3. **Dependency Upgrades**: Upgrading to Express 5 and updating `multer` and `socket.io-parser` when upstream packages stabilize breaking changes.

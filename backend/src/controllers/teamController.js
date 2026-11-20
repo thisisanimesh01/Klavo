@@ -430,6 +430,19 @@ export const removeMemberFromTeam = async (req, res) => {
 
     await team.save();
 
+    // Broadcast membership revocation so client sockets leave team and project rooms
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`user_${memberId}`).emit("workspaceAccessRevoked", {
+        teamId,
+        message: "Your access to this workspace has been revoked.",
+      });
+      io.to(`team_${teamId}`).emit("teamMemberRemoved", {
+        teamId,
+        memberId,
+      });
+    }
+
     const populated = await getPopulatedTeam(teamId);
     res.json(populated);
   } catch (err) {
