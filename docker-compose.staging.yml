@@ -1,0 +1,62 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: klavo-staging-app
+    restart: unless-stopped
+    ports:
+      - "5050:5050"
+    environment:
+      - NODE_ENV=staging
+      - PORT=5050
+      - MONGO_URI=mongodb://mongo:27017/klavo_staging
+      - JWT_SECRET=${STAGING_JWT_SECRET:-staging_jwt_secret_minimum_32_characters_random}
+      - FRONTEND_URL=https://staging.yourdomain.com
+      - STORAGE_PROVIDER=local
+      - UPLOADS_DIR=uploads
+      - TRUST_PROXY=true
+      - COOKIE_SECURE=true
+      - DISTRIBUTED_MODE=true
+      - REDIS_URL=redis://default:${STAGING_REDIS_PASSWORD:-staging_redis_secret_password}@redis:6379
+      - BACKUP_SCHEDULE_ENABLED=true
+      - BACKUP_RETENTION_DAYS=7
+    volumes:
+      - klavo-staging-uploads:/app/backend/uploads
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  mongo:
+    image: mongo:7.0
+    container_name: klavo-staging-mongo
+    restart: unless-stopped
+    volumes:
+      - klavo-staging-db-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: klavo-staging-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${STAGING_REDIS_PASSWORD:-staging_redis_secret_password}"]
+    volumes:
+      - klavo-staging-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${STAGING_REDIS_PASSWORD:-staging_redis_secret_password}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  klavo-staging-db-data:
+  klavo-staging-uploads:
+  klavo-staging-redis-data:

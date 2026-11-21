@@ -79,7 +79,6 @@ const workflowSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-workflowSchema.index({ projectId: 1 });
 workflowSchema.index({ teamId: 1 });
 
 export default mongoose.model("Workflow", workflowSchema);
