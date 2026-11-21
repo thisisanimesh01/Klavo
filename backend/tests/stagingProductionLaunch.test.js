@@ -82,7 +82,7 @@ describe("REL-14: Staging, Production Deployment & Launch Verification Suite", (
     it("rejects production deployment if JWT_SECRET has low entropy or insecure defaults", () => {
       const insecureConfig = {
         NODE_ENV: "production",
-        MONGO_URI: "mongodb+srv://user:pass@cluster.mongodb.net/klavo",
+        MONGO_URI: "mongodb+srv://test_user:test_password@cluster.example.net/klavo",
         JWT_SECRET: "change_me_to_at_least_32_characters_long_hex_key",
         FRONTEND_URL: "https://app.yourdomain.com",
       };
@@ -96,7 +96,7 @@ describe("REL-14: Staging, Production Deployment & Launch Verification Suite", (
     it("enforces HTTPS protocol for FRONTEND_URL in production", () => {
       const insecureFrontend = {
         NODE_ENV: "production",
-        MONGO_URI: "mongodb+srv://user:pass@cluster.mongodb.net/klavo",
+        MONGO_URI: "mongodb+srv://test_user:test_password@cluster.example.net/klavo",
         JWT_SECRET: "very_strong_random_production_secret_key_1234567890",
         FRONTEND_URL: "http://app.yourdomain.com", // Insecure HTTP
       };
@@ -337,11 +337,11 @@ describe("REL-14: Staging, Production Deployment & Launch Verification Suite", (
     });
 
     it("redacts credentials from error messages and log output", () => {
-      const rawLog = "Error: mongodb+srv://admin_user:secret_password_123@cluster.mongodb.net/klavo with Bearer secret_jwt_token_456";
+      const rawLog = "Error: mongodb+srv://test_admin_user:test_secret_password_123@cluster.example.net/klavo with Bearer test_secret_jwt_token_456";
       const sanitized = redactString(rawLog);
 
-      assert.ok(!sanitized.includes("secret_password_123"));
-      assert.ok(!sanitized.includes("secret_jwt_token_456"));
+      assert.ok(!sanitized.includes("test_secret_password_123"));
+      assert.ok(!sanitized.includes("test_secret_jwt_token_456"));
       assert.ok(sanitized.includes("[REDACTED]"));
     });
   });
