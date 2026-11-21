@@ -3,13 +3,25 @@ import { Project } from "../models/Project.js";
 import { Team } from "../models/Team.js";
 import { checkProjectAccess } from "../utils/authHelpers.js";
 
-export const logActivity = async ({ projectId, userId, action, message }) => {
-  return await Activity.create({
+export const logActivity = async ({ projectId, userId, action, message, io }) => {
+  const activity = await Activity.create({
     projectId,
     user: userId,
     action,
     message,
   });
+
+  // If Socket.IO instance provided or accessible, broadcast activity to project room
+  try {
+    if (io) {
+      const populated = await Activity.findById(activity._id).populate("user", "name email avatar");
+      io.to(`project_${projectId}`).emit("activityCreated", populated);
+    }
+  } catch (err) {
+    // Non-fatal broadcast failure
+  }
+
+  return activity;
 };
 
 export const getProjectActivity = async (req, res) => {

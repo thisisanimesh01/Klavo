@@ -257,6 +257,22 @@ export const initDocumentSockets = (io, socket) => {
     }
   });
 
+  // Client requests resync/catchup state on reconnection
+  socket.on("docSyncResync", ({ documentId }) => {
+    if (!documentId) return;
+    const room = activeDocRooms.get(documentId);
+    if (!room || !room.connectedSockets.has(socket.id)) return;
+
+    const currentRoomEpoch = room.restoreEpoch || 1;
+    const stateUpdate = Y.encodeStateAsUpdate(room.doc);
+    socket.emit("docSyncInit", {
+      documentId,
+      update: Buffer.from(stateUpdate).toString("base64"),
+      epoch: currentRoomEpoch,
+      collaborators: Array.from(room.collaborators.values()),
+    });
+  });
+
   // Collaborator cursor and selection movement
   socket.on("collabCursorMove", ({ documentId, cursor, selection }) => {
     if (!documentId) return;
