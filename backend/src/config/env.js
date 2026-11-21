@@ -151,6 +151,11 @@ export const validateEnv = (customEnv = process.env) => {
     BACKUP_SCHEDULE_ENABLED: customEnv.BACKUP_SCHEDULE_ENABLED === "true",
     BACKUP_RETENTION_DAYS: Number(customEnv.BACKUP_RETENTION_DAYS) || 30,
     BACKUP_ENCRYPTION_KEY: customEnv.BACKUP_ENCRYPTION_KEY || null,
+    // AI Integration Settings (AI-01)
+    AI_PROVIDER: customEnv.AI_PROVIDER || "mock", // "mock" | "openai" | "anthropic" | "gemini" | "custom"
+    AI_API_KEY: customEnv.AI_API_KEY || null,
+    AI_MODEL: customEnv.AI_MODEL || null,
+    AI_BASE_URL: customEnv.AI_BASE_URL || null,
   };
 };
 
