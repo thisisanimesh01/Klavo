@@ -16,6 +16,8 @@ import {
   ShieldAlert,
   Calendar,
   Layers,
+  Sparkles,
+  GitBranch,
 } from "lucide-react";
 
 export default function AutomationModal({
@@ -37,8 +39,15 @@ export default function AutomationModal({
   const [ruleName, setRuleName] = useState("");
   const [ruleDescription, setRuleDescription] = useState("");
   const [triggerEvent, setTriggerEvent] = useState("task_created");
+  const [conditionMatchMode, setConditionMatchMode] = useState("AND"); // 'AND' | 'OR'
   const [conditions, setConditions] = useState([]);
   const [actions, setActions] = useState([{ type: "set_status", payload: "in-progress" }]);
+  const [elseActions, setElseActions] = useState([]);
+
+  // Simulation / Dry-run State
+  const [testingRule, setTestingRule] = useState(null);
+  const [simulationResult, setSimulationResult] = useState(null);
+  const [simulating, setSimulating] = useState(false);
 
   // New Recurring Task Form State
   const [creatingRecurring, setCreatingRecurring] = useState(false);
@@ -116,6 +125,20 @@ export default function AutomationModal({
     }
   };
 
+  const handleTestRule = async (rule) => {
+    try {
+      setTestingRule(rule);
+      setSimulating(true);
+      setSimulationResult(null);
+      const res = await axiosClient.post(`/automations/rules/${rule._id}/test`, {});
+      setSimulationResult(res.data?.simulation || null);
+    } catch (err) {
+      alert(err.response?.data?.message || "Dry-run simulation failed");
+    } finally {
+      setSimulating(false);
+    }
+  };
+
   const handleAddCondition = () => {
     setConditions((prev) => [
       ...prev,
@@ -127,16 +150,22 @@ export default function AutomationModal({
     setConditions((prev) => prev.filter((_, i) => i !== index));
   };
 
-  const handleAddAction = () => {
-    setActions((prev) => [
-      ...prev,
-      { type: "set_status", payload: workflowStatuses[0]?.key || "todo" },
-    ]);
+  const handleAddAction = (target = "actions") => {
+    const newAction = { type: "set_status", payload: workflowStatuses[0]?.key || "todo" };
+    if (target === "elseActions") {
+      setElseActions((prev) => [...prev, newAction]);
+    } else {
+      setActions((prev) => [...prev, newAction]);
+    }
   };
 
-  const handleRemoveAction = (index) => {
-    if (actions.length <= 1) return;
-    setActions((prev) => prev.filter((_, i) => i !== index));
+  const handleRemoveAction = (index, target = "actions") => {
+    if (target === "elseActions") {
+      setElseActions((prev) => prev.filter((_, i) => i !== index));
+    } else {
+      if (actions.length <= 1) return;
+      setActions((prev) => prev.filter((_, i) => i !== index));
+    }
   };
 
   const handleSaveRule = async (e) => {
@@ -149,14 +178,17 @@ export default function AutomationModal({
         description: ruleDescription.trim(),
         projectId,
         trigger: { event: triggerEvent },
+        conditionMatchMode,
         conditions,
         actions,
+        elseActions,
       });
       setCreatingRule(false);
       setRuleName("");
       setRuleDescription("");
       setConditions([]);
       setActions([{ type: "set_status", payload: "in-progress" }]);
+      setElseActions([]);
       fetchRules();
       if (onChanged) onChanged();
     } catch (err) {
@@ -242,60 +274,59 @@ export default function AutomationModal({
                 Workflow Automation & Recurring Tasks
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Configure event triggers, actions, and automated schedules
+                Configure event triggers, branching actions, schedules, and dry-run simulations
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            aria-label="Close automation dialog"
-            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg"
+            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex items-center gap-2 px-5 pt-3 border-b border-slate-100 dark:border-slate-800 text-xs font-semibold">
+        {/* Tab Navigation */}
+        <div className="flex items-center px-5 border-b border-slate-100 dark:border-slate-800 gap-4 text-xs font-semibold">
           <button
             onClick={() => setActiveTab("rules")}
-            className={`pb-2.5 px-3 border-b-2 flex items-center gap-1.5 transition ${
+            className={`py-3 border-b-2 flex items-center gap-1.5 transition ${
               activeTab === "rules"
-                ? "border-indigo-600 text-indigo-600 dark:text-indigo-400 font-bold"
-                : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                ? "border-indigo-600 text-indigo-600 dark:text-indigo-400"
+                : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
-            <Zap className="w-3.5 h-3.5" />
-            <span>Rules ({rules.length})</span>
+            <Zap className="w-4 h-4" />
+            <span>Automation Rules ({rules.length})</span>
           </button>
 
           <button
             onClick={() => setActiveTab("recurring")}
-            className={`pb-2.5 px-3 border-b-2 flex items-center gap-1.5 transition ${
+            className={`py-3 border-b-2 flex items-center gap-1.5 transition ${
               activeTab === "recurring"
-                ? "border-indigo-600 text-indigo-600 dark:text-indigo-400 font-bold"
-                : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                ? "border-indigo-600 text-indigo-600 dark:text-indigo-400"
+                : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
-            <Clock className="w-3.5 h-3.5" />
-            <span>Recurring Tasks ({recurringTasks.length})</span>
+            <Clock className="w-4 h-4" />
+            <span>Recurring Schedules ({recurringTasks.length})</span>
           </button>
 
           <button
             onClick={() => setActiveTab("logs")}
-            className={`pb-2.5 px-3 border-b-2 flex items-center gap-1.5 transition ${
+            className={`py-3 border-b-2 flex items-center gap-1.5 transition ${
               activeTab === "logs"
-                ? "border-indigo-600 text-indigo-600 dark:text-indigo-400 font-bold"
-                : "border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                ? "border-indigo-600 text-indigo-600 dark:text-indigo-400"
+                : "border-transparent text-slate-500 hover:text-slate-700"
             }`}
           >
-            <History className="w-3.5 h-3.5" />
+            <History className="w-4 h-4" />
             <span>Audit Logs</span>
           </button>
         </div>
 
-        {/* Modal Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        {/* Tab Contents */}
+        <div className="flex-1 overflow-y-auto p-5">
           {/* TAB 1: AUTOMATION RULES */}
           {activeTab === "rules" && (
             <div className="space-y-4">
@@ -309,7 +340,7 @@ export default function AutomationModal({
                     className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-xs transition"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>New Rule</span>
+                    <span>Create Rule</span>
                   </button>
                 )}
               </div>
@@ -318,32 +349,32 @@ export default function AutomationModal({
               {creatingRule && (
                 <form
                   onSubmit={handleSaveRule}
-                  className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3"
+                  className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-3"
                 >
-                  <div className="flex items-center justify-between pb-1 border-b border-slate-200 dark:border-slate-700">
-                    <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                      Create Automation Rule
-                    </h3>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">
+                      New Automation Rule
+                    </span>
                     <button
                       type="button"
                       onClick={() => setCreatingRule(false)}
-                      className="text-slate-400 hover:text-slate-600 text-xs"
+                      className="text-slate-400 hover:text-slate-600 text-xs font-semibold"
                     >
                       Cancel
                     </button>
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                         Rule Name *
                       </label>
                       <input
                         type="text"
-                        required
-                        placeholder="e.g. Auto-assign high priority bugs"
                         value={ruleName}
                         onChange={(e) => setRuleName(e.target.value)}
+                        placeholder="e.g. Auto-assign high priority bug"
+                        required
                         className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
                       />
                     </div>
@@ -362,6 +393,7 @@ export default function AutomationModal({
                         <option value="priority_changed">When Priority Changes</option>
                         <option value="assignee_changed">When Assignee Changes</option>
                         <option value="due_date_changed">When Due Date Changes</option>
+                        <option value="scheduled_tick">On Scheduled Tick</option>
                       </select>
                     </div>
                   </div>
@@ -369,9 +401,19 @@ export default function AutomationModal({
                   {/* Conditions Section */}
                   <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                     <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                        Conditions (Optional)
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                          Conditions (Optional)
+                        </span>
+                        <select
+                          value={conditionMatchMode}
+                          onChange={(e) => setConditionMatchMode(e.target.value)}
+                          className="text-[10px] px-2 py-0.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-semibold"
+                        >
+                          <option value="AND">Match ALL (AND)</option>
+                          <option value="OR">Match ANY (OR)</option>
+                        </select>
+                      </div>
                       <button
                         type="button"
                         onClick={handleAddCondition}
@@ -394,6 +436,7 @@ export default function AutomationModal({
                         >
                           <option value="priority">Priority</option>
                           <option value="status">Status</option>
+                          <option value="title">Title</option>
                         </select>
 
                         <select
@@ -407,6 +450,7 @@ export default function AutomationModal({
                         >
                           <option value="equals">equals</option>
                           <option value="not_equals">not equals</option>
+                          <option value="contains">contains</option>
                         </select>
 
                         <input
@@ -432,15 +476,15 @@ export default function AutomationModal({
                     ))}
                   </div>
 
-                  {/* Actions Section */}
+                  {/* Primary Actions Section */}
                   <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
-                        Actions *
+                        Primary Actions (If Matched) *
                       </span>
                       <button
                         type="button"
-                        onClick={handleAddAction}
+                        onClick={() => handleAddAction("actions")}
                         className="text-xs text-indigo-600 font-semibold hover:underline"
                       >
                         + Add Action
@@ -461,29 +505,87 @@ export default function AutomationModal({
                           <option value="set_status">Set Status</option>
                           <option value="set_priority">Set Priority</option>
                           <option value="set_due_date_relative">Set Due Date (+Days)</option>
+                          <option value="dispatch_webhook">Dispatch Webhook</option>
+                          <option value="send_slack_alert">Send Slack Alert</option>
+                          <option value="create_task">Create Subtask/Task</option>
                         </select>
 
                         <input
                           type="text"
-                          value={act.payload}
+                          value={typeof act.payload === "string" ? act.payload : JSON.stringify(act.payload)}
                           onChange={(e) => {
                             const updated = [...actions];
                             updated[idx].payload = e.target.value;
                             setActions(updated);
                           }}
                           className="flex-1 text-xs px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
-                          placeholder="Payload e.g. in-progress or 3"
+                          placeholder="Payload e.g. in-progress or https://slack-webhook-url"
                         />
 
                         {actions.length > 1 && (
                           <button
                             type="button"
-                            onClick={() => handleRemoveAction(idx)}
+                            onClick={() => handleRemoveAction(idx, "actions")}
                             className="text-slate-400 hover:text-red-500 p-1"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Branching Else Actions */}
+                  <div className="space-y-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                        <GitBranch className="w-3 h-3 text-slate-400" />
+                        <span>Else Branch (If Conditions Fail)</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleAddAction("elseActions")}
+                        className="text-xs text-indigo-600 font-semibold hover:underline"
+                      >
+                        + Add Else Action
+                      </button>
+                    </div>
+
+                    {elseActions.map((act, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <select
+                          value={act.type}
+                          onChange={(e) => {
+                            const updated = [...elseActions];
+                            updated[idx].type = e.target.value;
+                            setElseActions(updated);
+                          }}
+                          className="text-xs px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                        >
+                          <option value="set_status">Set Status</option>
+                          <option value="set_priority">Set Priority</option>
+                          <option value="set_due_date_relative">Set Due Date (+Days)</option>
+                        </select>
+
+                        <input
+                          type="text"
+                          value={typeof act.payload === "string" ? act.payload : JSON.stringify(act.payload)}
+                          onChange={(e) => {
+                            const updated = [...elseActions];
+                            updated[idx].payload = e.target.value;
+                            setElseActions(updated);
+                          }}
+                          className="flex-1 text-xs px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                          placeholder="Payload"
+                        />
+
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveAction(idx, "elseActions")}
+                          className="text-slate-400 hover:text-red-500 p-1"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -497,6 +599,48 @@ export default function AutomationModal({
                     </button>
                   </div>
                 </form>
+              )}
+
+              {/* Simulation Result Modal / Panel */}
+              {testingRule && (
+                <div className="p-4 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-indigo-600" />
+                      <span className="text-xs font-bold text-slate-900 dark:text-white">
+                        Dry-Run Simulation: {testingRule.name}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setTestingRule(null);
+                        setSimulationResult(null);
+                      }}
+                      className="text-xs text-slate-400 hover:text-slate-600"
+                    >
+                      Close
+                    </button>
+                  </div>
+
+                  {simulating ? (
+                    <div className="text-xs text-slate-500 py-2">Running dry-run simulation...</div>
+                  ) : simulationResult ? (
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center gap-3">
+                        <span>Branch Taken: <strong>{simulationResult.branchTaken}</strong></span>
+                        <span>Mode: <strong>{simulationResult.conditionMatchMode}</strong></span>
+                      </div>
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-indigo-100 dark:border-indigo-900/50 space-y-1">
+                        <span className="font-semibold block text-[11px] text-slate-700 dark:text-slate-300">
+                          Simulated Mutations:
+                        </span>
+                        <pre className="text-[10px] font-mono text-indigo-700 dark:text-indigo-300 overflow-x-auto">
+                          {JSON.stringify(simulationResult.consolidatedUpdates, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
               )}
 
               {/* Rules List */}
@@ -531,12 +675,26 @@ export default function AutomationModal({
                         <span>Trigger: <strong>{rule.trigger?.event}</strong></span>
                         <span>•</span>
                         <span>Actions: <strong>{rule.actions?.length}</strong></span>
+                        {rule.elseActions?.length > 0 && (
+                          <>
+                            <span>•</span>
+                            <span>Else: <strong>{rule.elseActions?.length}</strong></span>
+                          </>
+                        )}
                         <span>•</span>
                         <span>Runs: <strong>{rule.executionCount || 0}</strong></span>
                       </div>
                     </div>
 
                     <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleTestRule(rule)}
+                        className="px-2 py-1 rounded-lg border border-indigo-200 dark:border-indigo-800 text-indigo-600 dark:text-indigo-400 font-semibold hover:bg-indigo-50"
+                        title="Dry Run Test Rule"
+                      >
+                        Dry Run
+                      </button>
+
                       <button
                         onClick={() => handleToggleRule(rule)}
                         className={`p-1.5 rounded-lg border ${
@@ -581,40 +739,40 @@ export default function AutomationModal({
                 )}
               </div>
 
-              {/* Create Recurring Task Form */}
+              {/* Create Recurring Form */}
               {creatingRecurring && (
                 <form
                   onSubmit={handleSaveRecurring}
-                  className="bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3"
+                  className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 space-y-3"
                 >
-                  <div className="flex items-center justify-between pb-1 border-b border-slate-200 dark:border-slate-700">
-                    <h3 className="text-xs font-bold text-slate-900 dark:text-white uppercase tracking-wider">
-                      Schedule Recurring Task
-                    </h3>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-900 dark:text-white">
+                      New Recurring Task Schedule
+                    </span>
                     <button
                       type="button"
                       onClick={() => setCreatingRecurring(false)}
-                      className="text-slate-400 hover:text-slate-600 text-xs"
+                      className="text-slate-400 hover:text-slate-600 text-xs font-semibold"
                     >
                       Cancel
                     </button>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                      Task Title *
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="e.g. Weekly Security Review, Daily Standup Prep"
-                      value={recTitle}
-                      onChange={(e) => setRecTitle(e.target.value)}
-                      className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        Task Title *
+                      </label>
+                      <input
+                        type="text"
+                        value={recTitle}
+                        onChange={(e) => setRecTitle(e.target.value)}
+                        placeholder="e.g. Weekly Team Retrospective"
+                        required
+                        className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
                         Frequency *
@@ -629,18 +787,21 @@ export default function AutomationModal({
                         <option value="monthly">Monthly</option>
                       </select>
                     </div>
+                  </div>
 
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                        Interval (Every N)
+                        Initial Status
                       </label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={recInterval}
-                        onChange={(e) => setRecInterval(e.target.value)}
+                      <select
+                        value={recStatus}
+                        onChange={(e) => setRecStatus(e.target.value)}
                         className="w-full px-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
-                      />
+                      >
+                        <option value="todo">To Do</option>
+                        <option value="in-progress">In Progress</option>
+                      </select>
                     </div>
 
                     <div>

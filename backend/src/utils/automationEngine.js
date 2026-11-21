@@ -2,6 +2,8 @@ import AutomationRule from "../models/AutomationRule.js";
 import AutomationLog from "../models/AutomationLog.js";
 import Task from "../models/Task.js";
 import { createTargetedNotification } from "./notificationHelpers.js";
+import { integrationService } from "../services/integrationService.js";
+import { acquireDistributedLock, releaseDistributedLock } from "./distributedLock.js";
 import { logger } from "./logger.js";
 import { metrics } from "./metrics.js";
 
@@ -11,19 +13,20 @@ const MAX_EXECUTION_DEPTH = 3;
  * Checks if a task fulfills a specific condition.
  */
 export const evaluateCondition = (task, condition) => {
+  if (!condition || !task) return true;
   const { field, operator, value } = condition;
   const taskVal = task[field];
 
   switch (operator) {
     case "equals":
       if (Array.isArray(taskVal)) {
-        return taskVal.some((v) => (v?._id || v).toString() === (value?._id || value).toString());
+        return taskVal.some((v) => (v?._id || v)?.toString() === (value?._id || value)?.toString());
       }
       return (taskVal?._id || taskVal)?.toString() === (value?._id || value)?.toString();
 
     case "not_equals":
       if (Array.isArray(taskVal)) {
-        return !taskVal.some((v) => (v?._id || v).toString() === (value?._id || value).toString());
+        return !taskVal.some((v) => (v?._id || v)?.toString() === (value?._id || value)?.toString());
       }
       return (taskVal?._id || taskVal)?.toString() !== (value?._id || value)?.toString();
 
@@ -60,34 +63,40 @@ export const evaluateCondition = (task, condition) => {
 };
 
 /**
- * Checks if a rule matches an event trigger and all attached conditions.
+ * Checks if a rule matches an event trigger and its conditions (supporting AND/OR).
  */
 export const doesRuleMatch = (rule, eventPayload) => {
   const { event, task, previousTask } = eventPayload;
 
   // 1. Trigger event check
-  if (rule.trigger.event !== event) return false;
+  if (rule.trigger?.event !== event) return false;
 
   // 2. Trigger constraint checks (e.g. fromValue -> toValue)
-  if (rule.trigger.fromValue && previousTask) {
+  if (rule.trigger?.fromValue && previousTask) {
     let prevFieldVal = null;
     if (event === "status_changed") prevFieldVal = previousTask.status;
     else if (event === "priority_changed") prevFieldVal = previousTask.priority;
     if (prevFieldVal && prevFieldVal !== rule.trigger.fromValue) return false;
   }
 
-  if (rule.trigger.toValue) {
+  if (rule.trigger?.toValue) {
     let currentFieldVal = null;
     if (event === "status_changed") currentFieldVal = task.status;
     else if (event === "priority_changed") currentFieldVal = task.priority;
     if (currentFieldVal && currentFieldVal !== rule.trigger.toValue) return false;
   }
 
-  // 3. Conditions evaluation
+  // 3. Conditions evaluation (supporting AND / OR grouping)
   if (Array.isArray(rule.conditions) && rule.conditions.length > 0) {
-    for (const cond of rule.conditions) {
-      if (!evaluateCondition(task, cond)) {
-        return false;
+    const mode = rule.conditionMatchMode === "OR" ? "OR" : "AND";
+    if (mode === "OR") {
+      const anyMatch = rule.conditions.some((cond) => evaluateCondition(task, cond));
+      if (!anyMatch) return false;
+    } else {
+      for (const cond of rule.conditions) {
+        if (!evaluateCondition(task, cond)) {
+          return false;
+        }
       }
     }
   }
@@ -97,10 +106,12 @@ export const doesRuleMatch = (rule, eventPayload) => {
 
 /**
  * Executes a single action against a task.
+ * Returns any mutations made to the target task.
  */
-export const executeAction = async (action, task, io, userId, ruleName) => {
+export const executeAction = async (action, task, io, userId, ruleName, options = {}) => {
   const { type, payload } = action;
   const updates = {};
+  const isSimulation = Boolean(options.isSimulation);
 
   switch (type) {
     case "set_status": {
@@ -154,8 +165,8 @@ export const executeAction = async (action, task, io, userId, ruleName) => {
       const lblName = typeof payload === "string" ? payload : payload?.name;
       const lblColor = payload?.color || "#6366f1";
       if (lblName) {
-        const existingLabels = task.labels || [];
-        if (!existingLabels.some((l) => l.name.toLowerCase() === lblName.toLowerCase())) {
+        const existingLabels = task.labels ? [...task.labels] : [];
+        if (!existingLabels.some((l) => (l.name || l).toLowerCase() === lblName.toLowerCase())) {
           existingLabels.push({ name: lblName, color: lblColor });
           updates.labels = existingLabels;
           task.labels = existingLabels;
@@ -165,7 +176,6 @@ export const executeAction = async (action, task, io, userId, ruleName) => {
     }
 
     case "set_due_date_relative": {
-      // payload: number of days from now, e.g. 3
       const days = Number(payload) || 1;
       const targetDate = new Date();
       targetDate.setDate(targetDate.getDate() + days);
@@ -175,7 +185,7 @@ export const executeAction = async (action, task, io, userId, ruleName) => {
     }
 
     case "send_notification": {
-      if (io && payload?.userId) {
+      if (io && payload?.userId && !isSimulation) {
         await createTargetedNotification(io, {
           userId: payload.userId,
           senderId: userId || null,
@@ -183,6 +193,56 @@ export const executeAction = async (action, task, io, userId, ruleName) => {
           message: payload.message || `Automation rule "${ruleName}" triggered on task "${task.title}"`,
           data: { taskId: task._id, projectId: task.projectId },
         });
+      }
+      break;
+    }
+
+    case "dispatch_webhook": {
+      if (!isSimulation) {
+        await integrationService.dispatchEvent({
+          workspaceId: task.workspaceId || payload?.workspaceId,
+          event: payload?.event || "automation.action_triggered",
+          payload: {
+            ruleName,
+            taskId: task._id,
+            taskTitle: task.title,
+            projectId: task.projectId,
+            customPayload: payload?.data || {},
+          },
+          projectId: task.projectId,
+          fetchFn: options.fetchFn || globalThis.fetch,
+        });
+      }
+      break;
+    }
+
+    case "send_slack_alert": {
+      if (!isSimulation && payload?.webhookUrl) {
+        await integrationService.sendSlackNotification({
+          webhookUrl: payload.webhookUrl,
+          message: payload.message || `[Automation] Rule "${ruleName}" executed on task: ${task.title}`,
+          channel: payload.channel || null,
+          fetchFn: options.fetchFn || globalThis.fetch,
+        });
+      }
+      break;
+    }
+
+    case "create_task": {
+      if (!isSimulation && payload?.title) {
+        const newTask = await Task.create({
+          title: payload.title,
+          description: payload.description || `Spawned by automation rule: ${ruleName}`,
+          projectId: task.projectId,
+          status: payload.status || "todo",
+          priority: payload.priority || "medium",
+          assignedTo: payload.assignedTo || [],
+          createdBy: userId || task.createdBy,
+        });
+
+        if (io) {
+          io.to(`project_${task.projectId}`).emit("taskCreated", newTask);
+        }
       }
       break;
     }
@@ -195,24 +255,81 @@ export const executeAction = async (action, task, io, userId, ruleName) => {
 };
 
 /**
+ * Simulates an automation rule against a task payload without mutating the database (Dry-Run).
+ *
+ * @param {object} rule - The automation rule
+ * @param {object} task - Target task object
+ * @returns {object} Simulation results
+ */
+export const simulateAutomationRule = async (rule, task) => {
+  const dummyTaskCopy = JSON.parse(JSON.stringify(task || {}));
+  const triggerMatches = true; // In manual test, trigger is tested directly on the task
+  const conditionsPass = Array.isArray(rule.conditions) && rule.conditions.length > 0
+    ? (rule.conditionMatchMode === "OR"
+        ? rule.conditions.some((cond) => evaluateCondition(dummyTaskCopy, cond))
+        : rule.conditions.every((cond) => evaluateCondition(dummyTaskCopy, cond)))
+    : true;
+
+  const targetActions = conditionsPass
+    ? (rule.actions || [])
+    : (rule.elseActions || []);
+
+  const simulatedActions = [];
+  let consolidatedUpdates = {};
+
+  for (const action of targetActions) {
+    try {
+      const actionUpdates = await executeAction(
+        action,
+        dummyTaskCopy,
+        null,
+        null,
+        rule.name,
+        { isSimulation: true }
+      );
+      Object.assign(consolidatedUpdates, actionUpdates);
+      simulatedActions.push({
+        type: action.type,
+        payload: action.payload,
+        status: "predicted_success",
+        simulatedMutations: actionUpdates,
+      });
+    } catch (err) {
+      simulatedActions.push({
+        type: action.type,
+        payload: action.payload,
+        status: "predicted_failure",
+        error: err.message,
+      });
+    }
+  }
+
+  return {
+    ruleId: rule._id,
+    ruleName: rule.name,
+    conditionMatchMode: rule.conditionMatchMode || "AND",
+    conditionsEvaluated: (rule.conditions || []).map((c) => ({
+      condition: c,
+      passed: evaluateCondition(task, c),
+    })),
+    branchTaken: conditionsPass ? "actions" : (rule.elseActions?.length > 0 ? "elseActions" : "none"),
+    simulatedActions,
+    predictedTaskState: dummyTaskCopy,
+    consolidatedUpdates,
+  };
+};
+
+/**
  * Triggers automation rules for a given event on a task.
  * Safeguards against infinite loops using depth counter and call-chain tracking.
- *
- * @param {object} io - Socket.io instance
- * @param {object} eventPayload
- * @param {string} eventPayload.event - 'task_created' | 'status_changed' | 'priority_changed' | 'assignee_changed' | 'due_date_changed'
- * @param {object} eventPayload.task - Target task
- * @param {object} [eventPayload.previousTask] - State of task prior to mutation
- * @param {string|ObjectId} [eventPayload.userId] - Requesting user
- * @param {number} [eventPayload.depth=0] - Recursion depth
- * @param {Set<string>} [eventPayload.seenRules=new Set()] - Set of rule IDs executed in this chain
+ * Supports conditional branching (elseActions) and distributed locking.
  */
 export const runAutomationsForEvent = async (io, eventPayload) => {
   const { event, task, depth = 0, seenRules = new Set(), userId = null } = eventPayload;
 
   // Infinite loop protection: Limit maximum cascade depth
   if (depth >= MAX_EXECUTION_DEPTH) {
-    console.warn(`[AutomationEngine] Max depth (${MAX_EXECUTION_DEPTH}) reached for task ${task?._id}. Halting cascade.`);
+    logger.warn(`[AutomationEngine] Max depth (${MAX_EXECUTION_DEPTH}) reached for task ${task?._id}. Halting cascade.`);
     return;
   }
 
@@ -244,13 +361,48 @@ export const runAutomationsForEvent = async (io, eventPayload) => {
         continue;
       }
 
-      const isMatch = doesRuleMatch(rule, eventPayload);
-      if (!isMatch) continue;
+      // Check if trigger matches
+      if (rule.trigger?.event !== event) continue;
+
+      // Check trigger constraints (fromValue / toValue)
+      if (rule.trigger?.fromValue && eventPayload.previousTask) {
+        let prevVal = null;
+        if (event === "status_changed") prevVal = eventPayload.previousTask.status;
+        else if (event === "priority_changed") prevVal = eventPayload.previousTask.priority;
+        if (prevVal && prevVal !== rule.trigger.fromValue) continue;
+      }
+
+      if (rule.trigger?.toValue) {
+        let currVal = null;
+        if (event === "status_changed") currVal = task.status;
+        else if (event === "priority_changed") currVal = task.priority;
+        if (currVal && currVal !== rule.trigger.toValue) continue;
+      }
+
+      // Evaluate conditions
+      let conditionsPass = true;
+      if (Array.isArray(rule.conditions) && rule.conditions.length > 0) {
+        const mode = rule.conditionMatchMode === "OR" ? "OR" : "AND";
+        if (mode === "OR") {
+          conditionsPass = rule.conditions.some((cond) => evaluateCondition(task, cond));
+        } else {
+          conditionsPass = rule.conditions.every((cond) => evaluateCondition(task, cond));
+        }
+      }
+
+      // Branching: Choose actions or elseActions
+      const targetActions = conditionsPass
+        ? rule.actions
+        : (Array.isArray(rule.elseActions) && rule.elseActions.length > 0 ? rule.elseActions : null);
+
+      if (!targetActions || targetActions.length === 0) {
+        continue;
+      }
 
       const actionsExecuted = [];
       let consolidatedUpdates = {};
 
-      for (const action of rule.actions) {
+      for (const action of targetActions) {
         try {
           const actionUpdates = await executeAction(action, task, io, userId, rule.name);
           Object.assign(consolidatedUpdates, actionUpdates);
@@ -285,6 +437,7 @@ export const runAutomationsForEvent = async (io, eventPayload) => {
             ruleId: rule._id,
             ruleName: rule.name,
             taskId: task._id,
+            branch: conditionsPass ? "primary" : "else",
             actions: actionsExecuted,
           });
         }
@@ -316,7 +469,7 @@ export const runAutomationsForEvent = async (io, eventPayload) => {
         }
       }
 
-      // Record successful execution log and update rule counters
+      // Record execution log and update rule counters
       await AutomationLog.create({
         ruleId: rule._id,
         ruleName: rule.name,
@@ -327,6 +480,7 @@ export const runAutomationsForEvent = async (io, eventPayload) => {
         status: actionsExecuted.some((a) => a.status === "failed") ? "failed" : "success",
         actionsExecuted,
         depth,
+        reason: conditionsPass ? "Primary actions applied" : "Branch elseActions applied",
       });
 
       rule.executionCount = (rule.executionCount || 0) + 1;

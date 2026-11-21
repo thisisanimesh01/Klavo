@@ -5,6 +5,8 @@ import {
   getAutomationRulesByProject,
   updateAutomationRule,
   deleteAutomationRule,
+  testAutomationRule,
+  triggerScheduledRuleNow,
   getAutomationLogs,
   createRecurringTask,
   getRecurringTasksByProject,
@@ -22,6 +24,8 @@ router.post("/rules", createAutomationRule);
 router.get("/rules/project/:projectId", getAutomationRulesByProject);
 router.put("/rules/:ruleId", updateAutomationRule);
 router.delete("/rules/:ruleId", deleteAutomationRule);
+router.post("/rules/:ruleId/test", testAutomationRule);
+router.post("/rules/:ruleId/trigger-schedule", triggerScheduledRuleNow);
 router.get("/logs/project/:projectId", getAutomationLogs);
 
 // Recurring Tasks
