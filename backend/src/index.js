@@ -9,6 +9,8 @@ import { initCommentSockets } from "./sockets/comments.js";
 import { initReactionSockets } from "./sockets/reactions.js";
 import { initNotificationSockets } from "./sockets/notifications.js";
 import { initDocumentSockets } from "./sockets/documents.js";
+import { initPresenceSockets } from "./sockets/presence.js";
+import { initTaskSockets } from "./sockets/tasks.js";
 import { createApp } from "./app.js";
 import { logger } from "./utils/logger.js";
 import { metrics } from "./utils/metrics.js";
@@ -76,6 +78,8 @@ io.on("connection", (socket) => {
   initCommentSockets(io, socket);
   initReactionSockets(io, socket);
   initDocumentSockets(io, socket);
+  initPresenceSockets(io, socket);
+  initTaskSockets(io, socket);
 
   // Leave user room
   socket.on("leaveUser", ({ userId }) => {
