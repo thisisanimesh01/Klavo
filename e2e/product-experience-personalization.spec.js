@@ -27,10 +27,20 @@ test.describe("Product Experience & Personalization E2E Journeys (UX-01)", () =>
 
     await expect(page).toHaveURL(new RegExp(`${env.baseUrl}/?$`));
 
-    const closeWizardBtn = page.getByRole("button", { name: /Close dialog/i });
-    if (await closeWizardBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
-      await closeWizardBtn.click();
+    // Handle First Login Wizard dialog if shown - dismiss via "I'll do this later" or escape
+    const laterBtn = page.getByRole("button", { name: /I'll do this later/i });
+    if (await laterBtn.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await laterBtn.click();
+    } else {
+      const closeWizardBtn = page.getByRole("button", { name: /Close dialog/i });
+      if (await closeWizardBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+        await closeWizardBtn.click();
+      }
     }
+
+    // Ensure any open modal backdrop is fully gone
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
 
     // 2. Personalize Dashboard Widgets
     await expect(page.getByText("Personalize Dashboard Widgets")).toBeVisible();
@@ -41,11 +51,11 @@ test.describe("Product Experience & Personalization E2E Journeys (UX-01)", () =>
     await metricsBtn.click();
     await metricsBtn.click();
 
-    // 3. Command Palette Trigger via Keyboard Shortcut (Cmd+K or Ctrl+K) or Topbar trigger
-    const searchBar = page.getByPlaceholder("Search everything... (Cmd+K)");
-    if (await searchBar.isVisible({ timeout: 1500 }).catch(() => false)) {
-      await searchBar.click();
-      await expect(page.getByPlaceholder("Search projects, tasks, docs, commands...")).toBeVisible();
+    // 3. Command Palette Trigger via Topbar button or keyboard shortcut
+    const searchBtn = page.getByRole("button", { name: /Open global search and command palette/i });
+    if (await searchBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+      await searchBtn.click();
+      await expect(page.getByPlaceholder("Type a command or search projects, tasks, docs...")).toBeVisible();
       // Close Command Palette via Escape
       await page.keyboard.press("Escape");
     }
