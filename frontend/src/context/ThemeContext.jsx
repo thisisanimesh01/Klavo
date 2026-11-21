@@ -7,8 +7,14 @@ export function ThemeProvider({ children }) {
     () => localStorage.getItem("klavo_theme") || "light"
   );
 
+  // Density preference: "comfortable" | "compact"
+  const [density, setDensity] = useState(
+    () => localStorage.getItem("klavo_density") || "comfortable"
+  );
+
   useEffect(() => {
     localStorage.setItem("klavo_theme", theme);
+    localStorage.setItem("klavo_density", density);
 
     const root = document.documentElement;
 
@@ -17,6 +23,19 @@ export function ThemeProvider({ children }) {
       root.classList.add("dark");
     } else {
       root.classList.remove("dark");
+    }
+
+    // Apply Density class
+    if (density === "compact") {
+      root.classList.add("density-compact");
+      root.classList.remove("density-comfortable");
+      root.style.setProperty("--spacing-unit", "0.75rem");
+      root.style.setProperty("--card-padding", "1rem");
+    } else {
+      root.classList.add("density-comfortable");
+      root.classList.remove("density-compact");
+      root.style.setProperty("--spacing-unit", "1.25rem");
+      root.style.setProperty("--card-padding", "1.5rem");
     }
 
     // Apply custom color variables verified for WCAG 2.2 AA contrast standards (>= 4.5:1 for body, >= 3:1 for large text)
@@ -35,13 +54,16 @@ export function ThemeProvider({ children }) {
       root.style.setProperty("--card-border", "rgba(51, 65, 85, 0.8)");
       root.style.setProperty("--color-primary", "#6366F1");  // Indigo-500
     }
-  }, [theme]);
+  }, [theme, density]);
 
   const toggleTheme = () =>
     setTheme((prev) => (prev === "light" ? "dark" : "light"));
 
+  const toggleDensity = () =>
+    setDensity((prev) => (prev === "comfortable" ? "compact" : "comfortable"));
+
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme }}>
+    <ThemeContext.Provider value={{ theme, setTheme, toggleTheme, density, setDensity, toggleDensity }}>
       <div
         style={{
           backgroundColor: "var(--bg-main)",

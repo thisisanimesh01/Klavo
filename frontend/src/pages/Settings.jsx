@@ -49,7 +49,7 @@ import {
 export default function Settings() {
   const dispatch = useDispatch();
   const authUser = useSelector((state) => state.auth?.user);
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, density, toggleDensity } = useTheme();
 
   // Active settings tab: 'profile' | 'account' | 'preferences' | 'workspace' | 'directory'
   const [activeTab, setActiveTab] = useState("profile");
@@ -778,6 +778,40 @@ export default function Settings() {
                   Deep purple night mode
                 </span>
               </button>
+            </div>
+
+            <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800">
+              <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 mb-2">Display Density</h4>
+              <p className="text-[11px] text-slate-500 mb-3">Adjust interface padding and information density.</p>
+              <div className="grid grid-cols-2 gap-4">
+                <button
+                  type="button"
+                  id="density-comfortable-btn"
+                  onClick={() => density !== "comfortable" && toggleDensity()}
+                  className={`p-3 rounded-xl border text-center transition ${
+                    density === "comfortable"
+                      ? "border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/30 ring-2 ring-indigo-500"
+                      : "border-slate-200 dark:border-slate-800"
+                  }`}
+                >
+                  <span className="font-semibold text-xs block text-slate-800 dark:text-slate-200">Comfortable</span>
+                  <span className="text-[10px] text-slate-400">Spacious padding and breathable layouts</span>
+                </button>
+
+                <button
+                  type="button"
+                  id="density-compact-btn"
+                  onClick={() => density !== "compact" && toggleDensity()}
+                  className={`p-3 rounded-xl border text-center transition ${
+                    density === "compact"
+                      ? "border-indigo-600 bg-indigo-50/50 dark:bg-indigo-950/30 ring-2 ring-indigo-500"
+                      : "border-slate-200 dark:border-slate-800"
+                  }`}
+                >
+                  <span className="font-semibold text-xs block text-slate-800 dark:text-slate-200">Compact</span>
+                  <span className="text-[10px] text-slate-400">High-density views optimized for data-rich screens</span>
+                </button>
+              </div>
             </div>
           </Card>
         </div>

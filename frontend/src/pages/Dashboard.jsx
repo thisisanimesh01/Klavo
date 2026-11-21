@@ -3,6 +3,7 @@ import axiosClient from "../api/axiosClient";
 import { Link } from "react-router-dom";
 import socket from "../socket";
 import { useSelector } from "react-redux";
+import { SlidersHorizontal, CheckSquare, BarChart2, Bell } from "lucide-react";
 import OnboardingChecklist from "../components/OnboardingChecklist";
 import FirstLoginWizardModal from "../components/FirstLoginWizardModal";
 import { useOnboarding } from "../context/OnboardingContext";
@@ -25,6 +26,24 @@ export default function Dashboard() {
   const [recentActivities, setRecentActivities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showWizard, setShowWizard] = useState(false);
+
+  // User-configurable Dashboard Widget visibility
+  const [visibleWidgets, setVisibleWidgets] = useState(() => {
+    try {
+      const stored = localStorage.getItem("klavo_dashboard_widgets");
+      return stored ? JSON.parse(stored) : { stats: true, charts: true, feed: true };
+    } catch {
+      return { stats: true, charts: true, feed: true };
+    }
+  });
+
+  const toggleWidget = (widgetKey) => {
+    setVisibleWidgets((prev) => {
+      const updated = { ...prev, [widgetKey]: !prev[widgetKey] };
+      localStorage.setItem("klavo_dashboard_widgets", JSON.stringify(updated));
+      return updated;
+    });
+  };
 
   const authUser = useSelector((state) => state.auth?.user);
   const { state: onboardingState, completeStep } = useOnboarding();
@@ -117,16 +136,62 @@ export default function Dashboard() {
         }}
       />
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
-        <StatCard label="Projects" value={stats.projectCount} />
-        <StatCard label="Tasks" value={stats.taskCount} />
-        <StatCard label="Completed" value={stats.completedCount} color="text-green-500" />
-        <StatCard label="Teams" value={stats.teamCount} />
+      {/* Widget Customization Control Bar */}
+      <div className="flex items-center justify-between px-1">
+        <div className="text-xs font-semibold flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
+          <SlidersHorizontal className="w-3.5 h-3.5" />
+          <span>Personalize Dashboard Widgets</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => toggleWidget("stats")}
+            className={`px-2.5 py-1 text-xs rounded-lg border font-semibold transition ${
+              visibleWidgets.stats
+                ? "bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-950 dark:border-indigo-800 dark:text-indigo-300"
+                : "border-slate-200 dark:border-slate-800 text-slate-400"
+            }`}
+          >
+            Metrics
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleWidget("charts")}
+            className={`px-2.5 py-1 text-xs rounded-lg border font-semibold transition ${
+              visibleWidgets.charts
+                ? "bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-950 dark:border-indigo-800 dark:text-indigo-300"
+                : "border-slate-200 dark:border-slate-800 text-slate-400"
+            }`}
+          >
+            Charts
+          </button>
+          <button
+            type="button"
+            onClick={() => toggleWidget("feed")}
+            className={`px-2.5 py-1 text-xs rounded-lg border font-semibold transition ${
+              visibleWidgets.feed
+                ? "bg-indigo-50 border-indigo-200 text-indigo-700 dark:bg-indigo-950 dark:border-indigo-800 dark:text-indigo-300"
+                : "border-slate-200 dark:border-slate-800 text-slate-400"
+            }`}
+          >
+            Activity Feed
+          </button>
+        </div>
       </div>
 
+      {/* Stat Cards */}
+      {visibleWidgets.stats && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-6">
+          <StatCard label="Projects" value={stats.projectCount} />
+          <StatCard label="Tasks" value={stats.taskCount} />
+          <StatCard label="Completed" value={stats.completedCount} color="text-green-500" />
+          <StatCard label="Teams" value={stats.teamCount} />
+        </div>
+      )}
+
       {/* Visual Graphs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {visibleWidgets.charts && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Weekly Activity */}
         <div
           className="p-4 rounded-xl shadow"
@@ -205,57 +270,60 @@ export default function Dashboard() {
           </ResponsiveContainer>
         </div>
       </div>
+      )}
 
       {/* Recent Team Activity Feed */}
-      <div
-        className="p-5 rounded-xl shadow"
-        style={{
-          background: "var(--bg-card)",
-          border: "1px solid var(--card-border)",
-        }}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold text-lg">Recent Team Activity</h2>
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-            Live updates across authorized projects
-          </span>
-        </div>
-
-        {recentActivities.length === 0 ? (
-          <p className="text-sm py-4 text-center" style={{ color: "var(--text-muted)" }}>
-            🚀 No recent team activity yet. Create a task or upload files to get started!
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {recentActivities.map((act, idx) => (
-              <div
-                key={act._id || idx}
-                className="flex items-center justify-between p-3 rounded-lg border text-sm"
-                style={{
-                  background: "var(--bg-main)",
-                  borderColor: "var(--card-border)",
-                }}
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="text-xl">{getActivityIcon(act.action)}</span>
-                  <div className="min-w-0">
-                    <p className="font-medium truncate">{act.message}</p>
-                    <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-                      {act.user?.name || "Team Member"}
-                      {act.projectId?.name ? ` • Project: ${act.projectId.name}` : ""}
-                    </p>
-                  </div>
-                </div>
-                <span className="text-xs shrink-0 ml-4" style={{ color: "var(--text-muted)" }}>
-                  {act.createdAt
-                    ? new Date(act.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                    : "Just now"}
-                </span>
-              </div>
-            ))}
+      {visibleWidgets.feed && (
+        <div
+          className="p-5 rounded-xl shadow"
+          style={{
+            background: "var(--bg-card)",
+            border: "1px solid var(--card-border)",
+          }}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-lg">Recent Team Activity</h2>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Live updates across authorized projects
+            </span>
           </div>
-        )}
-      </div>
+
+          {recentActivities.length === 0 ? (
+            <p className="text-sm py-4 text-center" style={{ color: "var(--text-muted)" }}>
+              🚀 No recent team activity yet. Create a task or upload files to get started!
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {recentActivities.map((act, idx) => (
+                <div
+                  key={act._id || idx}
+                  className="flex items-center justify-between p-3 rounded-lg border text-sm"
+                  style={{
+                    background: "var(--bg-main)",
+                    borderColor: "var(--card-border)",
+                  }}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="text-xl">{getActivityIcon(act.action)}</span>
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{act.message}</p>
+                      <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                        {act.user?.name || "Team Member"}
+                        {act.projectId?.name ? ` • Project: ${act.projectId.name}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-xs shrink-0 ml-4" style={{ color: "var(--text-muted)" }}>
+                    {act.createdAt
+                      ? new Date(act.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                      : "Just now"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Action Buttons */}
       <div className="flex flex-wrap gap-3 sm:gap-4 pt-2">
