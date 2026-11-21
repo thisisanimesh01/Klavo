@@ -6,6 +6,7 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "preflight:prod": "node src/utils/preflightCheck.js",
+    "migrate:indexes": "node src/utils/indexMigration.js",
     "backup:create": "node src/utils/backupManager.js",
     "backup:restore-verify": "node src/utils/backupManager.js --restore"
   },

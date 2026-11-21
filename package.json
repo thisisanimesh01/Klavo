@@ -3,6 +3,7 @@
   "scripts": {
     "test:e2e": "playwright test",
     "preflight:prod": "node backend/src/utils/preflightCheck.js",
+    "migrate:indexes": "node backend/src/utils/indexMigration.js",
     "scan:secrets": "node scripts/scan_secrets.js"
   },
   "dependencies": {
