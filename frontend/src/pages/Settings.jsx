@@ -17,6 +17,7 @@ import {
   Boxes,
 } from "lucide-react";
 import IntegrationsSettingsTab from "../components/IntegrationsSettingsTab";
+import EnterpriseSettingsTab from "../components/EnterpriseSettingsTab";
 import {
   Button,
   Input,
@@ -512,6 +513,20 @@ export default function Settings() {
         >
           <Boxes size={16} />
           Integrations & API
+        </button>
+
+        <button
+          type="button"
+          id="settings-tab-enterprise"
+          onClick={() => setActiveTab("enterprise")}
+          className={`pb-3 px-3 flex items-center gap-2 border-b-2 transition shrink-0 ${
+            activeTab === "enterprise"
+              ? "border-indigo-600 text-indigo-600 dark:text-indigo-400 font-semibold"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+          }`}
+        >
+          <Shield size={16} />
+          Enterprise & Security
         </button>
       </div>
 
@@ -1276,6 +1291,14 @@ export default function Settings() {
       {/* TAB 6: Integrations & Developer Ecosystem (INT-01) */}
       {activeTab === "integrations" && (
         <IntegrationsSettingsTab
+          workspaceId={activeWorkspace?._id || selectedWorkspaceId}
+          isOwnerOrAdmin={isWorkspaceAdmin || isWorkspaceOwner}
+        />
+      )}
+
+      {/* TAB 7: Enterprise & Security Management (ENT-01) */}
+      {activeTab === "enterprise" && (
+        <EnterpriseSettingsTab
           workspaceId={activeWorkspace?._id || selectedWorkspaceId}
           isOwnerOrAdmin={isWorkspaceAdmin || isWorkspaceOwner}
         />

@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { Team } from "../models/Team.js";
 import { User } from "../models/User.js";
+import { auditService } from "../services/auditService.js";
 import { checkTeamAccess, WORKSPACE_ROLES, resolveWorkspaceRole } from "../utils/authHelpers.js";
 import { storageService, isSafeSvg } from "../services/storageService.js";
 
@@ -29,6 +30,19 @@ export const createTeam = async (req, res) => {
       owner: req.user._id,
       members: [req.user._id],
       memberRoles: [{ userId: req.user._id, role: "owner" }],
+    });
+
+    await auditService.recordEvent({
+      workspaceId: team._id,
+      actorId: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: "owner",
+      action: "workspace.created",
+      targetType: "workspace",
+      targetId: team._id.toString(),
+      details: { name: team.name },
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent") || "",
     });
 
     res.status(201).json(team);
@@ -81,9 +95,9 @@ export const getTeamById = async (req, res) => {
 export const updateTeam = async (req, res) => {
   try {
     const { teamId } = req.params;
-    const { name, description } = req.body;
+    const { name, description, policies } = req.body;
 
-    const { isAdmin, team } = await checkTeamAccess(teamId, req.user._id);
+    const { isAdmin, isOwner, team } = await checkTeamAccess(teamId, req.user._id);
     if (!team) return res.status(404).json({ message: "Team not found" });
 
     // Admins and owners can update workspace settings
@@ -104,7 +118,28 @@ export const updateTeam = async (req, res) => {
       team.description = typeof description === "string" ? description.trim().slice(0, 500) : "";
     }
 
+    if (policies && typeof policies === "object") {
+      team.policies = {
+        ...team.policies.toObject(),
+        ...policies,
+      };
+    }
+
     await team.save();
+
+    await auditService.recordEvent({
+      workspaceId: team._id,
+      organizationId: team.organizationId || null,
+      actorId: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: isOwner ? "owner" : "admin",
+      action: "workspace.updated",
+      targetType: "workspace",
+      targetId: team._id.toString(),
+      details: { name: team.name, policies: team.policies },
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent") || "",
+    });
 
     const populated = await getPopulatedTeam(teamId);
     res.json(populated);
@@ -160,13 +195,15 @@ export const uploadTeamLogo = async (req, res) => {
     team.logo = `/api/teams/logo/${storageKey}`;
     await team.save();
 
+    const populated = await getPopulatedTeam(teamId);
     res.json({
       message: "Workspace logo updated successfully",
-      logo: team.logo,
-      team,
+      team: populated,
     });
   } catch (err) {
-    console.error("Team logo upload error:", err);
+    if (req.file && req.file.path && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
     res.status(500).json({ message: err.message });
   }
 };
@@ -175,18 +212,14 @@ export const serveTeamLogo = async (req, res) => {
   try {
     const { key } = req.params;
 
-    const exists = await storageService.exists(key);
-    if (!exists) {
-      return res.status(404).json({ message: "Logo not found" });
+    if (!key || typeof key !== "string" || key.includes("..") || key.includes("/")) {
+      return res.status(400).json({ message: "Invalid logo key" });
     }
 
     res.setHeader("X-Content-Type-Options", "nosniff");
-    res.setHeader(
-      "Content-Security-Policy",
-      "default-src 'none'; style-src 'unsafe-inline'; sandbox"
-    );
+    res.setHeader("Cache-Control", "public, max-age=86400, stale-while-revalidate=604800");
 
-    if (storageService.type === "local") {
+    if (storageService.providerName === "local") {
       let filePath;
       try {
         filePath = storageService.getFilePath(key);
@@ -235,6 +268,20 @@ export const addMemberToTeam = async (req, res) => {
     }
 
     const normalizedEmail = email.toLowerCase().trim();
+
+    // Enterprise Domain Restriction Policy Check
+    if (team.policies?.enforceDomainCheck && team.policies?.allowedEmailDomains?.length > 0) {
+      const emailDomain = `@${normalizedEmail.split("@")[1]}`;
+      const isDomainAllowed = team.policies.allowedEmailDomains.some(
+        (d) => d.toLowerCase() === emailDomain.toLowerCase()
+      );
+      if (!isDomainAllowed) {
+        return res.status(403).json({
+          message: `Policy violation: Users with domain "${emailDomain}" are not allowed in this workspace`,
+        });
+      }
+    }
+
     const user = await User.findOne({ email: normalizedEmail });
     if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -256,6 +303,20 @@ export const addMemberToTeam = async (req, res) => {
     }
 
     await team.save();
+
+    await auditService.recordEvent({
+      workspaceId: team._id,
+      organizationId: team.organizationId || null,
+      actorId: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: "admin",
+      action: "member.added",
+      targetType: "user",
+      targetId: user._id.toString(),
+      details: { email: user.email, role: targetRole },
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent") || "",
+    });
 
     const populated = await getPopulatedTeam(teamId);
     res.json(populated);
@@ -317,6 +378,20 @@ export const updateMemberRole = async (req, res) => {
     }
 
     await team.save();
+
+    await auditService.recordEvent({
+      workspaceId: team._id,
+      organizationId: team.organizationId || null,
+      actorId: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: isOwner ? "owner" : "admin",
+      action: "member.role_updated",
+      targetType: "user",
+      targetId: memberId.toString(),
+      details: { previousRole: currentTargetRole, newRole: targetRole },
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent") || "",
+    });
 
     const populated = await getPopulatedTeam(teamId);
     res.json(populated);
@@ -382,6 +457,20 @@ export const transferOwnership = async (req, res) => {
 
     await team.save();
 
+    await auditService.recordEvent({
+      workspaceId: team._id,
+      organizationId: team.organizationId || null,
+      actorId: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: "owner",
+      action: "workspace.ownership_transferred",
+      targetType: "workspace",
+      targetId: team._id.toString(),
+      details: { previousOwnerId: previousOwnerId.toString(), newOwnerId: newOwnerId.toString() },
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent") || "",
+    });
+
     const populated = await getPopulatedTeam(teamId);
     res.json({
       message: "Workspace ownership transferred successfully",
@@ -430,6 +519,20 @@ export const removeMemberFromTeam = async (req, res) => {
 
     await team.save();
 
+    await auditService.recordEvent({
+      workspaceId: team._id,
+      organizationId: team.organizationId || null,
+      actorId: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: isOwner ? "owner" : "admin",
+      action: isSelf ? "member.left" : "member.removed",
+      targetType: "user",
+      targetId: memberId.toString(),
+      details: { role: targetRole },
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent") || "",
+    });
+
     // Broadcast membership revocation so client sockets leave team and project rooms
     const io = req.app.get("io");
     if (io) {
@@ -463,6 +566,20 @@ export const deleteTeam = async (req, res) => {
         message: "Forbidden: Only the workspace owner can delete this workspace",
       });
     }
+
+    await auditService.recordEvent({
+      workspaceId: team._id,
+      organizationId: team.organizationId || null,
+      actorId: req.user._id,
+      actorEmail: req.user.email,
+      actorRole: "owner",
+      action: "workspace.deleted",
+      targetType: "workspace",
+      targetId: team._id.toString(),
+      details: { name: team.name },
+      ipAddress: req.ip,
+      userAgent: req.get("User-Agent") || "",
+    });
 
     await Team.findByIdAndDelete(teamId);
     res.json({ message: "Workspace deleted successfully" });
