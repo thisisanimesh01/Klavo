@@ -20,7 +20,10 @@ import {
   FileText,
   BookOpen,
   ExternalLink,
+  Sparkles,
+  Loader2,
 } from "lucide-react";
+import aiApi from "../api/aiApi";
 
 const PRESET_COLORS = [
   "#6366f1", // indigo
@@ -44,7 +47,9 @@ export default function TaskModal({
   workflow,
   onSaved,
 }) {
-  const isEdit = Boolean(initialTask);
+  if (!open) return null;
+
+  const isEdit = Boolean(initialTask && initialTask._id);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -76,9 +81,11 @@ export default function TaskModal({
   // Templates
   const [templates, setTemplates] = useState([]);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const [aiGenerating, setAiGenerating] = useState(false);
 
   // Sprints & Project Tasks for dependency linking
   const [sprints, setSprints] = useState([]);
+  const [milestones, setMilestones] = useState([]);
   const [projectTasks, setProjectTasks] = useState([]);
   const [availableDocs, setAvailableDocs] = useState([]);
 
@@ -102,17 +109,19 @@ export default function TaskModal({
   useEffect(() => {
     const fetchDependencies = async () => {
       try {
-        const [membersRes, templatesRes, sprintsRes, tasksRes, docsRes, wikiRes] = await Promise.all([
+        const [membersRes, templatesRes, sprintsRes, tasksRes, docsRes, wikiRes, milestonesRes] = await Promise.all([
           axiosClient.get(`/projects/${projectId}/members`),
           axiosClient.get(`/task-templates?projectId=${projectId}`),
           axiosClient.get(`/sprints/project/${projectId}`),
           axiosClient.get(`/tasks/project/${projectId}`),
           axiosClient.get(`/documents/project/${projectId}`),
           axiosClient.get(`/documents/wiki/project/${projectId}`),
+          axiosClient.get(`/milestones/project/${projectId}`).catch(() => ({ data: [] })),
         ]);
         setMembers(membersRes.data || []);
         setTemplates(templatesRes.data || []);
         setSprints(sprintsRes.data || []);
+        setMilestones(milestonesRes.data || []);
         setProjectTasks(tasksRes.data || []);
 
         // Combine project documents and wiki pages for linking
@@ -172,6 +181,28 @@ export default function TaskModal({
         }
       };
       loadFullTask();
+    } else if (initialTask && !initialTask._id) {
+      // Pre-filled template or AI-extracted task without DB ID
+      setTitle(initialTask.title || "");
+      setDescription(initialTask.description || "");
+      setStatus(initialTask.status || defaultStatus || "todo");
+      setPriority(initialTask.priority || "medium");
+      setSprintId(initialTask.sprintId || defaultSprintId || "");
+      setParentId(initialTask.parentId || defaultParentId || "");
+      setDueDate(
+        initialTask.dueDate
+          ? new Date(initialTask.dueDate).toISOString().split("T")[0]
+          : ""
+      );
+      setEstimatedHours(initialTask.estimatedHours || "");
+      setSelectedMembers(Array.isArray(initialTask.assignedTo) ? initialTask.assignedTo : []);
+      setLabels(Array.isArray(initialTask.labels) ? initialTask.labels : []);
+      setChecklist(Array.isArray(initialTask.checklist) ? initialTask.checklist : []);
+      setCustomFields(Array.isArray(initialTask.customFields) ? initialTask.customFields : []);
+      setSelectedTemplateId(initialTask.templateId || "");
+      setDependencies(Array.isArray(initialTask.dependencies) ? initialTask.dependencies : []);
+      setSubtasks(Array.isArray(initialTask.subtasks) ? initialTask.subtasks : []);
+      setLinkedDocs([]);
     } else {
       setTitle("");
       setDescription("");
@@ -449,7 +480,12 @@ export default function TaskModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4 overflow-y-auto">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={isEdit ? "Edit Task Dialog" : "Create Task Dialog"}
+      className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-2 sm:p-4 overflow-y-auto"
+    >
       <div className="app-card border border-slate-200 dark:border-slate-800 p-4 sm:p-6 rounded-2xl w-full max-w-3xl shadow-2xl my-auto max-h-[92vh] sm:max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between pb-4 border-b border-slate-200 dark:border-slate-800">
           <div>
@@ -514,8 +550,9 @@ export default function TaskModal({
               Task Title *
             </label>
             <input
+              id="task-modal-title-input"
               className="w-full border border-slate-300 dark:border-slate-700 px-3 py-2 rounded-lg bg-transparent text-sm focus:ring-2 focus:ring-indigo-500"
-              placeholder="e.g. Implement OIDC token exchange"
+              placeholder="Task Title"
               value={title}
               required
               onChange={(e) => setTitle(e.target.value)}
@@ -523,9 +560,51 @@ export default function TaskModal({
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase mb-1">
-              Description / Acceptance Criteria
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase">
+                Description / Acceptance Criteria
+              </label>
+              <button
+                type="button"
+                disabled={aiGenerating || !title.trim()}
+                onClick={async () => {
+                  if (!title.trim()) return;
+                  setAiGenerating(true);
+                  try {
+                    const res = await aiApi.suggestBreakdown({
+                      taskId: initialTask?._id,
+                      projectId,
+                      title,
+                      description,
+                    });
+                    if (res.data?.enhancedDescription) {
+                      setDescription(res.data.enhancedDescription);
+                    }
+                    if (res.data?.suggestedSubtasks?.length > 0 && checklist.length === 0) {
+                      setChecklist(res.data.suggestedSubtasks);
+                    }
+                  } catch (err) {
+                    console.error("AI suggestion failed:", err);
+                  } finally {
+                    setAiGenerating(false);
+                  }
+                }}
+                className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-500 hover:text-indigo-400 transition disabled:opacity-50"
+                title="Generate Acceptance Criteria and Subtasks with AI"
+              >
+                {aiGenerating ? (
+                  <>
+                    <Loader2 size={12} className="animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={12} />
+                    AI Auto-Suggest
+                  </>
+                )}
+              </button>
+            </div>
             <textarea
               className="w-full border border-slate-300 dark:border-slate-700 px-3 py-2 rounded-lg bg-transparent text-sm"
               rows={3}

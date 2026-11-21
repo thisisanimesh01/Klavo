@@ -17,6 +17,8 @@ import PriorityBadge from "../components/PriorityBadge";
 import ThemeToggle from "../components/ThemeToggle";
 import ActivityPanel from "../components/ActivityPanel";
 import ChatPanel from "../components/ChatPanel";
+import NaturalLanguageTaskModal from "../components/NaturalLanguageTaskModal";
+import AIProjectInsightsDrawer from "../components/AIProjectInsightsDrawer";
 import socket from "../socket";
 import {
   Search,
@@ -45,6 +47,7 @@ import {
   FileText,
   BookOpen,
   BarChart2,
+  Sparkles,
 } from "lucide-react";
 
 const COLUMNS = [
@@ -68,6 +71,8 @@ export default function Kanban() {
   const [members, setMembers] = useState([]);
   const [workflowModalOpen, setWorkflowModalOpen] = useState(false);
   const [automationModalOpen, setAutomationModalOpen] = useState(false);
+  const [aiTaskModalOpen, setAiTaskModalOpen] = useState(false);
+  const [aiInsightsOpen, setAiInsightsOpen] = useState(false);
   const [loading, setLoading] = useState(true);
 
   // Modals
@@ -721,6 +726,22 @@ export default function Kanban() {
               Blueprints
             </button>
             <button
+              onClick={() => setAiInsightsOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 border border-indigo-500/30 bg-indigo-500/10 rounded-xl text-xs font-semibold hover:bg-indigo-500/20 transition shadow-xs text-indigo-600 dark:text-indigo-400"
+              title="AI Project Progress Insights, Risks & Q&A"
+            >
+              <Sparkles className="w-4 h-4 text-indigo-500" />
+              AI Advisor
+            </button>
+            <button
+              onClick={() => setAiTaskModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 rounded-xl text-xs font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition shadow-xs text-slate-700 dark:text-slate-300"
+              title="Create Task with Natural Language Prompt"
+            >
+              <Sparkles className="w-4 h-4 text-indigo-400" />
+              AI Prompt
+            </button>
+            <button
               onClick={() => openCreateModal("todo")}
               className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold shadow-md transition"
             >
@@ -1266,6 +1287,24 @@ export default function Kanban() {
         onChanged={() => {
           fetchTasks();
         }}
+      />
+
+      <NaturalLanguageTaskModal
+        isOpen={aiTaskModalOpen}
+        onClose={() => setAiTaskModalOpen(false)}
+        projectId={projectId}
+        onTaskParsed={(parsed) => {
+          setEditingTask({
+            ...parsed,
+          });
+          setModalOpen(true);
+        }}
+      />
+
+      <AIProjectInsightsDrawer
+        isOpen={aiInsightsOpen}
+        onClose={() => setAiInsightsOpen(false)}
+        projectId={projectId}
       />
     </div>
   );
