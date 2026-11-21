@@ -14,7 +14,9 @@ import {
   UserPlus,
   ArrowRightLeft,
   KeyRound,
+  Boxes,
 } from "lucide-react";
+import IntegrationsSettingsTab from "../components/IntegrationsSettingsTab";
 import {
   Button,
   Input,
@@ -496,6 +498,20 @@ export default function Settings() {
         >
           <Users size={16} />
           Members & Roles
+        </button>
+
+        <button
+          type="button"
+          id="settings-tab-integrations"
+          onClick={() => setActiveTab("integrations")}
+          className={`pb-3 px-3 flex items-center gap-2 border-b-2 transition shrink-0 ${
+            activeTab === "integrations"
+              ? "border-indigo-600 text-indigo-600 dark:text-indigo-400 font-semibold"
+              : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+          }`}
+        >
+          <Boxes size={16} />
+          Integrations & API
         </button>
       </div>
 
@@ -1255,6 +1271,14 @@ export default function Settings() {
             />
           </div>
         </Modal>
+      )}
+
+      {/* TAB 6: Integrations & Developer Ecosystem (INT-01) */}
+      {activeTab === "integrations" && (
+        <IntegrationsSettingsTab
+          workspaceId={activeWorkspace?._id || selectedWorkspaceId}
+          isOwnerOrAdmin={isWorkspaceAdmin || isWorkspaceOwner}
+        />
       )}
     </div>
   );

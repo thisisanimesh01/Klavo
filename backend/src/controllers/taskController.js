@@ -186,6 +186,24 @@ export const createTask = async (req, res) => {
         task,
         userId: req.user._id,
       });
+
+      // Dispatch outbound webhook integration event asynchronously (INT-01)
+      import("../services/integrationService.js")
+        .then(({ integrationService }) => {
+          integrationService.dispatchEvent({
+            workspaceId: project.teamId,
+            event: "task.created",
+            projectId,
+            payload: {
+              taskId: task._id,
+              title: task.title,
+              status: task.status,
+              priority: task.priority,
+              createdBy: req.user.name,
+            },
+          });
+        })
+        .catch(() => {});
     }
 
     res.status(201).json(task);
