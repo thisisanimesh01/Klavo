@@ -33,6 +33,7 @@ import healthRoutes from "./routes/healthRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
 import integrationRoutes from "./routes/integrationRoutes.js";
 import publicApiRoutes from "./routes/publicApiRoutes.js";
+import enterpriseRoutes from "./routes/enterpriseRoutes.js";
 
 export const createApp = (options = {}) => {
   const app = express();
@@ -115,6 +116,7 @@ export const createApp = (options = {}) => {
   app.use("/api/ai", aiRoutes);
   app.use("/api/integrations", integrationRoutes);
   app.use("/api/v1", publicApiRoutes);
+  app.use("/api/enterprise", enterpriseRoutes);
 
   // 404 and Centralized Error Handling Middlewares
   app.use(notFoundHandler);
