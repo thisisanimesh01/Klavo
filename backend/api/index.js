@@ -41,7 +41,7 @@ export default async function handler(req, res) {
     logger.error("Vercel Serverless Function error", {
       message: err.message,
       name: err.name,
-      stack: env.isProduction ? undefined : err.stack,
+      stack: err.stack,
     });
 
     if (!res.headersSent) {
@@ -50,7 +50,8 @@ export default async function handler(req, res) {
       res.end(
         JSON.stringify({
           message: "Internal Serverless Error",
-          error: env.isProduction ? "Database connection or serverless execution failed" : err.message,
+          error: err.message,
+          name: err.name,
         })
       );
     }
