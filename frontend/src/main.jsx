@@ -11,18 +11,27 @@ import { LiveRegionProvider } from "./context/LiveRegionContext";
 import { OnboardingProvider } from "./context/OnboardingContext";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 
-const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+const rawClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+const clientId = rawClientId && rawClientId.trim() !== "" ? rawClientId.trim() : null;
+
+const appContent = (
+  <Provider store={store}>
+    <ThemeProvider>
+      <LiveRegionProvider>
+        <OnboardingProvider>
+          <App />
+        </OnboardingProvider>
+      </LiveRegionProvider>
+    </ThemeProvider>
+  </Provider>
+);
 
 ReactDOM.createRoot(document.getElementById("root")).render(
-  <GoogleOAuthProvider clientId={clientId}>
-    <Provider store={store}>
-      <ThemeProvider>
-        <LiveRegionProvider>
-          <OnboardingProvider>
-            <App />
-          </OnboardingProvider>
-        </LiveRegionProvider>
-      </ThemeProvider>
-    </Provider>
-  </GoogleOAuthProvider>
+  clientId ? (
+    <GoogleOAuthProvider clientId={clientId}>
+      {appContent}
+    </GoogleOAuthProvider>
+  ) : (
+    appContent
+  )
 );
