@@ -11,7 +11,8 @@ import { LiveRegionProvider } from "./context/LiveRegionContext";
 import { OnboardingProvider } from "./context/OnboardingContext";
 import { GoogleOAuthProvider } from "@react-oauth/google";
 
-const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+const rawClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+const clientId = rawClientId && rawClientId.trim() !== "" ? rawClientId.trim() : "unconfigured";
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <GoogleOAuthProvider clientId={clientId}>

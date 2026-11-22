@@ -1,25 +1,27 @@
 import express from "express";
 import { registerUser, loginUser, getProfile } from "../controllers/authController.js";
 import { googleAuthController } from "../controllers/googleAuthController.js";
+import { githubAuthController } from "../controllers/githubAuthController.js";
 import { authRequired } from "../middleware/authMiddleware.js";
 import { rateLimit } from "../middleware/rateLimiter.js";
 import { clearAuthCookie } from "../utils/cookieHelpers.js";
 
 const router = express.Router();
 
-// Sensitive authentication rate limiter: max 20 attempts per 15 minutes per IP
+// Sensitive authentication rate limiter: max 30 attempts per 15 minutes per IP
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 30,
   message: "Too many login/registration attempts. Please try again after 15 minutes.",
 });
 
-// Normal auth
+// Normal email/password auth
 router.post("/register", authLimiter, registerUser);
 router.post("/login", authLimiter, loginUser);
 
-// Google auth
+// OAuth Providers
 router.post("/google", authLimiter, googleAuthController);
+router.post("/github", authLimiter, githubAuthController);
 
 // Protected profile route
 router.get("/me", authRequired, getProfile);

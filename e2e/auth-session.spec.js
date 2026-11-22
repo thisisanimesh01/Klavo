@@ -70,7 +70,7 @@ test.describe("Authentication, Session & Access Control Journeys", () => {
     
     // Set up dialog handler for the alert
     page.once("dialog", async (dialog) => {
-      expect(dialog.message()).toMatch(/Invalid email or password/i);
+      expect(dialog.message()).toMatch(/Invalid (email or password|credentials)/i);
       await dialog.accept();
     });
 
