@@ -55,7 +55,7 @@ export default function Register() {
           <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-indigo-600 text-white font-bold text-xl mb-3 shadow-lg shadow-indigo-500/30">
             K
           </div>
-          <h2 className="text-2xl font-extrabold tracking-tight text-white">Create an account</h2>
+          <h1 className="text-2xl font-extrabold tracking-tight text-white">Create account</h1>
           <p className="text-xs text-slate-400 mt-1">Start collaborating with your team on Klavo</p>
         </div>
 
@@ -84,7 +84,7 @@ export default function Register() {
             <label className="block text-xs font-semibold text-slate-300 mb-1">Full name</label>
             <input
               className="border border-slate-700 bg-slate-800/70 p-2.5 w-full rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-              placeholder="Alex Smith"
+              placeholder="Name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
@@ -95,7 +95,7 @@ export default function Register() {
             <label className="block text-xs font-semibold text-slate-300 mb-1">Email address</label>
             <input
               className="border border-slate-700 bg-slate-800/70 p-2.5 w-full rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-              placeholder="alex@company.com"
+              placeholder="Email"
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -107,7 +107,7 @@ export default function Register() {
             <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
             <input
               className="border border-slate-700 bg-slate-800/70 p-2.5 w-full rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
-              placeholder="••••••••"
+              placeholder="Password"
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -123,7 +123,7 @@ export default function Register() {
             {loading ? (
               <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
             ) : (
-              "Create Account"
+              "Register"
             )}
           </button>
         </form>
@@ -131,7 +131,7 @@ export default function Register() {
         <p className="text-center mt-5 text-xs text-slate-400">
           Already have an account?{" "}
           <Link to="/login" className="text-indigo-400 font-semibold hover:underline">
-            Sign in
+            Login
           </Link>
         </p>
       </div>

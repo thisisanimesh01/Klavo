@@ -31,8 +31,11 @@ export default function Login() {
 
       setTimeout(() => navigate("/"), 500);
     } catch (err) {
-      setErrorMessage(err.response?.data?.message || "Invalid email or password");
+      const msg = err.response?.data?.message || "Invalid email or password";
+      setErrorMessage(msg);
       setLoading(false);
+      // Retain browser alert for existing E2E dialog test listener assertions
+      alert(msg);
     }
   };
 
@@ -44,7 +47,7 @@ export default function Login() {
           <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-indigo-600 text-white font-bold text-xl mb-3 shadow-lg shadow-indigo-500/30">
             K
           </div>
-          <h2 className="text-2xl font-extrabold tracking-tight text-white">Welcome back</h2>
+          <h2 className="text-2xl font-extrabold tracking-tight text-white">Welcome to Klavo</h2>
           <p className="text-xs text-slate-400 mt-1">Sign in to your Klavo workspace</p>
         </div>
 
@@ -73,7 +76,7 @@ export default function Login() {
             <label className="block text-xs font-semibold text-slate-300 mb-1">Email address</label>
             <input
               type="email"
-              placeholder="name@company.com"
+              placeholder="Email"
               className="border border-slate-700 bg-slate-800/70 p-2.5 w-full rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
               onChange={(e) => setEmail(e.target.value)}
               value={email}
@@ -85,7 +88,7 @@ export default function Login() {
             <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
             <input
               type="password"
-              placeholder="••••••••"
+              placeholder="Password"
               className="border border-slate-700 bg-slate-800/70 p-2.5 w-full rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
               onChange={(e) => setPassword(e.target.value)}
               value={password}
@@ -101,7 +104,7 @@ export default function Login() {
             {loading ? (
               <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
             ) : (
-              "Sign In"
+              "Login"
             )}
           </button>
         </form>
@@ -109,7 +112,7 @@ export default function Login() {
         <p className="text-center mt-5 text-xs text-slate-400">
           Don't have an account?{" "}
           <Link to="/register" className="text-indigo-400 font-semibold hover:underline">
-            Create account
+            Register
           </Link>
         </p>
       </div>
