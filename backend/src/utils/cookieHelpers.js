@@ -13,10 +13,16 @@ import { env } from "../config/env.js";
  * @returns {object} Express cookie options
  */
 export const getSecureCookieOptions = (overrides = {}) => {
+  const isCrossOriginProd =
+    env.isProduction &&
+    env.FRONTEND_URL &&
+    !env.FRONTEND_URL.includes("localhost") &&
+    env.FRONTEND_URL.startsWith("https://");
+
   return {
     httpOnly: true,
-    secure: env.COOKIE_SECURE,
-    sameSite: env.isProduction ? "lax" : "lax",
+    secure: env.COOKIE_SECURE || isCrossOriginProd,
+    sameSite: isCrossOriginProd ? "none" : "lax",
     path: "/",
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     ...overrides,
@@ -39,10 +45,5 @@ export const setAuthCookie = (res, token) => {
  * @param {import("express").Response} res
  */
 export const clearAuthCookie = (res) => {
-  res.clearCookie("token", {
-    httpOnly: true,
-    secure: env.COOKIE_SECURE,
-    sameSite: env.isProduction ? "lax" : "lax",
-    path: "/",
-  });
+  res.clearCookie("token", getSecureCookieOptions());
 };

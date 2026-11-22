@@ -65,7 +65,9 @@ export default function OAuthButtons() {
     setLoadingProvider("github");
     setErrorMsg("");
 
-    const redirectUri = `${window.location.origin}/auth/github/callback`;
+    const basePath = import.meta.env.BASE_URL || "/";
+    const cleanBasePath = basePath.endsWith("/") ? basePath.slice(0, -1) : basePath;
+    const redirectUri = `${window.location.origin}${cleanBasePath}/auth/github/callback`;
     const githubAuthUrl = `https://github.com/login/oauth/authorize?client_id=${rawGithubId}&redirect_uri=${encodeURIComponent(
       redirectUri
     )}&scope=user:email`;
