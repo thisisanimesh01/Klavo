@@ -17,6 +17,8 @@ import Task from "../src/models/Task.js";
 import { Team } from "../src/models/Team.js";
 import { Project } from "../src/models/Project.js";
 import { User } from "../src/models/User.js";
+import WebhookDeliveryLog from "../src/models/WebhookDeliveryLog.js";
+import WebhookSubscription from "../src/models/WebhookSubscription.js";
 
 /**
  * SCALE-01: Scalability, Concurrency, Failover & Chaos Validation Suite
@@ -223,22 +225,32 @@ describe("SCALE-01: Scalability, Contention, Failover & Chaos Engineering Suite"
         return { ok: true, status: 200 };
       };
 
-      const result = await integrationService.deliverWebhook({
-        subscription: {
-          _id: new mongoose.Types.ObjectId(),
-          workspaceId: new mongoose.Types.ObjectId(),
-          targetUrl: "https://partner.api/webhook",
-          encryptedSecret: "secret",
-        },
-        event: "task.created",
-        payload: { id: "123", name: "Incident" },
-        fetchFn: failingFetch,
-        maxAttempts: 3,
-      });
+      const originalCreate = WebhookDeliveryLog.create;
+      const originalUpdate = WebhookSubscription.findByIdAndUpdate;
+      WebhookDeliveryLog.create = async (doc) => ({ ...doc, _id: new mongoose.Types.ObjectId() });
+      WebhookSubscription.findByIdAndUpdate = async () => ({});
 
-      assert.equal(attempts, 3);
-      assert.equal(result.status, "success");
-      assert.equal(result.attempt, 3);
+      try {
+        const result = await integrationService.deliverWebhook({
+          subscription: {
+            _id: new mongoose.Types.ObjectId(),
+            workspaceId: new mongoose.Types.ObjectId(),
+            targetUrl: "https://partner.api/webhook",
+            encryptedSecret: "secret",
+          },
+          event: "task.created",
+          payload: { id: "123", name: "Incident" },
+          fetchFn: failingFetch,
+          maxAttempts: 3,
+        });
+
+        assert.equal(attempts, 3);
+        assert.equal(result.status, "success");
+        assert.equal(result.attempt, 3);
+      } finally {
+        WebhookDeliveryLog.create = originalCreate;
+        WebhookSubscription.findByIdAndUpdate = originalUpdate;
+      }
     });
 
     it("handles non-recoverable 500 HTTP failures without crashing or blocking caller", async () => {
@@ -248,22 +260,32 @@ describe("SCALE-01: Scalability, Contention, Failover & Chaos Engineering Suite"
         return { ok: false, status: 503, statusText: "Service Unavailable" };
       };
 
-      const result = await integrationService.deliverWebhook({
-        subscription: {
-          _id: new mongoose.Types.ObjectId(),
-          workspaceId: new mongoose.Types.ObjectId(),
-          targetUrl: "https://dead.endpoint/webhook",
-          encryptedSecret: "secret",
-        },
-        event: "task.updated",
-        payload: { id: "456" },
-        fetchFn: alwaysFailsFetch,
-        maxAttempts: 2,
-      });
+      const originalCreate = WebhookDeliveryLog.create;
+      const originalUpdate = WebhookSubscription.findByIdAndUpdate;
+      WebhookDeliveryLog.create = async (doc) => ({ ...doc, _id: new mongoose.Types.ObjectId() });
+      WebhookSubscription.findByIdAndUpdate = async () => ({});
 
-      assert.equal(attempts, 2);
-      assert.equal(result.status, "failed");
-      assert.equal(result.statusCode, 503);
+      try {
+        const result = await integrationService.deliverWebhook({
+          subscription: {
+            _id: new mongoose.Types.ObjectId(),
+            workspaceId: new mongoose.Types.ObjectId(),
+            targetUrl: "https://dead.endpoint/webhook",
+            encryptedSecret: "secret",
+          },
+          event: "task.updated",
+          payload: { id: "456" },
+          fetchFn: alwaysFailsFetch,
+          maxAttempts: 2,
+        });
+
+        assert.equal(attempts, 2);
+        assert.equal(result.status, "failed");
+        assert.equal(result.statusCode, 503);
+      } finally {
+        WebhookDeliveryLog.create = originalCreate;
+        WebhookSubscription.findByIdAndUpdate = originalUpdate;
+      }
     });
   });
 
