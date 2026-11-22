@@ -19,15 +19,47 @@ export const getMongoConnectionOptions = (customEnv = env) => {
   };
 };
 
+/**
+ * Global cache for MongoDB connection in serverless execution environments (e.g., Vercel Functions).
+ * Prevents multiple connection pool allocations across warm lambda invocations.
+ */
+let cached = global.mongoose;
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
+
 export const connectDB = async (customUri, customOptions = {}) => {
   const uri = customUri || env.MONGO_URI;
-  const { noExit, ...mongoDriverOptions } = customOptions;
+  const { noExit, serverless = false, ...mongoDriverOptions } = customOptions;
+
+  // In serverless mode (or when mongoose is already connected), reuse existing active connection
+  if (mongoose.connection && mongoose.connection.readyState === 1) {
+    return mongoose;
+  }
+
+  const currentCache = global.mongoose || cached;
+  if (serverless && currentCache.conn) {
+    return currentCache.conn;
+  }
+
   const options = {
     ...getMongoConnectionOptions(),
     ...mongoDriverOptions,
   };
 
   try {
+    if (serverless) {
+      if (!currentCache.promise) {
+        currentCache.promise = mongoose.connect(uri, options).then((m) => m);
+      }
+      currentCache.conn = await currentCache.promise;
+      logger.info("MongoDB connected successfully (serverless cached)", {
+        host: currentCache.conn.connection?.host,
+        name: currentCache.conn.connection?.name,
+      });
+      return currentCache.conn;
+    }
+
     const conn = await mongoose.connect(uri, options);
     logger.info("MongoDB connected successfully", {
       host: conn.connection.host,
@@ -36,6 +68,10 @@ export const connectDB = async (customUri, customOptions = {}) => {
     });
     return conn;
   } catch (err) {
+    if (serverless) {
+      currentCache.promise = null;
+      currentCache.conn = null;
+    }
     metrics.recordDatabaseError(err);
     logger.error("MongoDB connection error", {
       message: err.message,
