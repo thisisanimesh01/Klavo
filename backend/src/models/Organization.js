@@ -121,7 +121,6 @@ const organizationSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-organizationSchema.index({ slug: 1 });
 organizationSchema.index({ ownerId: 1 });
 organizationSchema.index({ workspaces: 1 });
 
