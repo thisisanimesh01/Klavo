@@ -145,10 +145,27 @@ export class StorageService {
   constructor(options = {}) {
     const providerType = options.provider || process.env.STORAGE_PROVIDER || "local";
 
-    // Ensure temporary uploads directory exists for multipart staging
-    const defaultUploadsDir = path.resolve(options.baseDir || process.env.UPLOADS_DIR || "uploads");
-    if (!fs.existsSync(defaultUploadsDir)) {
-      fs.mkdirSync(defaultUploadsDir, { recursive: true });
+    // In serverless environments (Vercel/AWS Lambda), the root filesystem (/var/task) is read-only.
+    // Use /tmp/uploads if running in serverless/Vercel or if creating the target directory fails.
+    let defaultUploadsDir = path.resolve(options.baseDir || process.env.UPLOADS_DIR || "uploads");
+    if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+      defaultUploadsDir = path.resolve("/tmp/uploads");
+    }
+
+    try {
+      if (!fs.existsSync(defaultUploadsDir)) {
+        fs.mkdirSync(defaultUploadsDir, { recursive: true });
+      }
+    } catch {
+      // Fallback to /tmp if primary directory is not writable
+      defaultUploadsDir = path.resolve("/tmp/uploads");
+      try {
+        if (!fs.existsSync(defaultUploadsDir)) {
+          fs.mkdirSync(defaultUploadsDir, { recursive: true });
+        }
+      } catch {
+        // Ignore if unable to create in read-only test contexts
+      }
     }
     this.tempUploadsDir = defaultUploadsDir;
 
