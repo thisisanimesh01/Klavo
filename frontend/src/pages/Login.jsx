@@ -1,9 +1,9 @@
 import React, { useState } from "react";
 import { useDispatch } from "react-redux";
 import { setCredentials } from "../store/slices/authSlice";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import axiosClient from "../api/axiosClient";
-import GoogleLoginButton from "../components/GoogleLoginButton";
+import OAuthButtons from "../components/OAuthButtons";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -13,11 +13,11 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
 
-  const rawClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-  const isGoogleConfigured = Boolean(
-    rawClientId &&
-      rawClientId.trim() !== "" &&
-      !rawClientId.includes("your_google_oauth_client_id")
+  const rawGoogleId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const rawGithubId = import.meta.env.VITE_GITHUB_CLIENT_ID;
+  const hasOAuth = Boolean(
+    (rawGoogleId && !rawGoogleId.includes("your_google_oauth_client_id")) ||
+    (rawGithubId && !rawGithubId.includes("your_github_client_id"))
   );
 
   const handleSubmit = async (e) => {
@@ -37,61 +37,80 @@ export default function Login() {
   };
 
   return (
-    <div className="flex justify-center items-center h-screen bg-gray-100">
-      <div className="border rounded-xl p-8 bg-white shadow w-[400px]">
-        <h2 className="text-3xl font-bold mb-6 text-center">Welcome to Klavo</h2>
+    <div className="flex justify-center items-center min-h-screen bg-slate-950 text-slate-100 p-4 font-sans">
+      <div className="border border-slate-800 rounded-2xl p-8 bg-slate-900/90 shadow-2xl w-full max-w-sm backdrop-blur-md">
+        {/* Brand header */}
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-indigo-600 text-white font-bold text-xl mb-3 shadow-lg shadow-indigo-500/30">
+            K
+          </div>
+          <h2 className="text-2xl font-extrabold tracking-tight text-white">Welcome back</h2>
+          <p className="text-xs text-slate-400 mt-1">Sign in to your Klavo workspace</p>
+        </div>
 
-        {/* 🔎 GOOGLE LOGIN BUTTON (Only renders when Google Client ID is configured) */}
-        {isGoogleConfigured && (
-          <>
-            <GoogleLoginButton />
-            <div className="text-center my-4 text-xs font-semibold text-gray-400">OR</div>
-          </>
+        {/* Modern OAuth Login Buttons (Google + GitHub) */}
+        <OAuthButtons />
+
+        {hasOAuth && (
+          <div className="relative my-4">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-800"></div>
+            </div>
+            <div className="relative flex justify-center text-[10px] uppercase font-bold tracking-wider">
+              <span className="bg-slate-900 px-3 text-slate-500">Or continue with</span>
+            </div>
+          </div>
         )}
 
         {errorMessage && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 rounded-lg text-xs text-center">
+          <div className="mb-4 p-3 bg-red-950/60 border border-red-800/80 text-red-300 rounded-xl text-xs text-center">
             {errorMessage}
           </div>
         )}
 
-        <form onSubmit={handleSubmit}>
-          <input
-            type="email"
-            placeholder="Email"
-            className="border p-3 w-full rounded mb-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            onChange={(e) => setEmail(e.target.value)}
-            value={email}
-            required
-          />
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1">Email address</label>
+            <input
+              type="email"
+              placeholder="name@company.com"
+              className="border border-slate-700 bg-slate-800/70 p-2.5 w-full rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+              onChange={(e) => setEmail(e.target.value)}
+              value={email}
+              required
+            />
+          </div>
 
-          <input
-            type="password"
-            placeholder="Password"
-            className="border p-3 w-full rounded mb-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            onChange={(e) => setPassword(e.target.value)}
-            value={password}
-            required
-          />
+          <div>
+            <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
+            <input
+              type="password"
+              placeholder="••••••••"
+              className="border border-slate-700 bg-slate-800/70 p-2.5 w-full rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition"
+              onChange={(e) => setPassword(e.target.value)}
+              value={password}
+              required
+            />
+          </div>
 
           <button
             disabled={loading}
             type="submit"
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white py-3 rounded font-semibold flex justify-center text-sm transition"
+            className="w-full bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white py-2.5 rounded-xl font-semibold flex justify-center text-xs transition shadow-md shadow-indigo-600/30 cursor-pointer mt-2"
           >
             {loading ? (
-              <div className="h-6 w-6 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+              <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
             ) : (
-              "Login"
+              "Sign In"
             )}
           </button>
         </form>
 
-        <p className="text-center mt-4 text-sm text-gray-600">
+        <p className="text-center mt-5 text-xs text-slate-400">
           Don't have an account?{" "}
-          <a href="/register" className="text-blue-600 font-medium hover:underline">
-            Register
-          </a>
+          <Link to="/register" className="text-indigo-400 font-semibold hover:underline">
+            Create account
+          </Link>
         </p>
       </div>
     </div>

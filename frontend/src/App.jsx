@@ -12,6 +12,7 @@ import Analytics from "./pages/Analytics";
 // Code splitting & Route-level lazy loading (UX-07)
 const Login = lazy(() => import("./pages/Login"));
 const Register = lazy(() => import("./pages/Register"));
+const GitHubCallback = lazy(() => import("./pages/GitHubCallback"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Projects = lazy(() => import("./pages/Projects"));
 const Teams = lazy(() => import("./pages/Teams"));
@@ -36,6 +37,7 @@ export default function App() {
           {/* Public Routes */}
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/auth/github/callback" element={<GitHubCallback />} />
 
           {/* Protected Routes */}
           <Route element={<ProtectedRoute />}>
