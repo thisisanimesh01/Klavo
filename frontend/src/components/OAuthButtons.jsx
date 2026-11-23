@@ -87,12 +87,12 @@ export default function OAuthButtons() {
           type="button"
           onClick={() => googleLogin()}
           disabled={loadingProvider !== null}
-          className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 text-xs font-semibold shadow-xs transition duration-150 disabled:opacity-50 cursor-pointer"
+          className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl border border-slate-700/80 bg-slate-800/60 hover:bg-slate-700/70 text-slate-200 text-xs font-semibold shadow-sm transition duration-150 disabled:opacity-50 cursor-pointer group"
         >
           {loadingProvider === "google" ? (
-            <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+            <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
           ) : (
-            <svg className="w-4 h-4" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
               <path
                 fill="#4285F4"
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -111,7 +111,7 @@ export default function OAuthButtons() {
               />
             </svg>
           )}
-          <span>Continue with Google</span>
+          <span className="group-hover:text-white transition">Continue with Google</span>
         </button>
       )}
 
@@ -121,12 +121,12 @@ export default function OAuthButtons() {
           type="button"
           onClick={handleGitHubLogin}
           disabled={loadingProvider !== null}
-          className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl border border-slate-900 bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shadow-xs transition duration-150 disabled:opacity-50 cursor-pointer"
+          className="w-full flex items-center justify-center gap-3 py-2.5 px-4 rounded-xl border border-slate-700/80 bg-slate-900/90 hover:bg-slate-800 text-slate-200 text-xs font-semibold shadow-sm transition duration-150 disabled:opacity-50 cursor-pointer group"
         >
           {loadingProvider === "github" ? (
             <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
           ) : (
-            <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
+            <svg className="w-4 h-4 fill-current text-white shrink-0" viewBox="0 0 24 24">
               <path
                 fillRule="evenodd"
                 clipRule="evenodd"
@@ -134,12 +134,12 @@ export default function OAuthButtons() {
               />
             </svg>
           )}
-          <span>Continue with GitHub</span>
+          <span className="group-hover:text-white transition">Continue with GitHub</span>
         </button>
       )}
 
       {errorMsg && (
-        <p className="text-red-500 text-xs mt-1 text-center font-medium">{errorMsg}</p>
+        <p className="text-red-400 text-xs mt-1.5 text-center font-medium">{errorMsg}</p>
       )}
     </div>
   );
