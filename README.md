@@ -4,48 +4,84 @@ Klavo is a modern, real-time project management and collaborative document platf
 
 ## Live Application
 
-- **Live Frontend**: [https://thisisanimesh01.github.io/Klavo/](https://thisisanimesh01.github.io/Klavo/)
+- **Production Workspace**: [https://klavoworkspace.vercel.app](https://klavoworkspace.vercel.app)
 - **Production API**: [https://klavo-backend.vercel.app/api/health](https://klavo-backend.vercel.app/api/health)
+- **GitHub Pages Mirror**: [https://thisisanimesh01.github.io/Klavo/](https://thisisanimesh01.github.io/Klavo/)
 
-## Architecture & Workflow
+## System & Website Working Diagram
+
+The following diagram illustrates how user interactions, authentication flows, real-time sync, and data operations interact across the Klavo platform:
 
 ```mermaid
-flowchart LR
-    subgraph Client["Frontend (GitHub Pages / SPA)"]
-        UI[React 18 + Vite]
-        RT[Redux Toolkit]
-        Editor[Tiptap Editor]
+flowchart TD
+    %% User entry and client layer
+    subgraph Users["End Users & Teams"]
+        Browser["User Browser\n(https://klavoworkspace.vercel.app)"]
     end
 
-    subgraph Serverless["API Tier (Vercel Functions)"]
-        H[Serverless Adapter]
-        App[Express REST API]
-        Auth[Auth / JWT / OAuth]
+    subgraph ClientApp["Frontend Single Page App (Vercel)"]
+        Router["React Router\n(/login, /dashboard, /projects, /wiki)"]
+        AuthUI["Modern Auth UI\n(Email/Password, Google, GitHub)"]
+        State["Redux Toolkit Store\n(Auth, Tasks, Sprints, UI State)"]
+        CollabUI["Tiptap Editor + Canvas\n(Rich Text & Kanban)"]
     end
 
-    subgraph Stateful["Real-Time Tier (Node.js / Docker)"]
-        WS[Socket.IO Server]
-        CRDT[Yjs Document Sync]
-        Cron[Recurring Task Engine]
+    subgraph Identity["Identity & OAuth Providers"]
+        Google["Google Cloud OAuth 2.0\n(OpenID Connect)"]
+        GitHub["GitHub OAuth App\n(Authorize & User Email)"]
     end
 
-    subgraph DataTier["Data & Cache Layer"]
-        M[(MongoDB Atlas)]
-        R[(Redis Coordinator)]
+    subgraph EdgeTier["Vercel Serverless Edge API Tier"]
+        ApiGateway["Vercel Serverless Function\n(/api/* -> api/index.js)"]
+        AuthModule["Auth & JWT Gate\n(Cookie & Bearer Tokens)"]
+        Controllers["Express Business Logic\n(Tasks, Projects, Analytics, Teams)"]
+        HealthModule["Health & Diagnostics\n(/api/health, /api/health/ready)"]
     end
 
-    UI -->|HTTPS / REST| H
-    H --> App
-    App --> Auth
-    Auth --> M
-    App --> M
+    subgraph RealtimeTier["Stateful Collaboration Tier (Node.js/Docker)"]
+        SocketServer["Socket.IO Server\n(Presence & Cursor Sync)"]
+        CRDTServer["Yjs Document Room\n(Conflict-Free Replicated Data)"]
+        CronEngine["Workflow Automation Engine\n(Recurring Tasks & Triggers)"]
+    end
 
-    Editor <-->|WebSockets| WS
-    WS <--> CRDT
-    CRDT <--> R
-    Cron <--> M
-    Cron <--> R
+    subgraph StorageTier["Persistent Data & Cache Tier"]
+        Mongo[(MongoDB Atlas Cluster\nUsers, Projects, Tasks, Docs)]
+        Redis[(Redis Cloud / Cache\nPub/Sub & Distributed Locks)]
+    end
+
+    %% Flow connections
+    Browser --> Router
+    Router --> AuthUI
+    Router --> CollabUI
+
+    AuthUI -->|OAuth Login| Google
+    AuthUI -->|OAuth Login| GitHub
+    Google -->|Callback Token| AuthUI
+    GitHub -->|Callback Code| AuthUI
+
+    AuthUI -->|REST: /api/auth/*| ApiGateway
+    CollabUI -->|State Dispatch| State
+    State -->|REST: /api/*| ApiGateway
+
+    ApiGateway --> AuthModule
+    AuthModule --> Controllers
+    ApiGateway --> HealthModule
+
+    Controllers -->|Mongoose Pool| Mongo
+
+    CollabUI <-->|WebSockets: wss://| SocketServer
+    SocketServer <--> CRDTServer
+    CRDTServer <--> Redis
+    CronEngine <--> Mongo
+    CronEngine <--> Redis
 ```
+
+## Architectural Highlights
+
+- **Vercel Serverless REST API**: Zero-maintenance serverless execution with pooled MongoDB Atlas connections.
+- **Client-Side SPA Routing**: Instant navigation with React Router and Vercel rewrite rules avoiding 404s.
+- **Enterprise Collaboration**: Dual-mode real-time architecture with Yjs CRDTs for non-blocking collaborative document writing and live board updates.
+- **Multi-Provider OAuth**: Frictionless sign-in with Google, GitHub, and corporate SSO alongside secure salted bcrypt email authentication.
 
 ## Tech Stack
 
@@ -53,7 +89,7 @@ flowchart LR
 - **Backend**: Node.js, Express, Socket.IO, Yjs CRDTs, Mongoose
 - **Databases & Cache**: MongoDB Atlas, Redis (Pub/Sub & Distributed Locks)
 - **Authentication**: JWT Cookies, Google Sign-In, GitHub OAuth, SAML / OIDC SSO
-- **Deployment & Hosting**: GitHub Pages (Client SPA), Vercel Serverless (REST API), Docker / Cloud Containers (WebSockets & Real-time Sync)
+- **Deployment & Hosting**: Vercel (Frontend & Serverless API), Docker / Cloud Containers (WebSockets & Real-time Sync), GitHub Pages (Mirror)
 - **Quality & Testing**: Node.js Native Test Runner, Playwright E2E, Automated Secret Scans
 
 ## Local Development
