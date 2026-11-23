@@ -4,7 +4,7 @@ import { setCredentials } from "../store/slices/authSlice";
 import { useNavigate, Link } from "react-router-dom";
 import axiosClient from "../api/axiosClient";
 import OAuthButtons from "../components/OAuthButtons";
-import { Sparkles, ArrowRight, ShieldCheck, Zap, Layers, CheckCircle2 } from "lucide-react";
+import { Sparkles, ArrowRight, ShieldCheck, Zap, Layers } from "lucide-react";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -109,8 +109,8 @@ export default function Login() {
             <div className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 text-white font-bold text-xl mb-3 shadow-lg shadow-indigo-500/30">
               K
             </div>
-            <h2 className="text-2xl font-bold tracking-tight text-white">Welcome back</h2>
-            <p className="text-xs text-slate-400 mt-1">Sign in with your workspace credentials</p>
+            <h2 className="text-2xl font-bold tracking-tight text-white">Welcome to Klavo</h2>
+            <p className="text-xs text-slate-400 mt-1">Sign in to your Klavo workspace</p>
           </div>
 
           {/* Social Sign-In Providers */}
@@ -138,7 +138,7 @@ export default function Login() {
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">Email address</label>
               <input
                 type="email"
-                placeholder="name@company.com"
+                placeholder="Email"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-700/80 bg-slate-800/50 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200"
                 onChange={(e) => setEmail(e.target.value)}
                 value={email}
@@ -152,7 +152,7 @@ export default function Login() {
               </div>
               <input
                 type="password"
-                placeholder="••••••••"
+                placeholder="Password"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-700/80 bg-slate-800/50 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200"
                 onChange={(e) => setPassword(e.target.value)}
                 value={password}
@@ -169,7 +169,7 @@ export default function Login() {
                 <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
-                  <span>Sign in to Workspace</span>
+                  <span>Login</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </>
               )}
@@ -179,7 +179,7 @@ export default function Login() {
           <p className="text-center mt-6 text-xs text-slate-400">
             Don't have an account?{" "}
             <Link to="/register" className="text-indigo-400 font-semibold hover:text-indigo-300 hover:underline">
-              Create an account
+              Register
             </Link>
           </p>
         </div>

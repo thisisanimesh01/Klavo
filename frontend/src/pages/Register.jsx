@@ -4,7 +4,7 @@ import { useDispatch } from "react-redux";
 import { setCredentials } from "../store/slices/authSlice";
 import { Link, useNavigate } from "react-router-dom";
 import OAuthButtons from "../components/OAuthButtons";
-import { Sparkles, ArrowRight, ShieldCheck, Zap, Layers, CheckCircle2 } from "lucide-react";
+import { Sparkles, ArrowRight, CheckCircle2, Zap, Layers } from "lucide-react";
 
 export default function Register() {
   const [name, setName] = useState("");
@@ -117,7 +117,7 @@ export default function Register() {
             <div className="md:hidden inline-flex items-center justify-center w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 text-white font-bold text-xl mb-3 shadow-lg shadow-indigo-500/30">
               K
             </div>
-            <h2 className="text-2xl font-bold tracking-tight text-white">Create your account</h2>
+            <h1 className="text-2xl font-bold tracking-tight text-white">Create account</h1>
             <p className="text-xs text-slate-400 mt-1">Start collaborating with your team today</p>
           </div>
 
@@ -146,7 +146,7 @@ export default function Register() {
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">Full name</label>
               <input
                 type="text"
-                placeholder="Alex Morgan"
+                placeholder="Name"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-700/80 bg-slate-800/50 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -158,7 +158,7 @@ export default function Register() {
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">Work email</label>
               <input
                 type="email"
-                placeholder="alex@company.com"
+                placeholder="Email"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-700/80 bg-slate-800/50 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -170,7 +170,7 @@ export default function Register() {
               <label className="block text-xs font-semibold text-slate-300 mb-1.5">Password</label>
               <input
                 type="password"
-                placeholder="Minimum 8 characters"
+                placeholder="Password"
                 className="w-full px-3.5 py-2.5 rounded-xl border border-slate-700/80 bg-slate-800/50 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition duration-200"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -187,7 +187,7 @@ export default function Register() {
                 <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>
-                  <span>Create Account</span>
+                  <span>Register</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </>
               )}
@@ -197,7 +197,7 @@ export default function Register() {
           <p className="text-center mt-6 text-xs text-slate-400">
             Already have an account?{" "}
             <Link to="/login" className="text-indigo-400 font-semibold hover:text-indigo-300 hover:underline">
-              Sign in
+              Login
             </Link>
           </p>
         </div>
