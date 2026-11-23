@@ -8,73 +8,85 @@ Klavo is a modern, real-time project management and collaborative document platf
 - **Production API**: [https://klavo-backend.vercel.app/api/health](https://klavo-backend.vercel.app/api/health)
 - **GitHub Pages Mirror**: [https://thisisanimesh01.github.io/Klavo/](https://thisisanimesh01.github.io/Klavo/)
 
-## System & Website Working Diagram
+## System Architecture & Workflow
 
 The following diagram illustrates how user interactions, authentication flows, real-time sync, and data operations interact across the Klavo platform:
 
+<div align="center">
+
 ```mermaid
-flowchart TD
-    %% User entry and client layer
-    subgraph Users["End Users & Teams"]
-        Browser["User Browser\n(https://klavoworkspace.vercel.app)"]
+graph TD
+    classDef client fill:#1e1b4b,stroke:#6366f1,stroke-width:2px,color:#ffffff;
+    classDef auth fill:#172554,stroke:#3b82f6,stroke-width:2px,color:#ffffff;
+    classDef edge fill:#14532d,stroke:#22c55e,stroke-width:2px,color:#ffffff;
+    classDef realtime fill:#581c87,stroke:#a855f7,stroke-width:2px,color:#ffffff;
+    classDef storage fill:#3b0764,stroke:#ec4899,stroke-width:2px,color:#ffffff;
+
+    subgraph ClientLayer["🖥️ Frontend Client Tier (Vercel SPA)"]
+        Browser["User Browser<br/>(klavoworkspace.vercel.app)"]
+        Router["React Router<br/>(Dashboard, Kanban, Wiki, Settings)"]
+        AuthUI["Modern Auth UI<br/>(Email/Password, Google, GitHub)"]
+        State["Redux Toolkit Store<br/>(Global Application State)"]
+        Editor["Tiptap Editor & Kanban Canvas<br/>(Rich Text & Agile Boards)"]
     end
 
-    subgraph ClientApp["Frontend Single Page App (Vercel)"]
-        Router["React Router\n(/login, /dashboard, /projects, /wiki)"]
-        AuthUI["Modern Auth UI\n(Email/Password, Google, GitHub)"]
-        State["Redux Toolkit Store\n(Auth, Tasks, Sprints, UI State)"]
-        CollabUI["Tiptap Editor + Canvas\n(Rich Text & Kanban)"]
+    subgraph IdentityLayer["🔐 OAuth 2.0 & Identity Providers"]
+        Google["Google Cloud OAuth<br/>(OpenID Connect / Profile)"]
+        GitHub["GitHub OAuth App<br/>(Authorize & User Email)"]
     end
 
-    subgraph Identity["Identity & OAuth Providers"]
-        Google["Google Cloud OAuth 2.0\n(OpenID Connect)"]
-        GitHub["GitHub OAuth App\n(Authorize & User Email)"]
+    subgraph ServerlessLayer["⚡ Edge API Tier (Vercel Serverless Express)"]
+        ApiGateway["Vercel Serverless Function Handler<br/>(/api/* ➔ Express App)"]
+        AuthGuard["Auth Middleware & JWT Validation<br/>(HTTP-Only Cookie / Bearer Token)"]
+        Controllers["Domain Controllers<br/>(Tasks, Sprints, Analytics, Automations)"]
     end
 
-    subgraph EdgeTier["Vercel Serverless Edge API Tier"]
-        ApiGateway["Vercel Serverless Function\n(/api/* -> api/index.js)"]
-        AuthModule["Auth & JWT Gate\n(Cookie & Bearer Tokens)"]
-        Controllers["Express Business Logic\n(Tasks, Projects, Analytics, Teams)"]
-        HealthModule["Health & Diagnostics\n(/api/health, /api/health/ready)"]
+    subgraph RealtimeLayer["🔄 Stateful Collaboration Tier (Node.js / Docker)"]
+        SocketServer["Socket.IO Server<br/>(Realtime Presence & Cursor Awareness)"]
+        CRDTRoom["Yjs Document Room<br/>(CRDT Conflict-Free State Sync)"]
+        AutomationCron["Automation Engine<br/>(Recurring Triggers & Scheduled Jobs)"]
     end
 
-    subgraph RealtimeTier["Stateful Collaboration Tier (Node.js/Docker)"]
-        SocketServer["Socket.IO Server\n(Presence & Cursor Sync)"]
-        CRDTServer["Yjs Document Room\n(Conflict-Free Replicated Data)"]
-        CronEngine["Workflow Automation Engine\n(Recurring Tasks & Triggers)"]
+    subgraph StorageLayer["💾 Persistent Data & Cache Tier"]
+        MongoAtlas[("MongoDB Atlas Cloud Database<br/>Users, Projects, Workspaces, Docs")]
+        RedisCache[("Redis Cloud Cluster<br/>Pub/Sub Broker & Distributed Locks")]
     end
 
-    subgraph StorageTier["Persistent Data & Cache Tier"]
-        Mongo[(MongoDB Atlas Cluster\nUsers, Projects, Tasks, Docs)]
-        Redis[(Redis Cloud / Cache\nPub/Sub & Distributed Locks)]
-    end
-
-    %% Flow connections
+    %% Client Interactions
     Browser --> Router
     Router --> AuthUI
-    Router --> CollabUI
+    Router --> Editor
 
-    AuthUI -->|OAuth Login| Google
-    AuthUI -->|OAuth Login| GitHub
-    Google -->|Callback Token| AuthUI
-    GitHub -->|Callback Code| AuthUI
+    %% OAuth Flows
+    AuthUI -.->|OAuth Authenticate| Google
+    AuthUI -.->|OAuth Authenticate| GitHub
+    Google -.->|Token / Identity Payload| AuthUI
+    GitHub -.->|Callback Auth Code| AuthUI
 
-    AuthUI -->|REST: /api/auth/*| ApiGateway
-    CollabUI -->|State Dispatch| State
-    State -->|REST: /api/*| ApiGateway
+    %% API REST Connections
+    AuthUI -->|POST /api/auth/*| ApiGateway
+    Editor -->|State Mutations| State
+    State -->|HTTP REST Requests| ApiGateway
 
-    ApiGateway --> AuthModule
-    AuthModule --> Controllers
-    ApiGateway --> HealthModule
+    ApiGateway --> AuthGuard
+    AuthGuard --> Controllers
+    Controllers -->|Pooled Mongoose Driver| MongoAtlas
 
-    Controllers -->|Mongoose Pool| Mongo
+    %% Real-time Socket & CRDT Connections
+    Editor <==>|Secure WSS Connection| SocketServer
+    SocketServer <==> CRDTRoom
+    CRDTRoom <==> RedisCache
+    AutomationCron <==> MongoAtlas
+    AutomationCron <==> RedisCache
 
-    CollabUI <-->|WebSockets: wss://| SocketServer
-    SocketServer <--> CRDTServer
-    CRDTServer <--> Redis
-    CronEngine <--> Mongo
-    CronEngine <--> Redis
+    class Browser,Router,AuthUI,State,Editor client;
+    class Google,GitHub auth;
+    class ApiGateway,AuthGuard,Controllers edge;
+    class SocketServer,CRDTRoom,AutomationCron realtime;
+    class MongoAtlas,RedisCache storage;
 ```
+
+</div>
 
 ## Architectural Highlights
 
